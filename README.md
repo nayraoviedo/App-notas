@@ -133,7 +133,10 @@ lib/
 - [x] Capas: crear, duplicar, ocultar, bloquear, opacidad, renombrar,
       reordenar, vaciar y eliminar; deshacer/rehacer
 - [x] Importar PDF (nota nueva o dentro de una nota) y fotos como hojas
-- [x] Fuentes y tamaños por bloque de texto (Google Fonts)
+- [x] Fuentes y tamaños por bloque de texto (Google Fonts), incluidas
+      tipografías chinas manuscritas y de caligrafía (Long Cang, Zhi Mang Xing,
+      Liu Jian Mao Cao, Ma Shan Zheng, ZCOOL) y Noto Sans/Serif SC/TC; el PDF
+      incluye una fuente china cuando la nota tiene caracteres chinos
 - [x] Vista de grabación con pestañas **Transcripción / Notas rápidas /
       Resumen**, velocidad 0.75–2x y botones ±10 s
 - [x] Notas rápidas durante y después de grabar, pegadas a su minuto

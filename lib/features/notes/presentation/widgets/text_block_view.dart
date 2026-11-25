@@ -62,19 +62,35 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
     final chosen = await showModalBottomSheet<AppFont>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final f in appFonts)
-              ListTile(
-                selected: f.family == current,
-                title: Text(f.label, style: fontStyle(f.family, size: 20)),
-                subtitle: Text(f.family ?? 'Predeterminada del teléfono'),
-                trailing: f.family == current ? const Icon(Icons.check) : null,
-                onTap: () => Navigator.pop(context, f),
-              ),
-          ],
+      isScrollControlled: true,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: SafeArea(
+          child: ListView(
+            children: [
+              for (final group in FontGroup.values) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text(group.label,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary)),
+                ),
+                for (final f in appFonts.where((f) => f.group == group))
+                  ListTile(
+                    selected: f.family == current,
+                    title: Text(f.label),
+                    // Vista previa con la propia fuente (la china se descarga
+                    // la primera vez, puede tardar unos segundos).
+                    subtitle: Text(
+                      f.sample ?? 'Así se verán tus notas',
+                      style: fontStyle(f.family, size: 22),
+                    ),
+                    trailing: f.family == current ? const Icon(Icons.check) : null,
+                    onTap: () => Navigator.pop(context, f),
+                  ),
+              ],
+            ],
+          ),
         ),
       ),
     );
