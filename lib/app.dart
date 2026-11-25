@@ -6,6 +6,7 @@ import 'core/providers.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 import 'features/drawing/presentation/painters/stroke_renderer.dart';
+import 'features/backup/backup_service.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
 
@@ -22,6 +23,17 @@ class _AppNotasState extends ConsumerState<AppNotas> {
     super.initState();
     _recoverLostPhoto();
     _setupShortcuts();
+    _autoBackup();
+  }
+
+  /// Copia de seguridad automática semanal (en segundo plano, al abrir).
+  Future<void> _autoBackup() async {
+    await Future<void>.delayed(const Duration(seconds: 20)); // que la app abra rápido
+    try {
+      await BackupService.autoBackupIfDue(ref.read(sharedPreferencesProvider));
+    } catch (_) {
+      // Sin espacio o sin permiso: se intenta la próxima vez.
+    }
   }
 
   /// Accesos rápidos al mantener presionado el ícono de la app.

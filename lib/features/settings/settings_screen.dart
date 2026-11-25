@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -124,6 +126,7 @@ class SettingsScreen extends ConsumerWidget {
                 'Guárdalo en Google Drive desde el menú de compartir.'),
             onTap: () => _backup(context, ref),
           ),
+          const _AutoBackupTiles(),
           ListTile(
             leading: const Icon(Icons.settings_backup_restore),
             title: const Text('Restaurar una copia'),
@@ -355,4 +358,78 @@ class _TextSettingTile extends StatelessWidget {
           if (v != null) onSaved(v);
         },
       );
+}
+
+/// Copia automática semanal: activarla y compartir la última.
+class _AutoBackupTiles extends ConsumerStatefulWidget {
+  const _AutoBackupTiles();
+
+  @override
+  ConsumerState<_AutoBackupTiles> createState() => _AutoBackupTilesState();
+}
+
+class _AutoBackupTilesState extends ConsumerState<_AutoBackupTiles> {
+  List<File> _copies = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final l = await BackupService.autoCopies();
+      if (mounted) setState(() => _copies = l);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    final on = prefs.getBool(BackupService.autoKey) ?? true;
+    final last = prefs.getInt(BackupService.lastAutoKey);
+    final d = last == null ? null : DateTime.fromMillisecondsSinceEpoch(last);
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.autorenew),
+          title: const Text('Copia automática cada semana'),
+          subtitle: Text(d == null
+              ? 'Se guarda en el teléfono (las 3 más recientes)'
+              : 'Última: ${d.day}/${d.month}/${d.year} · se guardan las 3 más recientes'),
+          value: on,
+          onChanged: (v) async {
+            await prefs.setBool(BackupService.autoKey, v);
+            setState(() {});
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.add_to_drive_outlined),
+          title: const Text('Hacer copia automática ahora'),
+          subtitle: const Text('Y luego compártela a Drive: si desinstalas la app, las del teléfono se borran.'),
+          onTap: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            messenger.showSnackBar(const SnackBar(content: Text('Haciendo la copia…')));
+            try {
+              await prefs.remove(BackupService.lastAutoKey);
+              final path = await BackupService.autoBackupIfDue(prefs);
+              await _load();
+              if (path != null) {
+                await SharePlus.instance.share(ShareParams(files: [XFile(path)], text: 'Copia de seguridad de Kumo'));
+              }
+            } catch (e) {
+              messenger.showSnackBar(SnackBar(content: Text('No se pudo: $e')));
+            }
+          },
+        ),
+        if (_copies.isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: Text('${_copies.length} ${_copies.length == 1 ? 'copia guardada' : 'copias guardadas'} en el teléfono'),
+            subtitle: Text(_copies.map((f) => f.uri.pathSegments.last.replaceAll('.appnotas', '')).join(' · ')),
+          ),
+      ],
+    );
+  }
 }

@@ -20,12 +20,57 @@ class BackupService {
 
   static Future<Directory> _docs() => getApplicationDocumentsDirectory();
 
+  // ------------------------------------------------- Copia automática
+
+  static const autoKey = 'backup.auto';
+  static const lastAutoKey = 'backup.lastAuto';
+  static const _keep = 3;
+
+  /// Carpeta de las copias automáticas (en el almacenamiento del teléfono,
+  /// Android/data/…/files/Copias). Ojo: se borra si desinstalas la app, por
+  /// eso conviene compartir una copia a Drive de vez en cuando.
+  static Future<Directory> autoDir() async {
+    final base = await getExternalStorageDirectory() ?? await _docs();
+    final d = Directory(p.join(base.path, 'Copias'));
+    if (!d.existsSync()) d.createSync(recursive: true);
+    return d;
+  }
+
+  /// Copias automáticas, de la más nueva a la más vieja.
+  static Future<List<File>> autoCopies() async {
+    final d = await autoDir();
+    final l = d.listSync().whereType<File>().where((f) => f.path.endsWith('.appnotas')).toList()
+      ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+    return l;
+  }
+
+  /// Si pasó una semana desde la última, hace una copia sola (al abrir la
+  /// app) y guarda solo las 3 más recientes. Devuelve la ruta o null.
+  static Future<String?> autoBackupIfDue(SharedPreferences prefs, {DateTime? now}) async {
+    if (!(prefs.getBool(autoKey) ?? true)) return null;
+    final t = now ?? DateTime.now();
+    final last = prefs.getInt(lastAutoKey);
+    if (last != null && t.difference(DateTime.fromMillisecondsSinceEpoch(last)) < const Duration(days: 7)) {
+      return null;
+    }
+    final tmp = await create(prefs);
+    final dest = File(p.join((await autoDir()).path, p.basename(tmp)));
+    await File(tmp).copy(dest.path);
+    await File(tmp).delete();
+    await prefs.setInt(lastAutoKey, t.millisecondsSinceEpoch);
+    final all = await autoCopies();
+    for (final old in all.skip(_keep)) {
+      await old.delete();
+    }
+    return dest.path;
+  }
+
   /// Crea la copia y devuelve la ruta del archivo.
   static Future<String> create(SharedPreferences prefs) async {
     final docs = await _docs();
     final now = DateTime.now();
     final name =
-        'AppNotas-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.appnotas';
+        'Kumo-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.appnotas';
     final out = File(p.join((await getTemporaryDirectory()).path, name));
     final raw = out.openWrite();
     final sink = gzip.encoder.startChunkedConversion(raw);

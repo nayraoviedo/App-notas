@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/fonts.dart';
 import '../../../core/providers.dart';
@@ -13,6 +14,10 @@ import '../domain/expense.dart';
 
 const _months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const _weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const _monthsLong = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
 const _weekdaysLong = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
 String _fmtDay(DateTime d) => '${d.day} ${_months[d.month - 1]}';
@@ -25,6 +30,14 @@ final expenseCategoriesProvider = StateProvider<List<ExpenseCategory>>(
 /// Moneda (por defecto bolivianos).
 final currencyProvider = StateProvider<String>(
     (ref) => ref.watch(sharedPreferencesProvider).getString('expenses.currency') ?? 'Bs');
+
+/// Presupuesto mensual por categoría.
+final budgetsProvider = StateProvider<Map<String, double>>(
+    (ref) => decodeBudgets(ref.watch(sharedPreferencesProvider).getString('expenses.budgets')));
+
+/// Lista del súper (lo que falta comprar).
+final shoppingProvider = StateProvider<List<ShoppingItem>>(
+    (ref) => ShoppingItem.decodeAll(ref.watch(sharedPreferencesProvider).getString('expenses.shopping')));
 
 final _rangeProvider =
     StreamProvider.autoDispose.family<List<Expense>, (DateTime, DateTime)>((ref, r) => ref.watch(expensesRepositoryProvider).watchRange(r.$1, r.$2));
@@ -71,6 +84,13 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     final cats = {for (final c in ref.watch(expenseCategoriesProvider)) c.name: c};
     final totals = totalsByCategory(list);
     final total = totalOf(list);
+    final monthRange = periodRange(ExpensePeriod.month, _ref);
+    final monthList = ref.watch(_rangeProvider(monthRange)).valueOrNull ?? const <Expense>[];
+    final prevList = _period == ExpensePeriod.month
+        ? ref.watch(_rangeProvider(previousMonth(_ref))).valueOrNull ?? const <Expense>[]
+        : const <Expense>[];
+    final budgets = ref.watch(budgetsProvider);
+    final shopping = ref.watch(shoppingProvider);
 
     // Agrupar por día.
     final byDay = <DateTime, List<Expense>>{};
@@ -85,6 +105,15 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
         title: Text('Gastos', style: fontStyle('Pacifico', size: 24)),
         actions: [
           IconButton(
+            tooltip: 'Lista del súper',
+            icon: Badge(
+              isLabelVisible: shopping.isNotEmpty,
+              label: Text('${shopping.length}'),
+              child: const Icon(Icons.shopping_cart_outlined),
+            ),
+            onPressed: _shoppingList,
+          ),
+          IconButton(
             tooltip: 'Compartir resumen',
             icon: const Icon(Icons.ios_share),
             onPressed: () => _shareSummary(range, list, totals, total),
@@ -93,8 +122,10 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
             onSelected: (v) {
               if (v == 'cats') _editCategories();
               if (v == 'cur') _editCurrency();
+              if (v == 'budget') _editBudgets();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'budget', child: Text('Presupuesto del mes')),
               PopupMenuItem(value: 'cats', child: Text('Categorías')),
               PopupMenuItem(value: 'cur', child: Text('Moneda')),
             ],
@@ -178,6 +209,24 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
               ),
             ),
           ),
+          if (budgets.isNotEmpty)
+            _BudgetCard(
+              budgets: budgets,
+              spent: {for (final (n, v) in totalsByCategory(monthList)) n: v},
+              cats: cats,
+              money: _money,
+              month: _months[monthRange.$1.month - 1],
+              onEdit: _editBudgets,
+            ),
+          if (_period == ExpensePeriod.month && (list.isNotEmpty || prevList.isNotEmpty))
+            _CompareCard(
+              rows: compareMonths(list, prevList),
+              total: total,
+              prevTotal: totalOf(prevList),
+              cats: cats,
+              money: _money,
+              prevName: _monthsLong[previousMonth(_ref).$1.month - 1],
+            ),
           const SizedBox(height: 8),
           // Lista por día.
           for (final entry in byDay.entries) ...[
@@ -226,17 +275,110 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     );
   }
 
-  Future<void> _edit(Expense? e, {DateTime? day}) async {
+  Future<bool> _edit(Expense? e, {DateTime? day, String? desc, String? category}) async {
     final result = await showModalBottomSheet<Expense>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: _ExpenseForm(initial: e, day: day ?? DateTime.now()),
+        child: _ExpenseForm(initial: e, day: day ?? DateTime.now(), desc: desc, category: category),
       ),
     );
-    if (result != null) await ref.read(expensesRepositoryProvider).save(result);
+    if (result == null) return false;
+    // Lo gastado este mes en la categoría, antes de guardar.
+    final month = periodRange(ExpensePeriod.month, result.day);
+    final before = ref.read(_rangeProvider(month)).valueOrNull;
+    await ref.read(expensesRepositoryProvider).save(result);
+    if (before != null && mounted) {
+      final spent = before
+          .where((x) => x.category == result.category && x.id != result.id)
+          .fold<double>(0, (a, x) => a + x.amount);
+      final msg = budgetWarning(
+        category: result.category,
+        spentBefore: spent,
+        spentAfter: spent + result.amount,
+        budget: ref.read(budgetsProvider)[result.category],
+        money: _money,
+      );
+      if (msg != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          duration: const Duration(seconds: 6),
+          backgroundColor: msg.startsWith('⚠️') ? Colors.red.shade700 : null,
+        ));
+      }
+    }
+    return true;
+  }
+
+  Future<void> _editBudgets() async {
+    final cats = ref.read(expenseCategoriesProvider);
+    final current = ref.read(budgetsProvider);
+    final ctls = {
+      for (final c in cats)
+        c.name: TextEditingController(
+            text: current[c.name] == null ? '' : current[c.name]!.toStringAsFixed(0)),
+    };
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, MediaQuery.viewInsetsOf(context).bottom + 16),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Presupuesto del mes', style: Theme.of(context).textTheme.titleMedium),
+              const Text('Cuánto quieres gastar como máximo en cada categoría. '
+                  'Te aviso al llegar al 80 % y si te pasas. Deja vacío para no poner límite.',
+                  style: TextStyle(color: Colors.black54)),
+              const SizedBox(height: 8),
+              for (final c in cats)
+                TextField(
+                  controller: ctls[c.name],
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: '${c.emoji} ${c.name}',
+                    prefixText: '${ref.read(currencyProvider)} ',
+                  ),
+                ),
+              const SizedBox(height: 16),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF7FB069)),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok != true) return;
+    final b = <String, double>{
+      for (final e in ctls.entries)
+        if (double.tryParse(e.value.text.replaceAll(',', '.').trim()) case final v? when v > 0) e.key: v,
+    };
+    await ref.read(sharedPreferencesProvider).setString('expenses.budgets', encodeBudgets(b));
+    ref.read(budgetsProvider.notifier).state = b;
+  }
+
+  Future<void> _shoppingList() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _ShoppingSheet(
+        onBought: (item) async {
+          // Comprado: se anota como gasto con lo que costó.
+          final saved = await _edit(null, desc: item.name + (item.qty.isEmpty ? '' : ' (${item.qty})'),
+              category: item.category);
+          return saved;
+        },
+      ),
+    );
   }
 
   Future<void> _editCategories() async {
@@ -365,9 +507,13 @@ class _WeekBars extends StatelessWidget {
 }
 
 class _ExpenseForm extends ConsumerStatefulWidget {
-  const _ExpenseForm({this.initial, required this.day});
+  const _ExpenseForm({this.initial, required this.day, this.desc, this.category});
   final Expense? initial;
   final DateTime day;
+
+  /// Para anotar algo de la lista del súper.
+  final String? desc;
+  final String? category;
 
   @override
   ConsumerState<_ExpenseForm> createState() => _ExpenseFormState();
@@ -376,9 +522,9 @@ class _ExpenseForm extends ConsumerStatefulWidget {
 class _ExpenseFormState extends ConsumerState<_ExpenseForm> {
   late final _amount = TextEditingController(
       text: widget.initial == null ? '' : widget.initial!.amount.toStringAsFixed(2).replaceAll('.00', ''));
-  late final _desc = TextEditingController(text: widget.initial?.description ?? '');
+  late final _desc = TextEditingController(text: widget.initial?.description ?? widget.desc ?? '');
   late DateTime _day = widget.initial?.day ?? widget.day;
-  late String? _cat = widget.initial?.category;
+  late String? _cat = widget.initial?.category ?? widget.category;
 
   @override
   void dispose() {
@@ -402,7 +548,7 @@ class _ExpenseFormState extends ConsumerState<_ExpenseForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.initial == null ? 'Nuevo gasto' : 'Editar gasto',
+            Text(widget.initial == null ? (widget.desc != null ? '¿Cuánto costó?' : 'Nuevo gasto') : 'Editar gasto',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             TextField(
@@ -557,6 +703,345 @@ class _CategoriesSheet extends ConsumerWidget {
                   if (name == null || name.isEmpty || cats.any((c) => c.name == name)) return;
                   await _save(ref, [...cats, ExpenseCategory(name, emoji, _colors[cats.length % _colors.length])]);
                 },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Cuánto llevas de cada presupuesto este mes.
+class _BudgetCard extends StatelessWidget {
+  const _BudgetCard({
+    required this.budgets,
+    required this.spent,
+    required this.cats,
+    required this.money,
+    required this.month,
+    required this.onEdit,
+  });
+  final Map<String, double> budgets;
+  final Map<String, double> spent;
+  final Map<String, ExpenseCategory> cats;
+  final String Function(double) money;
+  final String month;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text('Presupuesto de $month', style: const TextStyle(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: onEdit),
+              ],
+            ),
+            for (final e in budgets.entries)
+              () {
+                final s = spent[e.key] ?? 0;
+                final f = s / e.value;
+                final over = s > e.value;
+                final cat = cats[e.key];
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 4, 8, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Text('${cat?.emoji ?? '🛒'}  ${e.key}'),
+                          const Spacer(),
+                          Text('${money(s)} / ${money(e.value)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: over ? Colors.red.shade700 : null,
+                              )),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: f.clamp(0, 1),
+                          minHeight: 8,
+                          backgroundColor: Colors.black.withValues(alpha: 0.06),
+                          color: over
+                              ? Colors.red.shade400
+                              : f >= 0.8
+                                  ? Colors.orange.shade400
+                                  : const Color(0xFF7FB069),
+                        ),
+                      ),
+                      if (over)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text('Te pasaste ${money(s - e.value)}',
+                              style: TextStyle(fontSize: 11.5, color: Colors.red.shade700)),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text('Te quedan ${money(e.value - s)}',
+                              style: const TextStyle(fontSize: 11.5, color: Colors.black45)),
+                        ),
+                    ],
+                  ),
+                );
+              }(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Este mes contra el anterior, por categoría.
+class _CompareCard extends StatelessWidget {
+  const _CompareCard({
+    required this.rows,
+    required this.total,
+    required this.prevTotal,
+    required this.cats,
+    required this.money,
+    required this.prevName,
+  });
+  final List<(String, double, double)> rows;
+  final double total;
+  final double prevTotal;
+  final Map<String, ExpenseCategory> cats;
+  final String Function(double) money;
+  final String prevName;
+
+  @override
+  Widget build(BuildContext context) {
+    final diff = total - prevTotal;
+    final pct = prevTotal == 0 ? null : (diff * 100 / prevTotal).round();
+    final maxV = rows.fold<double>(1, (m, r) => math.max(m, math.max(r.$2, r.$3)));
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Comparado con $prevName', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(
+              prevTotal == 0
+                  ? 'En $prevName no anotaste gastos.'
+                  : diff.abs() < 0.5
+                      ? 'Gastaste lo mismo que en $prevName.'
+                      : diff > 0
+                          ? '${money(diff)} más que en $prevName (+$pct %)'
+                          : '${money(-diff)} menos que en $prevName ($pct %) 🎉',
+              style: TextStyle(
+                color: diff > 0 && prevTotal > 0 ? Colors.red.shade700 : const Color(0xFF4E7F3A),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _legend(const Color(0xFF7FB069), 'Este mes'),
+                const SizedBox(width: 14),
+                _legend(const Color(0xFFCFD8DC), prevName),
+              ],
+            ),
+            const SizedBox(height: 6),
+            for (final (name, now, before) in rows.take(8))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 96,
+                      child: Text('${cats[name]?.emoji ?? '🛒'} $name',
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5)),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _bar(now / maxV, const Color(0xFF7FB069), money(now)),
+                          const SizedBox(height: 2),
+                          _bar(before / maxV, const Color(0xFFCFD8DC), money(before)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _legend(Color c, String t) => Row(
+        children: [
+          Container(width: 10, height: 10, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3))),
+          const SizedBox(width: 4),
+          Text(t, style: const TextStyle(fontSize: 11.5, color: Colors.black54)),
+        ],
+      );
+
+  Widget _bar(double f, Color c, String label) => LayoutBuilder(
+        builder: (context, box) => Row(
+          children: [
+            Container(
+              width: math.max(3, (box.maxWidth - 64) * f),
+              height: 9,
+              decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(4)),
+            ),
+            const SizedBox(width: 4),
+            Text(label, style: const TextStyle(fontSize: 10.5, color: Colors.black54)),
+          ],
+        ),
+      );
+}
+
+/// Lista del súper: agregas lo que falta y al marcarlo como comprado se
+/// anota el gasto.
+class _ShoppingSheet extends ConsumerStatefulWidget {
+  const _ShoppingSheet({required this.onBought});
+  final Future<bool> Function(ShoppingItem item) onBought;
+
+  @override
+  ConsumerState<_ShoppingSheet> createState() => _ShoppingSheetState();
+}
+
+class _ShoppingSheetState extends ConsumerState<_ShoppingSheet> {
+  final _name = TextEditingController();
+  String? _cat;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _set(List<ShoppingItem> l) async {
+    ref.read(shoppingProvider.notifier).state = l;
+    await ref.read(sharedPreferencesProvider).setString('expenses.shopping', ShoppingItem.encodeAll(l));
+  }
+
+  void _add() {
+    final t = _name.text.trim();
+    if (t.isEmpty) return;
+    final cats = ref.read(expenseCategoriesProvider);
+    _set([
+      ...ref.read(shoppingProvider),
+      ShoppingItem(id: const Uuid().v4(), name: t, category: _cat ?? guessCategory(t, cats)),
+    ]);
+    _name.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(shoppingProvider);
+    final cats = ref.watch(expenseCategoriesProvider);
+    final byName = {for (final c in cats) c.name: c};
+    final grouped = <String, List<ShoppingItem>>{};
+    for (final i in items) {
+      grouped.putIfAbsent(i.category, () => []).add(i);
+    }
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.viewInsetsOf(context).bottom + 12),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Lista del súper 🛒', style: fontStyle('Pacifico', size: 22)),
+            const Text('Toca ☐ cuando lo compres y pon cuánto costó: se anota solo en Gastos.',
+                style: TextStyle(color: Colors.black54, fontSize: 12.5)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _name,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(hintText: 'Tomates, pollo, leche…'),
+                    onSubmitted: (_) => _add(),
+                  ),
+                ),
+                IconButton.filled(onPressed: _add, icon: const Icon(Icons.add)),
+              ],
+            ),
+            SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6, top: 6),
+                    child: ChoiceChip(
+                      label: const Text('Auto'),
+                      selected: _cat == null,
+                      onSelected: (_) => setState(() => _cat = null),
+                    ),
+                  ),
+                  for (final c in cats)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6, top: 6),
+                      child: ChoiceChip(
+                        label: Text('${c.emoji} ${c.name}'),
+                        selected: _cat == c.name,
+                        onSelected: (_) => setState(() => _cat = c.name),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(),
+            if (items.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('La lista está vacía ✨', textAlign: TextAlign.center),
+              ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final g in grouped.entries) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 8, 4, 2),
+                      child: Text('${byName[g.key]?.emoji ?? '🛒'} ${g.key}',
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                    for (final i in g.value)
+                      Dismissible(
+                        key: ValueKey(i.id),
+                        onDismissed: (_) =>
+                            _set([for (final x in ref.read(shoppingProvider)) if (x.id != i.id) x]),
+                        child: CheckboxListTile(
+                          value: false,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          dense: true,
+                          title: Text(i.name),
+                          onChanged: (_) async {
+                            if (await widget.onBought(i)) {
+                              await _set([for (final x in ref.read(shoppingProvider)) if (x.id != i.id) x]);
+                            }
+                          },
+                        ),
+                      ),
+                  ],
+                ],
               ),
             ),
           ],

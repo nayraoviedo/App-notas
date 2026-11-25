@@ -477,6 +477,28 @@ void main() {
     await _shot(tester, '24_examen');
   });
 
+  testWidgets('gastos del mes con presupuesto', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'expenses.budgets': '{"Carne":100,"Verduras":80,"Frutas":50}',
+      'expenses.shopping': '[{"id":"1","n":"Leche","c":"Lácteos"},{"id":"2","n":"Arroz","c":"Abarrotes"}]',
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    await tester.pumpWidget(_app(
+      const ExpensesScreen(),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        expensesRepositoryProvider.overrideWithValue(_FakeExpenses()),
+      ],
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('Mes'));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.drag(find.byType(ListView).first, const Offset(0, -420));
+    await tester.pump(const Duration(milliseconds: 200));
+    await _shot(tester, '25_gastos_mes');
+  });
+
   testWidgets('portadas nuevas', (tester) async {
     await _phoneSize(tester);
     await tester.pumpWidget(_app(Scaffold(
@@ -504,8 +526,11 @@ class _FakeExpenses implements ExpensesRepository {
   @override
   Stream<List<Expense>> watchRange(DateTime from, DateTime to) {
     final mon = from;
+    final n = DateTime.now();
+    // El mes anterior gastó algo distinto (para la comparación).
+    final k = from.isBefore(DateTime(n.year, n.month, 1)) ? 0.8 : 1.0;
     Expense e(int d, String c, double a, String t) =>
-        Expense(id: '$d$c$t', day: mon.add(Duration(days: d)), category: c, amount: a, description: t);
+        Expense(id: '$d$c$t', day: mon.add(Duration(days: d)), category: c, amount: a * k, description: t);
     return Stream.value([
       e(0, 'Verduras', 12, 'Tomate y cebolla'),
       e(0, 'Carne', 45, 'Pollo'),
