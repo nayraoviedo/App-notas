@@ -1,0 +1,299 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:record/record.dart';
+
+import '../../../core/providers.dart';
+import '../../notes/domain/note_block.dart';
+import '../../speakers/application/speaker_tracker.dart';
+import '../../speakers/domain/speaker.dart';
+import '../../transcription/application/segment_merger.dart';
+import '../../transcription/domain/transcript_segment.dart';
+import '../../transcription/domain/transcription_service.dart';
+import '../data/wav_writer.dart';
+
+enum RecordingStatus { idle, recording, paused, processing, done, error }
+
+class PendingPhoto {
+  const PendingPhoto(this.path, this.atMs);
+  final String path;
+  final int atMs;
+}
+
+class RecordingState {
+  const RecordingState({
+    this.status = RecordingStatus.idle,
+    this.elapsedMs = 0,
+    this.liveText = '',
+    this.markersMs = const [],
+    this.photos = const [],
+    this.pendingSpeakerChange,
+    this.currentSpeakerId,
+    this.progress = 0,
+    this.message,
+  });
+
+  final RecordingStatus status;
+  final int elapsedMs;
+  final String liveText;
+  final List<int> markersMs;
+  final List<PendingPhoto> photos;
+  final SpeakerChangeSuggestion? pendingSpeakerChange;
+  final String? currentSpeakerId;
+
+  /// Progreso de la transcripción final (0–100).
+  final int progress;
+  final String? message;
+
+  bool get isActive =>
+      status == RecordingStatus.recording || status == RecordingStatus.paused;
+
+  RecordingState copyWith({
+    RecordingStatus? status,
+    int? elapsedMs,
+    String? liveText,
+    List<int>? markersMs,
+    List<PendingPhoto>? photos,
+    SpeakerChangeSuggestion? pendingSpeakerChange,
+    bool clearPending = false,
+    String? currentSpeakerId,
+    int? progress,
+    String? message,
+  }) =>
+      RecordingState(
+        status: status ?? this.status,
+        elapsedMs: elapsedMs ?? this.elapsedMs,
+        liveText: liveText ?? this.liveText,
+        markersMs: markersMs ?? this.markersMs,
+        photos: photos ?? this.photos,
+        pendingSpeakerChange: clearPending
+            ? null
+            : (pendingSpeakerChange ?? this.pendingSpeakerChange),
+        currentSpeakerId: currentSpeakerId ?? this.currentSpeakerId,
+        progress: progress ?? this.progress,
+        message: message ?? this.message,
+      );
+}
+
+/// Orquesta una grabación: micrófono → archivo WAV + transcripción en vivo +
+/// detección de cambio de voz. Al terminar transcribe el archivo completo,
+/// arma párrafos por hablante y guarda todo en la nota.
+class RecordingController extends Notifier<RecordingState> {
+  AudioRecorder? _recorder;
+  WavWriter? _wav;
+  SpeakerTracker? _tracker;
+  LiveTranscription? _live;
+  StreamSubscription<Uint8List>? _pcmSub;
+  StreamSubscription<String>? _liveSub;
+  StreamSubscription<SpeakerChangeSuggestion>? _suggestionSub;
+  Timer? _ticker;
+  String? _noteId;
+
+  /// Términos que Whisper debe escribir bien (idea: vocabulario por materia).
+  List<String> vocabulary = const [];
+
+  @override
+  RecordingState build() => const RecordingState();
+
+  Future<void> start(String noteId, {bool liveTranscription = true}) async {
+    if (state.isActive) return;
+    state = const RecordingState();
+    _noteId = noteId;
+
+    final recorder = AudioRecorder();
+    if (!await recorder.hasPermission()) {
+      state = state.copyWith(
+          status: RecordingStatus.error,
+          message: 'La app necesita permiso para usar el micrófono.');
+      await recorder.dispose();
+      return;
+    }
+    _recorder = recorder;
+
+    final path = await ref.read(fileStorageProvider).newAudioPath();
+    _wav = WavWriter(path);
+    await _wav!.open();
+
+    final known = await ref.read(speakersRepositoryProvider).getAll();
+    _tracker = SpeakerTracker(
+      ref.read(voiceEmbedderProvider),
+      knownSpeakers: {
+        for (final s in known)
+          if (s.embedding != null) s.id: s.embedding!,
+      },
+    );
+    _suggestionSub = _tracker!.suggestions.listen(
+      (s) => state = state.copyWith(pendingSpeakerChange: s),
+    );
+
+    final pcm = (await recorder.startStream(const RecordConfig(
+      encoder: AudioEncoder.pcm16bits,
+      sampleRate: 16000,
+      numChannels: 1,
+    )))
+        .asBroadcastStream();
+
+    _pcmSub = pcm.listen((bytes) {
+      _wav?.add(bytes);
+      _tracker?.addPcm16(bytes);
+    });
+
+    _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      state = state.copyWith(elapsedMs: _wav?.durationMs ?? 0);
+    });
+    state = state.copyWith(status: RecordingStatus.recording);
+
+    if (liveTranscription) {
+      try {
+        _live = await ref.read(transcriptionServiceProvider).startLive(pcm);
+        _liveSub = _live!.partials
+            .listen((text) => state = state.copyWith(liveText: text));
+      } catch (_) {
+        // Si el teléfono no puede con la transcripción en vivo, se sigue
+        // grabando y se transcribe todo al final.
+        state = state.copyWith(
+            message: 'Transcripción en vivo no disponible; se hará al terminar.');
+      }
+    }
+  }
+
+  Future<void> pause() async {
+    if (state.status != RecordingStatus.recording) return;
+    await _recorder?.pause();
+    state = state.copyWith(status: RecordingStatus.paused);
+  }
+
+  Future<void> resume() async {
+    if (state.status != RecordingStatus.paused) return;
+    await _recorder?.resume();
+    state = state.copyWith(status: RecordingStatus.recording);
+  }
+
+  /// Botón "⭐ Importante".
+  void addMarker() {
+    if (!state.isActive) return;
+    state = state.copyWith(markersMs: [...state.markersMs, state.elapsedMs]);
+  }
+
+  /// Foto sincronizada con el minuto actual de la grabación.
+  Future<void> takePhoto() async {
+    if (!state.isActive) return;
+    final atMs = _wav?.durationMs ?? state.elapsedMs;
+    final path = await ref.read(cameraServiceProvider).takePhoto();
+    if (path == null) return;
+    state = state.copyWith(photos: [...state.photos, PendingPhoto(path, atMs)]);
+  }
+
+  // ------------------------------------------------------------ Hablantes
+
+  /// "Ahora habla X". En los primeros 3 s cuenta como quien empieza.
+  void setCurrentSpeaker(String speakerId) {
+    final atMs = state.elapsedMs < 3000 ? 0 : state.elapsedMs;
+    _tracker?.markTurn(speakerId, atMs);
+    state = state.copyWith(currentSpeakerId: speakerId, clearPending: true);
+  }
+
+  Future<void> confirmSpeaker(String speakerId) async {
+    final embedding = _tracker?.confirm(speakerId);
+    if (embedding != null) {
+      await ref
+          .read(speakersRepositoryProvider)
+          .saveEmbedding(speakerId, embedding);
+    }
+    state = state.copyWith(currentSpeakerId: speakerId, clearPending: true);
+  }
+
+  Future<void> confirmNewSpeaker(String name) async {
+    final id = await ref.read(speakersRepositoryProvider).create(name);
+    await confirmSpeaker(id);
+  }
+
+  void dismissSpeakerChange() {
+    _tracker?.dismiss();
+    state = state.copyWith(clearPending: true);
+  }
+
+  // ------------------------------------------------------------- Terminar
+
+  Future<void> stop() async {
+    if (!state.isActive) return;
+    final noteId = _noteId!;
+    state = state.copyWith(status: RecordingStatus.processing, clearPending: true);
+
+    _ticker?.cancel();
+    await _recorder?.stop();
+    await _live?.stop();
+    await _liveSub?.cancel();
+    await _pcmSub?.cancel();
+    await _wav?.close();
+
+    final wav = _wav!;
+    final turns = _tracker?.turns ?? const <SpeakerTurn>[];
+
+    var segments = <TranscriptSegment>[];
+    String? message;
+    try {
+      segments = await ref.read(transcriptionServiceProvider).transcribeFile(
+            wav.path,
+            vocabulary: vocabulary,
+            onProgress: (p) => state = state.copyWith(progress: p),
+          );
+    } catch (_) {
+      message = 'No se pudo transcribir, pero el audio quedó guardado.';
+    }
+    final paragraphs = const SegmentMerger().merge(segments, turns);
+
+    final repo = ref.read(notesRepositoryProvider);
+    final blockId = await repo.addAudioBlock(
+      noteId,
+      path: wav.path,
+      durationMs: wav.durationMs,
+      segments: paragraphs,
+      markersMs: state.markersMs,
+    );
+    for (final photo in state.photos) {
+      await repo.addImageBlock(
+        noteId,
+        photo.path,
+        anchor: MediaAnchor.audio(audioBlockId: blockId, atMs: photo.atMs),
+      );
+    }
+
+    await _cleanup();
+    state = state.copyWith(status: RecordingStatus.done, message: message);
+  }
+
+  /// Descarta la grabación en curso.
+  Future<void> cancel() async {
+    _ticker?.cancel();
+    await _recorder?.stop();
+    await _live?.stop();
+    await _liveSub?.cancel();
+    await _pcmSub?.cancel();
+    await _wav?.close();
+    final storage = ref.read(fileStorageProvider);
+    await storage.deleteIfExists(_wav?.path);
+    for (final p in state.photos) {
+      await storage.deleteIfExists(p.path);
+    }
+    await _cleanup();
+    state = const RecordingState();
+  }
+
+  Future<void> _cleanup() async {
+    await _suggestionSub?.cancel();
+    await _tracker?.dispose();
+    await _recorder?.dispose();
+    _recorder = null;
+    _tracker = null;
+    _live = null;
+    _liveSub = null;
+    _pcmSub = null;
+    _suggestionSub = null;
+    _ticker = null;
+  }
+}
+
+final recordingControllerProvider =
+    NotifierProvider<RecordingController, RecordingState>(RecordingController.new);
