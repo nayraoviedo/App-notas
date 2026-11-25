@@ -137,7 +137,8 @@ class _ReviewState extends ConsumerState<_Review> {
     final c = widget.due.first;
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.all(20),
+      // Abajo deja lugar para el botón + (no tapa "Fácil").
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 92),
       child: Column(
         children: [
           Text('Quedan ${widget.due.length}', style: const TextStyle(color: Colors.black45)),
