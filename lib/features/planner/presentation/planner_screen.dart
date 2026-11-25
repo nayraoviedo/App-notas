@@ -309,6 +309,11 @@ Future<void> editClass(BuildContext context, WidgetRef ref, [ClassSlot? c]) asyn
   var end = c?.end ?? 10 * 60;
   var color = c?.color ?? _subjectColors[ref.read(plannerProvider).classes.length % _subjectColors.length];
   var notebookId = c?.notebookId;
+  // Materias y aulas que ya usaste (una por nombre).
+  final all = ref.read(plannerProvider).classes;
+  final known = {for (final x in all) x.subject: x}.values.toList()
+    ..sort((a, b) => a.subject.compareTo(b.subject));
+  final rooms = {for (final x in all) if (x.room.isNotEmpty) x.room}.toList()..sort();
   final ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -343,14 +348,49 @@ Future<void> editClass(BuildContext context, WidgetRef ref, [ClassSlot? c]) asyn
                 Text(c == null ? 'Nueva clase' : 'Editar clase', style: Theme.of(context).textTheme.titleLarge),
                 TextField(
                   controller: subject,
-                  autofocus: c == null,
+                  autofocus: c == null && known.isEmpty,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(labelText: 'Materia'),
                 ),
+                // Materias que ya tienes: tocar una la elige (con su color y cuaderno).
+                if (known.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        for (final k in known)
+                          ChoiceChip(
+                            label: Text(k.subject),
+                            avatar: CircleAvatar(backgroundColor: Color(k.color), radius: 7),
+                            selected: subject.text.trim() == k.subject,
+                            onSelected: (_) => set(() {
+                              subject.text = k.subject;
+                              color = k.color;
+                              notebookId = k.notebookId ?? notebookId;
+                              if (room.text.isEmpty) room.text = k.room;
+                            }),
+                          ),
+                      ],
+                    ),
+                  ),
                 TextField(
                   controller: room,
-                  decoration: const InputDecoration(labelText: 'Aula (opcional)'),
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(labelText: 'Aula', hintText: 'A-12, Lab 3…'),
                 ),
+                if (rooms.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      children: [
+                        for (final r in rooms)
+                          ActionChip(label: Text(r), onPressed: () => set(() => room.text = r)),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 6,
@@ -369,14 +409,14 @@ Future<void> editClass(BuildContext context, WidgetRef ref, [ClassSlot? c]) asyn
                       child: OutlinedButton.icon(
                         onPressed: () => pickTime(true),
                         icon: const Icon(Icons.schedule),
-                        label: Text('Desde ${hhmm(start)}'),
+                        label: Text('De ${hhmm(start)}'),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => pickTime(false),
-                        child: Text('Hasta ${hhmm(end)}'),
+                        child: Text('a ${hhmm(end)}'),
                       ),
                     ),
                   ],
