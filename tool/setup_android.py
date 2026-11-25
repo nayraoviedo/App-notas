@@ -47,6 +47,11 @@ subprojects {{ p ->
             p.android.compileSdkVersion {COMPILE_SDK}
         }}
     }}
+    // El "lint vital" de los plugins no aporta nada a la app y falla con
+    // algunas versiones de Java: se desactiva para compilar más rápido.
+    p.tasks.matching {{ it.name.startsWith('lintVital') }}.configureEach {{
+        it.enabled = false
+    }}
 }}
 """)
 root = ROOT_GRADLE.read_text()
