@@ -77,7 +77,7 @@ class _AppNotasState extends ConsumerState<AppNotas> {
     };
 
     return MaterialApp.router(
-      title: 'App Notas',
+      title: 'Kumo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

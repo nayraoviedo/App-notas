@@ -3,7 +3,7 @@
 
 - Agrega los permisos que usa la app (internet y micrófono). La cámara se
   usa a través de la app de cámara del sistema y no necesita permiso.
-- Pone el nombre visible "App Notas".
+- Pone el nombre visible "Kumo".
 - Sube el minSdk a 24 (lo piden las librerías de voz y transcripción).
 - Obliga a todos los plugins a compilar con compileSdk 36: algunos (por
   ejemplo file_picker) traen 34 y la compilación falla con las librerías
@@ -37,7 +37,7 @@ s = MANIFEST.read_text()
 if "RECORD_AUDIO" not in s:
     i = s.index(">", s.index("<manifest")) + 1
     s = s[:i] + PERMISSIONS + s[i:]
-s = s.replace('android:label="app_notas"', 'android:label="App Notas"')
+s = s.replace('android:label="app_notas"', 'android:label="Kumo"')
 MANIFEST.write_text(s)
 
 g = GRADLE.read_text()

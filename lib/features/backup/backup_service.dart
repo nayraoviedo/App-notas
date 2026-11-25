@@ -79,7 +79,7 @@ class BackupService {
     final magic = utf8.decode(data.sublist(0, _magic.length), allowMalformed: true);
     if (magic != _magic) {
       target.deleteSync(recursive: true);
-      throw const FormatException('Ese archivo no es una copia de App Notas.');
+      throw const FormatException('Ese archivo no es una copia de Kumo.');
     }
     i = _magic.length;
     var count = 0;

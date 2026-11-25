@@ -265,7 +265,9 @@ class _NotebookFormState extends State<_NotebookForm> {
                   children: [
                     for (final s in coverStickers)
                       ChoiceChip(
-                        label: s.startsWith('cat:')
+                        label: s.startsWith('assets/')
+                            ? Image.asset(s, width: 34, height: 34)
+                            : s.startsWith('cat:')
                             ? CatMascot(
                                 kind: s == 'cat:gray' ? CatKind.gray : CatKind.orange, size: 26)
                             : Text(s.isEmpty ? 'Ninguno' : s, style: const TextStyle(fontSize: 18)),
@@ -367,7 +369,13 @@ class NotebookCover extends StatelessWidget {
             ),
             if (icon != null)
               Center(child: Icon(icon, color: Colors.white, size: width * 0.3)),
-            if (style.sticker.startsWith('cat:') && icon == null)
+            if (style.sticker.startsWith('assets/') && icon == null)
+              Positioned(
+                right: width * 0.05,
+                top: width * 0.07,
+                child: Image.asset(style.sticker, width: width * 0.46, height: width * 0.46),
+              )
+            else if (style.sticker.startsWith('cat:') && icon == null)
               Positioned(
                 right: width * 0.06,
                 top: width * 0.08,

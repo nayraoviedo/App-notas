@@ -18,7 +18,7 @@ class SettingsScreen extends ConsumerWidget {
       final path = await BackupService.create(ref.read(sharedPreferencesProvider));
       await SharePlus.instance.share(ShareParams(
         files: [XFile(path)],
-        text: 'Copia de seguridad de App Notas',
+        text: 'Copia de seguridad de Kumo',
       ));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('No se pudo crear la copia: $e')));
