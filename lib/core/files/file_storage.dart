@@ -40,6 +40,13 @@ class FileStorage {
     return target;
   }
 
+  /// Archivos de una carpeta de la app, del más nuevo al más viejo.
+  Future<List<String>> listFolder(String folder) async {
+    final files = (await _dir(folder)).listSync().whereType<File>().toList()
+      ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+    return [for (final f in files) f.path];
+  }
+
   Future<void> deleteIfExists(String? path) async {
     if (path == null) return;
     final f = File(path);

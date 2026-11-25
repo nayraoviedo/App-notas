@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 /// Pestañas del panel de stickers.
 enum StickerCategory {
+  mine('Míos'),
   basic('Básico'),
   memo('Memo'),
   text('Texto'),

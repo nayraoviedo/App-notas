@@ -34,7 +34,11 @@ class HomeView extends StatefulWidget {
     required this.onSearch,
     required this.onSettings,
     required this.onAdd,
+    this.onCatOptions,
   });
+
+  /// Mantener presionado un gatito: cambiar su foto o su nombre.
+  final void Function(CatKind kind)? onCatOptions;
 
   /// null = cargando.
   final List<Notebook>? notebooks;
@@ -56,6 +60,7 @@ class _HomeViewState extends State<HomeView> {
   bool _carousel = false;
   int _phrase = 0;
   bool _talking = false;
+  CatKind _speaker = CatKind.orange;
   final _page = PageController(viewportFraction: 0.7);
 
   @override
@@ -64,8 +69,9 @@ class _HomeViewState extends State<HomeView> {
     super.dispose();
   }
 
-  void _meow() {
+  void _meow(CatKind who) {
     setState(() {
+      _speaker = who;
       _phrase++;
       _talking = true;
     });
@@ -194,16 +200,31 @@ class _HomeViewState extends State<HomeView> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          AnimatedCatMascot(kind: CatKind.gray, size: 58, onTap: _meow),
+                          AnimatedCatMascot(
+                            kind: CatKind.gray,
+                            size: 58,
+                            onTap: () => _meow(CatKind.gray),
+                            onLongPress: () => widget.onCatOptions?.call(CatKind.gray),
+                          ),
                           const SizedBox(width: 60),
-                          AnimatedCatMascot(kind: CatKind.orange, size: 66, onTap: _meow),
+                          AnimatedCatMascot(
+                            kind: CatKind.orange,
+                            size: 66,
+                            onTap: () => _meow(CatKind.orange),
+                            onLongPress: () => widget.onCatOptions?.call(CatKind.orange),
+                          ),
                         ],
                       ),
                     ),
                     if (_talking)
                       Positioned(
                         top: -4,
-                        child: _Bubble(text: catPhrases[_phrase % catPhrases.length]),
+                        child: _Bubble(
+                          text: [
+                            if (catNames.value[_speaker] case final n?) '$n:',
+                            catPhrases[_phrase % catPhrases.length],
+                          ].join(' '),
+                        ),
                       ),
                   ],
                 ),

@@ -1,11 +1,48 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Las mascotas de la app, inspiradas en los gatitos de la casa:
 /// - [CatKind.orange]: atigrado naranja, ojos ámbar y chaleco oscuro.
 /// - [CatKind.gray]: gris con pecho blanco, ojos dorados y collar verde.
 enum CatKind { orange, gray }
+
+/// Fotos reales de los gatitos (si la persona las puso) y sus nombres.
+final catPhotos = ValueNotifier<Map<CatKind, String>>(const {});
+final catNames = ValueNotifier<Map<CatKind, String>>(const {});
+
+/// Carga fotos y nombres guardados (se llama al abrir la app).
+void loadCatPrefs(SharedPreferences p) {
+  catPhotos.value = {
+    for (final k in CatKind.values)
+      if (p.getString('cat.photo.${k.name}') case final path?)
+        if (File(path).existsSync()) k: path,
+  };
+  catNames.value = {
+    for (final k in CatKind.values)
+      if (p.getString('cat.name.${k.name}') case final name?) k: name,
+  };
+}
+
+Future<void> setCatPhoto(SharedPreferences p, CatKind k, String? path) async {
+  if (path == null) {
+    await p.remove('cat.photo.${k.name}');
+  } else {
+    await p.setString('cat.photo.${k.name}', path);
+  }
+  loadCatPrefs(p);
+}
+
+Future<void> setCatName(SharedPreferences p, CatKind k, String? name) async {
+  if (name == null || name.trim().isEmpty) {
+    await p.remove('cat.name.${k.name}');
+  } else {
+    await p.setString('cat.name.${k.name}', name.trim());
+  }
+  loadCatPrefs(p);
+}
 
 class _CatColors {
   const _CatColors({
@@ -46,19 +83,120 @@ class CatMascot extends StatelessWidget {
   final bool blink;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: size,
-        height: size * 1.1,
-        child: CustomPaint(painter: CatPainter(kind, blink: blink)),
+  Widget build(BuildContext context) => ValueListenableBuilder(
+        valueListenable: catPhotos,
+        builder: (context, photos, _) {
+          final photo = photos[kind];
+          return SizedBox(
+            width: size,
+            height: size * 1.1,
+            child: photo == null
+                ? CustomPaint(painter: CatPainter(kind, blink: blink))
+                : _PhotoCat(kind: kind, path: photo, size: size),
+          );
+        },
       );
+}
+
+/// La foto del gatito en un círculo con orejitas y patitas.
+class _PhotoCat extends StatelessWidget {
+  const _PhotoCat({required this.kind, required this.path, required this.size});
+  final CatKind kind;
+  final String path;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = kind == CatKind.orange ? _orange : _gray;
+    final d = size * 0.86;
+    return Stack(
+      alignment: Alignment.topCenter,
+      children: [
+        // Orejas
+        Positioned(
+          top: size * 0.04,
+          child: SizedBox(
+            width: d,
+            height: d * 0.4,
+            child: CustomPaint(painter: _EarsPainter(c.fur, c.outline)),
+          ),
+        ),
+        Positioned(
+          top: size * 0.14,
+          child: Container(
+            width: d,
+            height: d,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: c.fur, width: size * 0.05),
+              boxShadow: const [BoxShadow(blurRadius: 4, color: Color(0x33000000))],
+            ),
+            child: ClipOval(child: Image.file(File(path), fit: BoxFit.cover)),
+          ),
+        ),
+        // Patitas
+        for (final dx in [-0.18, 0.18])
+          Positioned(
+            bottom: size * 0.01,
+            left: size / 2 + size * dx - size * 0.09,
+            child: Container(
+              width: size * 0.18,
+              height: size * 0.11,
+              decoration: BoxDecoration(
+                color: kind == CatKind.gray ? Colors.white : c.fur,
+                borderRadius: BorderRadius.circular(size),
+                border: Border.all(color: c.outline, width: 1.5),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EarsPainter extends CustomPainter {
+  const _EarsPainter(this.fur, this.outline);
+  final Color fur;
+  final Color outline;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    for (final flip in [false, true]) {
+      double fx(double x) => flip ? w - x : x;
+      final ear = Path()
+        ..moveTo(fx(w * 0.08), h)
+        ..quadraticBezierTo(fx(w * 0.05), h * 0.1, fx(w * 0.16), 0)
+        ..quadraticBezierTo(fx(w * 0.3), h * 0.15, fx(w * 0.42), h * 0.75)
+        ..close();
+      canvas.drawPath(ear, Paint()..color = fur);
+      canvas.drawPath(
+          ear,
+          Paint()
+            ..color = outline
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2);
+      final inner = Path()
+        ..moveTo(fx(w * 0.13), h * 0.9)
+        ..quadraticBezierTo(fx(w * 0.12), h * 0.3, fx(w * 0.18), h * 0.22)
+        ..quadraticBezierTo(fx(w * 0.27), h * 0.35, fx(w * 0.34), h * 0.8)
+        ..close();
+      canvas.drawPath(inner, Paint()..color = const Color(0xFFF7B9B9));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_EarsPainter old) => old.fur != fur;
 }
 
 /// Gatito que respira y parpadea solo.
 class AnimatedCatMascot extends StatefulWidget {
-  const AnimatedCatMascot({super.key, this.kind = CatKind.orange, this.size = 120, this.onTap});
+  const AnimatedCatMascot(
+      {super.key, this.kind = CatKind.orange, this.size = 120, this.onTap, this.onLongPress});
   final CatKind kind;
   final double size;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   State<AnimatedCatMascot> createState() => _AnimatedCatMascotState();
@@ -78,6 +216,7 @@ class _AnimatedCatMascotState extends State<AnimatedCatMascot> with SingleTicker
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       child: AnimatedBuilder(
         animation: _anim,
         builder: (context, _) {

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/fonts.dart';
 import '../../domain/drawing.dart';
-import 'canvas_item_view.dart';
 import 'tool_panels.dart' show fullPalette, pickColor;
 
 /// Colores de fondo tipo etiqueta / cinta para los textos del collage.
@@ -10,47 +9,21 @@ const textBackgrounds = <int>[
   0xFFFFF1A8, 0xFFFFD6E0, 0xFFD7F0FF, 0xFFDDF5D3, 0xFFEADCFF, 0xFFFFE3C7, 0xFF1F2328,
 ];
 
-/// Escribir o editar un texto sobre la hoja, con una barra compacta sobre el
-/// teclado (como StarNote): fuente, tamaño − / +, interlineado, negrita,
-/// cursiva, alineación, color y fondo tipo etiqueta.
-/// Devuelve el texto editado, o null si se canceló.
-Future<TextItem?> showTextItemEditor(BuildContext context, TextItem initial) {
-  return showModalBottomSheet<TextItem>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Theme.of(context).colorScheme.surface,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (context) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: _TextItemEditor(initial: initial),
-    ),
-  );
-}
+/// Barra de formato del texto que se escribe directo en la hoja (va sobre
+/// el teclado, como en StarNote): fuente, tamaño − / +, interlineado,
+/// negrita, cursiva, subrayado, tachado, alineación, color y fondo.
+class TextStyleBar extends StatelessWidget {
+  const TextStyleBar({super.key, required this.item, required this.onChanged, required this.onDone});
+  final TextItem item;
+  final ValueChanged<TextItem> onChanged;
+  final VoidCallback onDone;
 
-class _TextItemEditor extends StatefulWidget {
-  const _TextItemEditor({required this.initial});
-  final TextItem initial;
-
-  @override
-  State<_TextItemEditor> createState() => _TextItemEditorState();
-}
-
-class _TextItemEditorState extends State<_TextItemEditor> {
-  late TextItem _item = widget.initial;
-  late final _text = TextEditingController(text: widget.initial.text);
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  void _set(TextItem Function(TextItem) f) => setState(() => _item = f(_item));
+  void _set(TextItem Function(TextItem) f) => onChanged(f(item));
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final label = appFonts.where((f) => f.family == _item.font).firstOrNull?.label.split(' · ').first ??
+    final label = appFonts.where((f) => f.family == item.font).firstOrNull?.label.split(' · ').first ??
         'Fuente predeterminada';
 
     Widget pill({required Widget child, VoidCallback? onTap}) => Material(
@@ -60,97 +33,70 @@ class _TextItemEditorState extends State<_TextItemEditor> {
             borderRadius: BorderRadius.circular(14),
             onTap: onTap,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               child: child,
             ),
           ),
         );
 
-    return SafeArea(
+    Widget toggle(IconData icon, String tip, bool on, VoidCallback onTap) => IconButton(
+          tooltip: tip,
+          isSelected: on,
+          visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(backgroundColor: on ? scheme.primaryContainer : null),
+          icon: Icon(icon),
+          onPressed: onTap,
+        );
+
+    final lh = item.lineHeight.toStringAsFixed(item.lineHeight == 1.25 ? 2 : 1);
+
+    return Material(
+      color: scheme.surface,
+      elevation: 6,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-                const Spacer(),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, _item.copyWith(text: _text.text)),
-                  child: const Text('Listo'),
-                ),
-              ],
-            ),
-            // Cuadro de texto con el estilo real, como en la hoja.
-            Container(
-              constraints: const BoxConstraints(minHeight: 70, maxHeight: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: _item.background == null ? Colors.white : Color(_item.background!),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: scheme.primary, width: 1.5),
-              ),
-              child: TextField(
-                controller: _text,
-                autofocus: true,
-                maxLines: null,
-                textAlign: textItemAlign(_item),
-                style: textItemStyle(_item).copyWith(fontSize: _item.size.clamp(14, 40)),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Escribe aquí…',
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Fuente · tamaño · interlineado · B · I · alineación
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
                   pill(
                     onTap: () async {
-                      final f = await _pickFont(context, _item.font);
-                      if (f != null) {
-                        _set((t) => t.copyWith(font: f.family, clearFont: f.family == null));
-                      }
+                      final f = await pickFont(context, item.font);
+                      if (f != null) _set((t) => t.copyWith(font: f.family, clearFont: f.family == null));
                     },
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 140),
+                          constraints: const BoxConstraints(maxWidth: 130),
                           child: Text(label,
-                              overflow: TextOverflow.ellipsis,
-                              style: fontStyle(_item.font, size: 15)),
+                              overflow: TextOverflow.ellipsis, style: fontStyle(item.font, size: 15)),
                         ),
                         const Icon(Icons.expand_more, size: 18),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   pill(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         InkWell(
-                          onTap: () => _set((t) => t.copyWith(size: (t.size - 2).clamp(8, 200))),
+                          onTap: () => _set((t) => t.copyWith(size: (t.size - 2).clamp(8, 240))),
                           child: const Icon(Icons.remove, size: 20),
                         ),
-                        SizedBox(
-                          width: 40,
-                          child: Text('${_item.size.round()}', textAlign: TextAlign.center),
-                        ),
+                        SizedBox(width: 36, child: Text('${item.size.round()}', textAlign: TextAlign.center)),
                         InkWell(
-                          onTap: () => _set((t) => t.copyWith(size: (t.size + 2).clamp(8, 200))),
+                          onTap: () => _set((t) => t.copyWith(size: (t.size + 2).clamp(8, 240))),
                           child: const Icon(Icons.add, size: 20),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   PopupMenuButton<double>(
                     tooltip: 'Interlineado',
                     onSelected: (v) => _set((t) => t.copyWith(lineHeight: v)),
@@ -161,28 +107,21 @@ class _TextItemEditorState extends State<_TextItemEditor> {
                     child: pill(
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('${_item.lineHeight.toStringAsFixed(_item.lineHeight == 1.25 ? 2 : 1)}X'),
-                          const Icon(Icons.expand_more, size: 18),
-                        ],
+                        children: [Text('${lh}X'), const Icon(Icons.expand_more, size: 18)],
                       ),
                     ),
                   ),
-                  IconButton(
-                    isSelected: _item.bold,
-                    tooltip: 'Negrita',
-                    icon: const Icon(Icons.format_bold),
-                    onPressed: () => _set((t) => t.copyWith(bold: !t.bold)),
-                  ),
-                  IconButton(
-                    isSelected: _item.italic,
-                    tooltip: 'Cursiva',
-                    icon: const Icon(Icons.format_italic),
-                    onPressed: () => _set((t) => t.copyWith(italic: !t.italic)),
-                  ),
+                  toggle(Icons.format_bold, 'Negrita', item.bold, () => _set((t) => t.copyWith(bold: !t.bold))),
+                  toggle(Icons.format_italic, 'Cursiva', item.italic,
+                      () => _set((t) => t.copyWith(italic: !t.italic))),
+                  toggle(Icons.format_underlined, 'Subrayado', item.underline,
+                      () => _set((t) => t.copyWith(underline: !t.underline))),
+                  toggle(Icons.format_strikethrough, 'Tachado', item.strike,
+                      () => _set((t) => t.copyWith(strike: !t.strike))),
                   IconButton(
                     tooltip: 'Alineación',
-                    icon: Icon(switch (_item.align) {
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(switch (item.align) {
                       TextItemAlign.left => Icons.format_align_left,
                       TextItemAlign.center => Icons.format_align_center,
                       TextItemAlign.right => Icons.format_align_right,
@@ -190,51 +129,36 @@ class _TextItemEditorState extends State<_TextItemEditor> {
                     onPressed: () =>
                         _set((t) => t.copyWith(align: TextItemAlign.values[(t.align.index + 1) % 3])),
                   ),
+                  IconButton(
+                    tooltip: 'Listo',
+                    icon: Icon(Icons.check_circle, color: scheme.primary),
+                    onPressed: onDone,
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 6),
-            // Color de la letra | fondo tipo etiqueta
             SizedBox(
               height: 38,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  GestureDetector(
-                    onTap: () async {
-                      final c = await pickColor(context, current: _item.color);
-                      if (c != null) _set((t) => t.copyWith(color: c));
-                    },
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      margin: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: SweepGradient(colors: [
-                          Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red,
-                        ]),
-                      ),
-                      child: const Icon(Icons.add, size: 16, color: Colors.white),
-                    ),
-                  ),
+                  _RainbowDot(onTap: () async {
+                    final c = await pickColor(context, current: item.color);
+                    if (c != null) _set((t) => t.copyWith(color: c));
+                  }),
                   for (final c in fullPalette.take(18))
-                    _Dot(
-                      color: c,
-                      selected: _item.color == c,
-                      onTap: () => _set((t) => t.copyWith(color: c)),
-                    ),
+                    _Dot(color: c, selected: item.color == c, onTap: () => _set((t) => t.copyWith(color: c))),
                   const VerticalDivider(width: 18),
                   _Dot(
                     color: null,
-                    selected: _item.background == null,
+                    selected: item.background == null,
                     onTap: () => _set((t) => t.copyWith(clearBackground: true)),
                   ),
                   for (final c in textBackgrounds)
                     _Dot(
                       color: c,
                       square: true,
-                      selected: _item.background == c,
+                      selected: item.background == c,
                       onTap: () => _set((t) => t.copyWith(background: c)),
                     ),
                 ],
@@ -245,36 +169,57 @@ class _TextItemEditorState extends State<_TextItemEditor> {
       ),
     );
   }
+}
 
-  Future<AppFont?> _pickFont(BuildContext context, String? current) {
-    return showModalBottomSheet<AppFont>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.75,
-        child: ListView(
-          children: [
-            for (final group in FontGroup.values) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Text(group.label,
-                    style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+/// Elegir fuente, con vista previa en la propia letra.
+Future<AppFont?> pickFont(BuildContext context, String? current) {
+  return showModalBottomSheet<AppFont>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) => SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.75,
+      child: ListView(
+        children: [
+          for (final group in FontGroup.values) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(group.label, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+            ),
+            for (final f in appFonts.where((f) => f.group == group))
+              ListTile(
+                selected: f.family == current,
+                title: Text(f.label),
+                subtitle: Text(f.sample ?? 'Así se verá tu texto', style: fontStyle(f.family, size: 24)),
+                onTap: () => Navigator.pop(context, f),
               ),
-              for (final f in appFonts.where((f) => f.group == group))
-                ListTile(
-                  selected: f.family == current,
-                  title: Text(f.label),
-                  subtitle: Text(f.sample ?? 'Así se verá tu texto',
-                      style: fontStyle(f.family, size: 22)),
-                  onTap: () => Navigator.pop(context, f),
-                ),
-            ],
           ],
-        ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+class _RainbowDot extends StatelessWidget {
+  const _RainbowDot({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 30,
+          height: 30,
+          margin: const EdgeInsets.all(4),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: SweepGradient(colors: [
+              Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red,
+            ]),
+          ),
+          child: const Icon(Icons.add, size: 16, color: Colors.white),
+        ),
+      );
 }
 
 class _Dot extends StatelessWidget {

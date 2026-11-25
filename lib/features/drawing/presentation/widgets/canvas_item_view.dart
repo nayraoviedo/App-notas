@@ -47,7 +47,30 @@ TextStyle textItemStyle(TextItem t) => fontStyle(t.font, size: t.size).copyWith(
       fontWeight: t.bold ? FontWeight.bold : FontWeight.normal,
       fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
       height: t.lineHeight,
+      decoration: TextDecoration.combine([
+        if (t.underline) TextDecoration.underline,
+        if (t.strike) TextDecoration.lineThrough,
+      ]),
+      decorationColor: Color(t.color),
     );
+
+/// Margen interno del texto cuando tiene fondo tipo etiqueta.
+EdgeInsets textItemPadding(TextItem t) => t.background == null
+    ? EdgeInsets.zero
+    : EdgeInsets.symmetric(horizontal: t.size * 0.45, vertical: t.size * 0.2);
+
+/// Tamaño que ocupa el texto (sin escala), para ubicarlo al editarlo.
+Size measureTextItem(TextItem t) {
+  final pad = textItemPadding(t);
+  final tp = TextPainter(
+    text: TextSpan(text: t.text.isEmpty ? ' ' : t.text, style: textItemStyle(t)),
+    textAlign: textItemAlign(t),
+    textDirection: TextDirection.ltr,
+  )..layout(maxWidth: t.width - pad.horizontal);
+  final size = Size(tp.width + pad.horizontal, tp.height + pad.vertical);
+  tp.dispose();
+  return size;
+}
 
 TextAlign textItemAlign(TextItem t) => switch (t.align) {
       TextItemAlign.left => TextAlign.left,

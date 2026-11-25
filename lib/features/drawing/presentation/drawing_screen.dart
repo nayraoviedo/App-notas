@@ -72,6 +72,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   }
 
   Future<void> _load(String path) async {
+    if (_editing != null) _commitEditing();
     final old = _ctl;
     if (old != null) {
       await old.flush();
@@ -95,6 +96,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   @override
   void dispose() {
     _holdTimer?.cancel();
+    _editCtl.dispose();
+    _editFocus.dispose();
     _ctl?.flush();
     _ctl?.dispose();
     _transform.dispose();
@@ -102,6 +105,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   }
 
   Future<void> _close() async {
+    if (_editing != null) {
+      _commitEditing();
+      return; // el primer "atrás" solo termina el texto
+    }
     await _ctl?.flush();
     ref.invalidate(drawingFileProvider(_path)); // refrescar la vista previa
     if (mounted) Navigator.of(context).pop();
@@ -289,6 +296,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
       _tapStart = null;
       _pointerOnItem = false;
       if (onItem || start == null || (e.localPosition - start).distance > 12) return;
+      // Tocar fuera del texto que se escribe: terminarlo.
+      if (_editing != null) {
+        _commitEditing();
+        return;
+      }
       // Toque en un espacio vacío.
       if (ctl.selectedItemId != null) {
         ctl.selectItem(null);
@@ -444,6 +456,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                       ],
                     ),
                   ),
+                  if (_editing != null)
+                    TextStyleBar(
+                      item: _editing!,
+                      onChanged: (t) => setState(() => _editing = t),
+                      onDone: _commitEditing,
+                    )
+                  else
                   ListenableBuilder(
                     listenable: ctl,
                     builder: (context, _) => ctl.selectedItem != null
@@ -627,6 +646,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
             onSticker: _insertSticker,
             onTextSticker: _insertTextSticker,
             onEmoji: _insertEmoji,
+            custom: ref.watch(customStickersProvider).valueOrNull ?? const [],
+            onCustom: _insertCustomSticker,
+            onAddCustom: _addCustomSticker,
+            onDeleteCustom: _deleteCustomSticker,
           ),
         ToolPanel.none => const SizedBox.shrink(),
       };
@@ -806,6 +829,56 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     ));
   }
 
+  Future<void> _insertCustomSticker(String source) async {
+    // Copia propia para la hoja: así borrar el sticker de "Míos" no la afecta.
+    final path = await ref.read(fileStorageProvider).importFile(source, folder: 'images');
+    final buffer = await ui.ImmutableBuffer.fromFilePath(path);
+    final desc = await ui.ImageDescriptor.encoded(buffer);
+    final w = desc.width.toDouble(), h = desc.height.toDouble();
+    desc.dispose();
+    buffer.dispose();
+    final k = 260 / (w > h ? w : h);
+    final c = _visibleCenter;
+    _placeAndSelect(ImageItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      path: path,
+      width: w * k,
+      height: h * k,
+    ));
+  }
+
+  /// Agregar un sticker propio: una imagen de la galería (mejor si es PNG
+  /// con fondo transparente), recortada.
+  Future<void> _addCustomSticker() async {
+    final picked = await ref.read(cameraServiceProvider).pickImageFromGallery();
+    if (picked == null || !mounted) return;
+    final cropped = await cropImage(context, picked);
+    await ref.read(fileStorageProvider).importFile(cropped ?? picked, folder: 'stickers');
+    ref.invalidate(customStickersProvider);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Sticker agregado a "Míos" ✓')));
+  }
+
+  Future<void> _deleteCustomSticker(String path) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Quitar este sticker de "Míos"?'),
+        content: const Text('Los que ya pusiste en tus hojas no se borran.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Quitar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ref.read(fileStorageProvider).deleteIfExists(path);
+    ref.invalidate(customStickersProvider);
+  }
+
   void _insertTextSticker(TextSticker t) {
     final c = _visibleCenter;
     _placeAndSelect(TextItem(
@@ -915,6 +988,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                                   clipBehavior: Clip.hardEdge,
                                   children: [
                                     for (final it in d.layers[i].items)
+                                      if (it.id != _editing?.id)
                                       EditableCanvasItem(
                                         key: ValueKey(it.id),
                                         item: it,
@@ -928,6 +1002,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                               ),
                             ),
                         ],
+                      if (_editing != null) _editingField(_editing!),
                     ],
                   ),
                 ),
@@ -944,13 +1019,24 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   /// Último estilo usado, para que el siguiente texto salga igual.
   TextItem? _lastTextStyle;
 
-  Future<void> _newText(Offset at) async {
+  // ---- Texto escrito directo sobre la hoja (sin cuadro aparte) ----
+
+  /// Texto que se está escribiendo ahora (null = ninguno).
+  TextItem? _editing;
+  bool _editingIsNew = false;
+
+  /// Esquina superior izquierda del cuadro, en coordenadas de la hoja.
+  Offset _editTopLeft = Offset.zero;
+  final _editCtl = TextEditingController();
+  final _editFocus = FocusNode();
+
+  void _newText(Offset at) {
     final ctl = _ctl!;
     if (!ctl.canDrawOnActiveLayer) return;
-    final base = (_lastTextStyle ??
-            const TextItem(id: '', x: 0, y: 0, text: '', font: 'Dancing Script', size: 40))
-        .copyWith(text: '', x: at.dx, y: at.dy, scale: 1, rotation: 0);
-    final draft = TextItem(
+    final base = _lastTextStyle ??
+        const TextItem(id: '', x: 0, y: 0, text: '', font: 'Dancing Script', size: 40);
+    final d = ctl.drawing;
+    final item = TextItem(
       id: DrawingController.newItemId(),
       x: at.dx,
       y: at.dy,
@@ -960,26 +1046,123 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
       color: base.color,
       bold: base.bold,
       italic: base.italic,
+      underline: base.underline,
+      strike: base.strike,
       align: base.align,
+      lineHeight: base.lineHeight,
       background: base.background,
-      width: base.width,
+      // Que el cuadro no se salga de la hoja.
+      width: (d.width - at.dx - 20).clamp(160.0, 700.0),
     );
-    final result = await showTextItemEditor(context, draft);
-    if (result == null || result.text.trim().isEmpty) return;
-    _lastTextStyle = result;
-    ctl.addItem(result);
+    _startEditing(item, isNew: true, topLeft: Offset(at.dx, at.dy - item.size * 0.7));
   }
 
-  Future<void> _editText(TextItem item) async {
-    final result = await showTextItemEditor(context, item);
-    if (result == null) return;
-    final ctl = _ctl!;
-    if (result.text.trim().isEmpty) {
-      ctl.removeItem(item.id);
+  void _editText(TextItem item) {
+    final size = measureTextItem(item);
+    final w = size.width * item.scale, h = size.height * item.scale;
+    final boxW = item.width * item.scale;
+    final left = switch (item.align) {
+      TextItemAlign.left => item.x - w / 2,
+      TextItemAlign.center => item.x - boxW / 2,
+      TextItemAlign.right => item.x + w / 2 - boxW,
+    };
+    _startEditing(item, isNew: false, topLeft: Offset(left, item.y - h / 2));
+  }
+
+  void _startEditing(TextItem item, {required bool isNew, required Offset topLeft}) {
+    _ctl?.selectItem(null);
+    setState(() {
+      _editing = item;
+      _editingIsNew = isNew;
+      _editTopLeft = topLeft;
+      _panel = ToolPanel.none;
+    });
+    _editCtl.text = item.text;
+    _editCtl.selection = TextSelection.collapsed(offset: item.text.length);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _editFocus.requestFocus();
+      _revealEditing();
+    });
+  }
+
+  /// Si el cuadro queda donde lo tapa el teclado, sube la hoja.
+  void _revealEditing() {
+    if (_viewport == Size.zero) return;
+    final m = _transform.value;
+    final p = MatrixUtils.transformPoint(m, _editTopLeft);
+    final target = _viewport.height * 0.22;
+    if (p.dy > _viewport.height * 0.4 || p.dy < 0) {
+      _transform.value = m.clone()..setEntry(1, 3, m.entry(1, 3) + (target - p.dy));
+    }
+  }
+
+  void _commitEditing() {
+    final item = _editing;
+    final ctl = _ctl;
+    if (item == null || ctl == null) return;
+    final text = _editCtl.text;
+    final done = item.copyWith(text: text);
+    setState(() => _editing = null);
+    _editFocus.unfocus();
+    if (text.trim().isEmpty) {
+      if (!_editingIsNew) ctl.removeItem(item.id);
       return;
     }
-    _lastTextStyle = result;
-    ctl.updateItem(item.id, (_) => result);
+    // Dejar el texto justo donde se escribió (se guarda por su centro).
+    final size = measureTextItem(done);
+    final w = size.width * done.scale, h = size.height * done.scale;
+    final boxW = done.width * done.scale;
+    final cx = switch (done.align) {
+      TextItemAlign.left => _editTopLeft.dx + w / 2,
+      TextItemAlign.center => _editTopLeft.dx + boxW / 2,
+      TextItemAlign.right => _editTopLeft.dx + boxW - w / 2,
+    };
+    final placed = done.copyWith(x: cx, y: _editTopLeft.dy + h / 2);
+    _lastTextStyle = placed;
+    if (_editingIsNew) {
+      ctl.addItem(placed);
+      ctl.selectItem(null);
+    } else {
+      ctl.updateItem(item.id, (_) => placed);
+    }
+  }
+
+  /// El cuadro de texto transparente sobre la hoja.
+  Widget _editingField(TextItem item) {
+    final scheme = Theme.of(context).colorScheme;
+    return Positioned(
+      left: _editTopLeft.dx,
+      top: _editTopLeft.dy,
+      child: Listener(
+        onPointerDown: (_) => _pointerOnItem = true,
+        child: Transform.scale(
+          scale: item.scale,
+          alignment: Alignment.topLeft,
+          child: Container(
+            width: item.width,
+            padding: textItemPadding(item),
+            decoration: BoxDecoration(
+              color: item.background == null ? null : Color(item.background!),
+              borderRadius: BorderRadius.circular(item.size * 0.2),
+              border: Border.all(color: scheme.primary.withValues(alpha: 0.7), width: 2),
+            ),
+            child: TextField(
+              controller: _editCtl,
+              focusNode: _editFocus,
+              maxLines: null,
+              textAlign: textItemAlign(item),
+              style: textItemStyle(item),
+              cursorColor: scheme.primary,
+              decoration: const InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: 'Escribe aquí…',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Centro de lo que se ve ahora, en coordenadas de la hoja.

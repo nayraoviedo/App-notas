@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/providers.dart';
+import '../../../core/widgets/cat_mascot.dart';
+import '../../camera/crop_screen.dart';
+import '../../settings/settings.dart';
 import '../../importing/import_service.dart';
 import '../../notes/presentation/notes_list_screen.dart';
 import '../../notes/presentation/notes_search_delegate.dart';
@@ -34,7 +37,69 @@ class LibraryScreen extends ConsumerWidget {
       onSearch: () => showSearch(context: context, delegate: NotesSearchDelegate(ref)),
       onSettings: () => context.push('/settings'),
       onAdd: () => _addMenu(context, ref),
+      onCatOptions: (k) => _catOptions(context, ref, k),
     );
+  }
+
+  /// Poner la foto real (o el nombre) de un gatito.
+  Future<void> _catOptions(BuildContext context, WidgetRef ref, CatKind kind) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    final who = kind == CatKind.orange ? 'gatito naranja' : 'gatita gris';
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text(catNames.value[kind] ?? 'El $who')),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Poner su foto (galería)'),
+              onTap: () => Navigator.pop(context, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Tomarle una foto'),
+              onTap: () => Navigator.pop(context, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.badge_outlined),
+              title: const Text('Ponerle nombre'),
+              onTap: () => Navigator.pop(context, 'name'),
+            ),
+            if (catPhotos.value[kind] != null)
+              ListTile(
+                leading: const Icon(Icons.brush_outlined),
+                title: const Text('Volver al dibujo'),
+                onTap: () => Navigator.pop(context, 'drawing'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case 'gallery':
+      case 'camera':
+        final path = await pickAndCropImage(context, ref, camera: action == 'camera');
+        if (path != null) await setCatPhoto(prefs, kind, path);
+      case 'name':
+        final ctl = TextEditingController(text: catNames.value[kind] ?? '');
+        final name = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('¿Cómo se llama?'),
+            content: TextField(controller: ctl, autofocus: true, textCapitalization: TextCapitalization.words),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+              FilledButton(onPressed: () => Navigator.pop(context, ctl.text), child: const Text('Guardar')),
+            ],
+          ),
+        );
+        if (name != null) await setCatName(prefs, kind, name);
+      case 'drawing':
+        await setCatPhoto(prefs, kind, null);
+    }
   }
 
   Future<void> _addMenu(BuildContext context, WidgetRef ref) async {

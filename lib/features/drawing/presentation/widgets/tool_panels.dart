@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/fonts.dart';
@@ -762,7 +764,17 @@ class StickersPanel extends StatefulWidget {
     required this.onSticker,
     required this.onTextSticker,
     required this.onEmoji,
+    this.custom = const [],
+    this.onCustom,
+    this.onAddCustom,
+    this.onDeleteCustom,
   });
+
+  /// Stickers propios (rutas de imágenes).
+  final List<String> custom;
+  final ValueChanged<String>? onCustom;
+  final VoidCallback? onAddCustom;
+  final ValueChanged<String>? onDeleteCustom;
 
   final ValueChanged<StickerDef> onSticker;
   final ValueChanged<TextSticker> onTextSticker;
@@ -774,6 +786,7 @@ class StickersPanel extends StatefulWidget {
 
 class _StickersPanelState extends State<StickersPanel> {
   static StickerCategory _tab = StickerCategory.memo;
+  // Pestaña "Míos": mantener presionado un sticker para borrarlo.
   String _textGroup = 'Todos';
 
   @override
@@ -839,6 +852,32 @@ class _StickersPanelState extends State<StickersPanel> {
 
   Widget _content(ColorScheme scheme) {
     switch (_tab) {
+      case StickerCategory.mine:
+        return GridView.count(
+          crossAxisCount: 4,
+          padding: const EdgeInsets.all(12),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          shrinkWrap: true,
+          children: [
+            _cell(
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_photo_alternate_outlined, color: scheme.primary),
+                  const SizedBox(height: 2),
+                  Text('Agregar', style: TextStyle(fontSize: 11, color: scheme.primary)),
+                ],
+              ),
+              () => widget.onAddCustom?.call(),
+            ),
+            for (final path in widget.custom)
+              GestureDetector(
+                onLongPress: () => widget.onDeleteCustom?.call(path),
+                child: _cell(Image.file(File(path), fit: BoxFit.contain), () => widget.onCustom?.call(path)),
+              ),
+          ],
+        );
       case StickerCategory.text:
         final groups = ['Todos', 'Día', 'Mes', 'Título'];
         final list = textStickers.where((t) => _textGroup == 'Todos' || t.group == _textGroup).toList();

@@ -81,6 +81,10 @@ final drawingFileProvider = FutureProvider.autoDispose.family<Drawing, String>(
 final notesListProvider = StreamProvider.family<List<Note>, String?>((ref, notebookId) =>
     ref.watch(notesRepositoryProvider).watchNotes(notebookId: notebookId));
 
+/// Stickers propios (fotos o dibujos que la persona agregó).
+final customStickersProvider =
+    FutureProvider<List<String>>((ref) => ref.watch(fileStorageProvider).listFolder('stickers'));
+
 final allTagsProvider =
     StreamProvider<List<String>>((ref) => ref.watch(notesRepositoryProvider).watchAllTags());
 

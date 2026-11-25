@@ -58,6 +58,8 @@ sealed class CanvasItem {
           background: j['bg'] as int?,
           width: (j['w'] as num?)?.toDouble() ?? 500,
           lineHeight: (j['lh'] as num?)?.toDouble() ?? 1.25,
+          underline: j['u'] as bool? ?? false,
+          strike: j['strk'] as bool? ?? false,
         );
       case 'image':
         return ImageItem(
@@ -122,7 +124,14 @@ class TextItem extends CanvasItem {
     this.background,
     this.width = 500,
     this.lineHeight = 1.25,
+    this.underline = false,
+    this.strike = false,
   });
+
+  final bool underline;
+
+  /// Tachado.
+  final bool strike;
 
   final String text;
 
@@ -168,6 +177,8 @@ class TextItem extends CanvasItem {
     bool clearBackground = false,
     double? width,
     double? lineHeight,
+    bool? underline,
+    bool? strike,
   }) =>
       TextItem(
         id: id,
@@ -185,12 +196,16 @@ class TextItem extends CanvasItem {
         background: clearBackground ? null : (background ?? this.background),
         width: width ?? this.width,
         lineHeight: lineHeight ?? this.lineHeight,
+        underline: underline ?? this.underline,
+        strike: strike ?? this.strike,
       );
 
   @override
   Map<String, Object?> toJson() => {
         ...baseJson('text'),
         if (lineHeight != 1.25) 'lh': lineHeight,
+        if (underline) 'u': true,
+        if (strike) 'strk': true,
         'text': text,
         if (font != null) 'font': font,
         'size': size,
