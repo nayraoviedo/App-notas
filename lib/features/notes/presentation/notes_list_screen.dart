@@ -207,7 +207,8 @@ class _NoteTile extends ConsumerWidget {
     final d = note.updatedAt;
     final blocks = ref.watch(blocksProvider(note.id)).valueOrNull ?? const <NoteBlock>[];
     final first = blocks.whereType<DrawingBlock>().firstOrNull;
-    void open() => context.push('/notes/${note.id}');
+    // Si tiene hojas, se abre como cuaderno para hojearlo.
+    void open() => context.push(first != null ? '/notes/${note.id}/book' : '/notes/${note.id}');
 
     return Column(
       children: [

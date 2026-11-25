@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/drawing/presentation/drawing_screen.dart';
 import '../features/notebooks/presentation/library_screen.dart';
+import '../features/notes/presentation/book_view_screen.dart';
 import '../features/notes/presentation/note_editor_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/notes/presentation/notes_list_screen.dart';
@@ -38,6 +39,13 @@ final appRouter = GoRouter(
           builder: (context, state) =>
               NoteEditorScreen(noteId: state.pathParameters['id']!),
           routes: [
+            GoRoute(
+              path: 'book',
+              builder: (context, state) => BookViewScreen(
+                noteId: state.pathParameters['id']!,
+                initialPage: state.extra as int? ?? 0,
+              ),
+            ),
             GoRoute(
               path: 'record',
               builder: (context, state) =>

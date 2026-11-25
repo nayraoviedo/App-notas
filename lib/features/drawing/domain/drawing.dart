@@ -269,7 +269,13 @@ class Drawing {
     required this.paper,
     required this.layers,
     this.bookmarked = false,
+    this.tab,
+    this.tabColor,
   });
+
+  /// Pestaña al costado del cuaderno (como un separador), o null.
+  final String? tab;
+  final int? tabColor;
 
   /// Tamaño A4 vertical en unidades lógicas.
   static const a4Width = 1000.0;
@@ -298,6 +304,9 @@ class Drawing {
     PaperStyle? paper,
     List<DrawingLayer>? layers,
     bool? bookmarked,
+    String? tab,
+    int? tabColor,
+    bool clearTab = false,
   }) =>
       Drawing(
         width: width ?? this.width,
@@ -305,6 +314,8 @@ class Drawing {
         paper: paper ?? this.paper,
         layers: layers ?? this.layers,
         bookmarked: bookmarked ?? this.bookmarked,
+        tab: clearTab ? null : (tab ?? this.tab),
+        tabColor: clearTab ? null : (tabColor ?? this.tabColor),
       );
 
   Map<String, Object?> toJson() => {
@@ -313,6 +324,8 @@ class Drawing {
         'h': height,
         'paper': paper.toJson(),
         if (bookmarked) 'bookmarked': true,
+        if (tab != null) 'tab': tab,
+        if (tabColor != null) 'tabColor': tabColor,
         'layers': layers.map((l) => l.toJson()).toList(),
       };
 
@@ -321,6 +334,8 @@ class Drawing {
         height: (j['h'] as num?)?.toDouble() ?? a4Height,
         paper: PaperStyle.fromJson((j['paper'] as Map? ?? const {}).cast<String, Object?>()),
         bookmarked: j['bookmarked'] as bool? ?? false,
+        tab: j['tab'] as String?,
+        tabColor: j['tabColor'] as int?,
         layers: [
           for (final l in (j['layers'] as List? ?? const []))
             DrawingLayer.fromJson((l as Map).cast<String, Object?>()),

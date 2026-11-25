@@ -13,7 +13,9 @@ import 'package:app_notas/features/drawing/data/drawing_store.dart';
 import 'package:app_notas/features/drawing/domain/drawing.dart';
 import 'package:app_notas/features/notebooks/domain/notebook.dart';
 import 'package:app_notas/features/notebooks/presentation/library_screen.dart';
+import 'package:app_notas/features/notes/domain/note.dart';
 import 'package:app_notas/features/notes/domain/note_block.dart';
+import 'package:app_notas/features/notes/presentation/book_view_screen.dart';
 import 'package:app_notas/features/notes/presentation/create_note_sheet.dart';
 import 'package:app_notas/features/drawing/presentation/drawing_screen.dart';
 import 'package:app_notas/features/settings/settings.dart';
@@ -124,8 +126,16 @@ Drawing _samplePage() => Drawing(
 
 class _FakeStore extends DrawingStore {
   @override
-  Future<Drawing> load(String path) async =>
-      path == 'cover' ? const NewNoteOptions(title: 'Biología', withSheet: true, paper: PaperStyle(), landscape: false).coverPage() : _samplePage();
+  Future<Drawing> load(String path) async => switch (path) {
+        'cover' => const NewNoteOptions(
+                title: 'Biología', withSheet: true, paper: PaperStyle(), landscape: false)
+            .coverPage(),
+        'p2' => Drawing.blank(paper: const PaperStyle(template: PaperTemplate.dailyPlan))
+            .copyWith(tab: 'Tareas', tabColor: 0xFFE8C17A),
+        'p3' => Drawing.blank(paper: const PaperStyle(template: PaperTemplate.cornell))
+            .copyWith(tab: 'Clase 2', tabColor: 0xFFE59C8B),
+        _ => _samplePage().copyWith(tab: 'Diario', tabColor: 0xFF8FB3C6),
+      };
 
   @override
   Future<void> save(String path, Drawing drawing) async {}
@@ -165,7 +175,7 @@ void main() {
     await _shot(tester, '01_inicio');
   });
 
-  testWidgets('inicio en cuadrícula', (tester) async {
+  testWidgets('inicio en carrusel', (tester) async {
     await _phoneSize(tester);
     await tester.pumpWidget(_app(HomeView(
       notebooks: _notebooks,
@@ -179,8 +189,8 @@ void main() {
       onSettings: () {},
       onAdd: () {},
     )));
-    await tester.tap(find.byTooltip('Ver en cuadrícula'));
-    await _shot(tester, '02_inicio_cuadricula');
+    await tester.tap(find.byIcon(Icons.view_carousel));
+    await _shot(tester, '02_inicio_carrusel');
   });
 
   testWidgets('crear nota', (tester) async {
@@ -259,5 +269,47 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.enterText(find.byType(TextField).last, 'Hoy aprendí algo nuevo ✨');
     await _shot(tester, '13_texto');
+  });
+
+  Future<void> openBook(WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    final now = DateTime(2026, 11, 25);
+    await tester.pumpWidget(_app(
+      const BookViewScreen(noteId: 'n1', initialPage: 1),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        drawingStoreProvider.overrideWithValue(_FakeStore()),
+        noteProvider.overrideWith((ref, id) => Stream.value(
+            Note(id: 'n1', title: 'Biología', createdAt: now, updatedAt: now))),
+        blocksProvider.overrideWith((ref, id) => Stream.value(const [
+              DrawingBlock(id: 'b0', position: 0, path: 'cover'),
+              DrawingBlock(id: 'b1', position: 1, path: 'p1'),
+              DrawingBlock(id: 'b2', position: 2, path: 'p2'),
+              DrawingBlock(id: 'b3', position: 3, path: 'p3'),
+            ])),
+      ],
+    ));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  testWidgets('cuaderno para hojear', (tester) async {
+    await openBook(tester);
+    await _shot(tester, '14_cuaderno');
+  });
+
+  testWidgets('hojeando', (tester) async {
+    await openBook(tester);
+    final g = await tester.startGesture(const Offset(330, 420));
+    await g.moveBy(const Offset(-30, 0));
+    await tester.pump();
+    await g.moveBy(const Offset(-110, 0));
+    await tester.pump();
+    await _shot(tester, '15_hojeando');
+    await g.up();
+    await tester.pump(const Duration(seconds: 1));
   });
 }

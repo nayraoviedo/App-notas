@@ -39,6 +39,11 @@ class NoteEditorScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.menu_book_outlined),
+            tooltip: 'Hojear como cuaderno',
+            onPressed: () => context.push('/notes/$noteId/book'),
+          ),
+          IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Cambiar título',
             onPressed: () => _rename(context, ref, note?.title ?? ''),

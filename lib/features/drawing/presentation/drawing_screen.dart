@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/providers.dart';
@@ -131,7 +132,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     final path = await storage.newDrawingPath();
     final d = ctl.drawing;
     final newDrawing = copy
-        ? d.copyWith(bookmarked: false)
+        ? d.copyWith(bookmarked: false, clearTab: true)
         // Página nueva con la misma hoja (plantilla, color, tamaño).
         : Drawing(
             width: d.width,
@@ -637,6 +638,18 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('Hojear como cuaderno'),
+              onTap: () => Navigator.pop(context, 'book'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bookmark_add_outlined),
+              title: Text(ctl.drawing.tab == null
+                  ? 'Poner pestaña en esta página'
+                  : 'Pestaña: ${ctl.drawing.tab}'),
+              onTap: () => Navigator.pop(context, 'tab'),
+            ),
+            ListTile(
               leading: Icon(ctl.drawing.bookmarked ? Icons.bookmark : Icons.bookmark_border),
               title: Text(ctl.drawing.bookmarked ? 'Quitar marcador' : 'Marcar página'),
               onTap: () => Navigator.pop(context, 'bookmark'),
@@ -674,6 +687,30 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
       ),
     );
     switch (action) {
+      case 'book':
+        await ctl.flush();
+        if (!mounted) return;
+        final i = _pageIndex;
+        await context.push('/notes/${widget.noteId}/book', extra: i < 0 ? 0 : i);
+      case 'tab':
+        final name = TextEditingController(text: ctl.drawing.tab ?? '');
+        final r = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Pestaña de la página'),
+            content: TextField(
+              controller: name,
+              autofocus: true,
+              maxLength: 14,
+              decoration: const InputDecoration(hintText: 'NOV, Biología, Tareas…'),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('Quitar')),
+              FilledButton(onPressed: () => Navigator.pop(context, name.text), child: const Text('Guardar')),
+            ],
+          ),
+        );
+        if (r != null) ctl.setTab(r, color: ctl.drawing.tabColor ?? 0xFF3E6A80);
       case 'bookmark':
         ctl.toggleBookmark();
       case 'copy':

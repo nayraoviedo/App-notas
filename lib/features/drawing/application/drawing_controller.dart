@@ -346,6 +346,14 @@ class DrawingController extends ChangeNotifier {
     }
   }
 
+  /// Pestaña al costado del cuaderno (null = quitar).
+  void setTab(String? name, {int? color}) {
+    _drawing = name == null || name.trim().isEmpty
+        ? _drawing.copyWith(clearTab: true)
+        : _drawing.copyWith(tab: name.trim(), tabColor: color);
+    _changed();
+  }
+
   void toggleBookmark() {
     _drawing = _drawing.copyWith(bookmarked: !_drawing.bookmarked);
     _changed();
