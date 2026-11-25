@@ -5,6 +5,7 @@ import '../features/drawing/data/drawing_store.dart';
 import '../features/drawing/domain/drawing.dart';
 import '../features/importing/import_service.dart';
 import '../features/notebooks/data/notebooks_repository.dart';
+import '../features/settings/settings.dart';
 import '../features/notebooks/domain/notebook.dart';
 import '../features/notes/data/notes_repository.dart';
 import '../features/notes/domain/note.dart';
@@ -38,8 +39,10 @@ final notebooksRepositoryProvider = Provider<NotebooksRepository>(
 final speakersRepositoryProvider = Provider<SpeakersRepository>(
     (ref) => SpeakersRepository(ref.watch(databaseProvider)));
 
-final cameraServiceProvider =
-    Provider<CameraService>((ref) => CameraService(ref.watch(fileStorageProvider)));
+final cameraServiceProvider = Provider<CameraService>((ref) => CameraService(
+      ref.watch(fileStorageProvider),
+      ref.watch(sharedPreferencesProvider),
+    ));
 
 /// Cambia aquí el motor de transcripción (local o en la nube).
 final transcriptionServiceProvider =

@@ -21,6 +21,7 @@ class AppFont {
 
 enum FontGroup {
   latin('Generales'),
+  cursive('Cursiva y journaling'),
   chinese('Chino manuscrito y caligrafía'),
   chineseText('Chino para texto');
 
@@ -38,6 +39,30 @@ const appFonts = <AppFont>[
   AppFont('Comic Neue', 'Informal'),
   AppFont('Source Code Pro', 'Código'),
   AppFont('Playfair Display', 'Títulos'),
+
+  // Cursivas y a mano para journaling (Google Fonts, licencia libre).
+  AppFont('Dancing Script', 'Dancing Script · cursiva clásica',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Great Vibes', 'Great Vibes · caligrafía elegante',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Allura', 'Allura · cursiva fina', group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Parisienne', 'Parisienne · romántica',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Sacramento', 'Sacramento · monolínea',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Satisfy', 'Satisfy · cursiva suelta', group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Pacifico', 'Pacifico · títulos divertidos',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Homemade Apple', 'Homemade Apple · letra real',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Indie Flower', 'Indie Flower · a mano redondita',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Shadows Into Light', 'Shadows Into Light · plumón',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Gloria Hallelujah', 'Gloria Hallelujah · cuaderno',
+      group: FontGroup.cursive, sample: 'Querido diario, hoy…'),
+  AppFont('Amatic SC', 'Amatic SC · títulos finos',
+      group: FontGroup.cursive, sample: 'QUERIDO DIARIO'),
 
   // Chino manuscrito (Google Fonts, licencia libre OFL).
   AppFont('Long Cang', 'Long Cang · a mano', group: FontGroup.chinese, sample: '今天的笔记：你好，世界'),

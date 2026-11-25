@@ -2,17 +2,18 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../core/providers.dart';
 import '../../../core/utils/time_format.dart';
 import '../../notes/domain/note_block.dart';
+import '../data/video_backend.dart';
 
 /// Ver un video y tomar notas al mismo tiempo.
 ///
 /// - Cada nota guarda el minuto del video; al tocarla, el video salta ahí.
-/// - El botón de cámara guarda una captura del cuadro actual en la nota.
+/// - El botón de cámara guarda una captura del cuadro actual en la nota
+///   (en videos propios y enlaces directos; en YouTube no se puede).
+/// - Acepta videos del teléfono, enlaces directos y enlaces de YouTube.
 /// - Al empezar a escribir, el video se pausa (y la nota queda con el minuto
 ///   en que empezaste a escribir, no en el que terminaste).
 class VideoNotesScreen extends ConsumerStatefulWidget {
@@ -32,8 +33,7 @@ class VideoNotesScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
-  late final Player _player = Player();
-  late final VideoController _video = VideoController(_player);
+  late final VideoBackend _player = VideoBackend.forSource(widget.videoPath);
   final _text = TextEditingController();
   final _focus = FocusNode();
   int? _typingAtMs;
@@ -47,21 +47,21 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
   }
 
   Future<void> _open() async {
-    await _player.open(Media(widget.videoPath), play: false);
-    if (widget.startMs > 0) {
-      // Esperar a que el video sepa su duración antes de saltar.
-      await _player.stream.duration
-          .firstWhere((d) => d > Duration.zero)
-          .timeout(const Duration(seconds: 5), onTimeout: () => Duration.zero);
-      await _player.seek(Duration(milliseconds: widget.startMs));
+    try {
+      await _player.open(startMs: widget.startMs);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo abrir el video. ¿Hay internet?')),
+        );
+      }
     }
-    await _player.play();
   }
 
-  void _onFocus() {
+  Future<void> _onFocus() async {
     if (_focus.hasFocus) {
-      _typingAtMs = _player.state.position.inMilliseconds;
-      _player.pause();
+      _typingAtMs = await _player.positionMs();
+      await _player.pause();
     }
   }
 
@@ -75,15 +75,14 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
     super.dispose();
   }
 
-  int get _nowMs => _player.state.position.inMilliseconds;
-
   Future<void> _addNote() async {
     final text = _text.text.trim();
     if (text.isEmpty) return;
+    final atMs = _typingAtMs ?? await _player.positionMs();
     await ref.read(notesRepositoryProvider).addVideoRefBlock(
           widget.noteId,
           videoPath: widget.videoPath,
-          atMs: _typingAtMs ?? _nowMs,
+          atMs: atMs,
           text: text,
         );
     _text.clear();
@@ -96,7 +95,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
     if (_capturing) return;
     setState(() => _capturing = true);
     try {
-      final atMs = _nowMs;
+      final atMs = await _player.positionMs();
       final bytes = await _player.screenshot();
       if (bytes == null) return;
       final path = await ref
@@ -124,7 +123,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
 
     final videoView = AspectRatio(
       aspectRatio: 16 / 9,
-      child: Video(controller: _video),
+      child: _player.view(),
     );
     final notesPanel = Column(
       children: [
@@ -135,7 +134,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
                   itemCount: items.length,
                   itemBuilder: (context, i) => _VideoItemTile(
                     item: items[i],
-                    onSeek: (ms) => _player.seek(Duration(milliseconds: ms)),
+                    onSeek: _player.seek,
                   ),
                 ),
         ),
@@ -144,7 +143,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> {
           focusNode: _focus,
           capturing: _capturing,
           onSend: _addNote,
-          onCapture: _capture,
+          onCapture: _player.canScreenshot ? _capture : null,
         ),
       ],
     );
@@ -226,18 +225,20 @@ class _Composer extends StatelessWidget {
   final FocusNode focusNode;
   final bool capturing;
   final VoidCallback onSend;
-  final VoidCallback onCapture;
+  /// null en YouTube (no permite capturas).
+  final VoidCallback? onCapture;
 
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
         child: Row(
           children: [
-            IconButton(
-              tooltip: 'Captura del video',
-              onPressed: capturing ? null : onCapture,
-              icon: const Icon(Icons.photo_camera_outlined),
-            ),
+            if (onCapture != null)
+              IconButton(
+                tooltip: 'Captura del video',
+                onPressed: capturing ? null : onCapture,
+                icon: const Icon(Icons.photo_camera_outlined),
+              ),
             Expanded(
               child: TextField(
                 controller: controller,

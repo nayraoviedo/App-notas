@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Ajusta el proyecto Android que genera `flutter create`.
 
-- Agrega los permisos que usa la app (internet, micrófono, cámara).
+- Agrega los permisos que usa la app (internet y micrófono). La cámara se
+  usa a través de la app de cámara del sistema y no necesita permiso.
 - Pone el nombre visible "App Notas".
 - Sube el minSdk a 24 (lo piden las librerías de voz y transcripción).
 - Obliga a todos los plugins a compilar con compileSdk 36: algunos (por
@@ -23,12 +24,14 @@ COMPILE_SDK = 36
 PERMISSIONS = """
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 """
 
 s = MANIFEST.read_text()
+# Sin permiso CAMERA: la app usa la cámara del sistema (image_picker). Si el
+# permiso se declara, Android exige pedirlo antes y si no, cierra la app.
+s = s.replace('    <uses-permission android:name="android.permission.CAMERA" />\n', "")
 if "RECORD_AUDIO" not in s:
     i = s.index(">", s.index("<manifest")) + 1
     s = s[:i] + PERMISSIONS + s[i:]

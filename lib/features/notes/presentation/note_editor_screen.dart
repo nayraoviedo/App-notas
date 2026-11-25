@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,6 +12,7 @@ import '../../drawing/application/practice_builder.dart';
 import '../../drawing/presentation/drawing_block_view.dart';
 import '../../drawing/presentation/widgets/practice_sheet_dialog.dart';
 import '../../importing/import_service.dart';
+import '../../video/data/video_backend.dart';
 import '../../notebooks/domain/notebook.dart';
 import '../domain/note_block.dart';
 import 'widgets/audio_block_view.dart';
@@ -267,7 +269,7 @@ class _EditorToolbar extends ConsumerWidget {
               icon: Icons.photo_camera_outlined,
               label: 'Foto',
               onTap: () async {
-                final path = await camera.takePhoto();
+                final path = await camera.takePhoto(forNoteId: noteId);
                 if (path != null) await repo.addImageBlock(noteId, path);
               },
             ),
@@ -283,8 +285,8 @@ class _EditorToolbar extends ConsumerWidget {
               icon: Icons.ondemand_video_outlined,
               label: 'Video',
               onTap: () async {
-                final path = await camera.pickVideo();
-                if (path != null && context.mounted) onOpenVideo(context, path, 0);
+                final source = await _chooseVideo(context, ref);
+                if (source != null && context.mounted) onOpenVideo(context, source, 0);
               },
             ),
             _ToolButton(
@@ -298,6 +300,64 @@ class _EditorToolbar extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Video de la galería o enlace (YouTube o video directo).
+Future<String?> _chooseVideo(BuildContext context, WidgetRef ref) async {
+  final kind = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.smart_display_outlined),
+            title: const Text('Enlace de YouTube u otro video'),
+            subtitle: const Text('Pega el link y toma notas con el minuto'),
+            onTap: () => Navigator.pop(context, 'link'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.video_library_outlined),
+            title: const Text('Video de la galería'),
+            subtitle: const Text('Permite capturas de pantalla del video'),
+            onTap: () => Navigator.pop(context, 'gallery'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (kind == 'gallery') return ref.read(cameraServiceProvider).pickVideo();
+  if (kind != 'link' || !context.mounted) return null;
+
+  // Si hay un enlace copiado, se pega solo.
+  final clip = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim() ?? '';
+  if (!context.mounted) return null;
+  final c = TextEditingController(text: isWebUrl(clip) ? clip : '');
+  final url = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Enlace del video'),
+      content: TextField(
+        controller: c,
+        autofocus: true,
+        keyboardType: TextInputType.url,
+        decoration: const InputDecoration(hintText: 'https://youtu.be/…'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('Abrir')),
+      ],
+    ),
+  );
+  if (url == null || url.isEmpty) return null;
+  if (!isWebUrl(url) && !isYoutubeUrl(url)) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ese enlace no parece un video (debe empezar con https://)')));
+    }
+    return null;
+  }
+  return url;
 }
 
 /// Hoja en blanco o práctica de caligrafía china (varias páginas si hace falta).
