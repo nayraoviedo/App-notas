@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../../../core/fonts.dart';
 
 import '../domain/drawing.dart';
 import '../presentation/painters/drawing_painter.dart';
@@ -28,6 +31,13 @@ Future<Uint8List> rasterizeDrawing(Drawing d, {double pixelWidth = 1240}) async 
       Paint()..filterQuality = FilterQuality.medium,
     );
     img.dispose();
+  }
+  final practiceFont = d.paper.practice?.font;
+  if (practiceFont != null) {
+    fontStyle(practiceFont); // asegurar que la fuente china esté cargada
+    try {
+      await GoogleFonts.pendingFonts();
+    } catch (_) {}
   }
   PaperPainter(d.paper).paint(canvas, size);
   paintLayers(canvas, size, d);

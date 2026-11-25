@@ -122,7 +122,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
         : Drawing(
             width: d.width,
             height: d.height,
-            paper: d.paper.copyWith(clearImage: true),
+            // En prácticas de caligrafía: misma cuadrícula, sin caracteres.
+            paper: d.paper.copyWith(
+              clearImage: true,
+              practice: d.paper.practice?.copyWith(chars: const []),
+            ),
             layers: const [DrawingLayer(id: 'l1', name: 'Capa 1')],
           );
     await ref.read(drawingStoreProvider).save(path, newDrawing);

@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'practice.dart';
+
 /// Herramientas de dibujo. Cada una se ve distinta (ver `stroke_renderer.dart`).
 enum ToolType {
   pen('Bolígrafo'),
@@ -21,7 +23,10 @@ enum PaperTemplate {
   dots('Puntos'),
   cornell('Cornell'),
   todo('Lista de tareas'),
-  music('Pentagrama');
+  music('Pentagrama'),
+  tianzi('田字格 Tianzi'),
+  mizi('米字格 Mizi'),
+  jiugong('九宫格 Nueve casillas');
 
   const PaperTemplate(this.label);
   final String label;
@@ -161,9 +166,13 @@ class PaperStyle {
     this.background = 0xFFFFFFFF,
     this.spacing = 40,
     this.imagePath,
+    this.practice,
   });
 
   final PaperTemplate template;
+
+  /// Hoja de práctica de caligrafía china (caracteres modelo para calcar).
+  final PracticeSheet? practice;
   final int background;
 
   /// Hoja personalizada: imagen subida por el usuario como fondo.
@@ -180,12 +189,15 @@ class PaperStyle {
     double? spacing,
     String? imagePath,
     bool clearImage = false,
+    PracticeSheet? practice,
+    bool clearPractice = false,
   }) =>
       PaperStyle(
         template: template ?? this.template,
         background: background ?? this.background,
         spacing: spacing ?? this.spacing,
         imagePath: clearImage ? null : (imagePath ?? this.imagePath),
+        practice: clearPractice ? null : (practice ?? this.practice),
       );
 
   Map<String, Object?> toJson() => {
@@ -193,6 +205,7 @@ class PaperStyle {
         'background': background,
         'spacing': spacing,
         if (imagePath != null) 'image': imagePath,
+        if (practice != null) 'practice': practice!.toJson(),
       };
 
   factory PaperStyle.fromJson(Map<String, Object?> j) => PaperStyle(
@@ -200,6 +213,9 @@ class PaperStyle {
         background: j['background'] as int? ?? 0xFFFFFFFF,
         spacing: (j['spacing'] as num?)?.toDouble() ?? 40,
         imagePath: j['image'] as String?,
+        practice: j['practice'] == null
+            ? null
+            : PracticeSheet.fromJson((j['practice'] as Map).cast<String, Object?>()),
       );
 }
 

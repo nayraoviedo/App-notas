@@ -147,6 +147,10 @@ lib/
       agregar/copiar/borrar página y girarla
 - [x] Ajuste de figura (mantén quieto el lápiz al final del trazo), grosor
       según zoom y modo de mezcla del resaltador
+- [x] Caligrafía china: plantillas 田字格, 米字格 y 九宫格, y hojas de práctica
+      con carácter modelo, copias tenues para calcar, pinyin y significado;
+      ejemplos listos (números, básicos, saludos, familia, colores, tiempo) o
+      tus propios caracteres, repartidos en varias páginas
 - [x] Exportar la nota completa a PDF y compartirla
 - [x] Temporizador de estudio
 - [x] Pantalla de Ajustes

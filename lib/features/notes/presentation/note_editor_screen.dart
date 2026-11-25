@@ -7,7 +7,9 @@ import '../../../core/router.dart';
 import '../../../core/widgets/study_timer.dart';
 import '../../export/pdf_exporter.dart';
 import '../../drawing/domain/drawing.dart';
+import '../../drawing/application/practice_builder.dart';
 import '../../drawing/presentation/drawing_block_view.dart';
+import '../../drawing/presentation/widgets/practice_sheet_dialog.dart';
 import '../../importing/import_service.dart';
 import '../../notebooks/domain/notebook.dart';
 import '../domain/note_block.dart';
@@ -254,14 +256,7 @@ class _EditorToolbar extends ConsumerWidget {
             _ToolButton(
               icon: Icons.draw_outlined,
               label: 'Hoja',
-              onTap: () async {
-                final path = await ref.read(fileStorageProvider).newDrawingPath();
-                await ref.read(drawingStoreProvider).save(path, Drawing.blank());
-                await repo.addDrawingBlock(noteId, path);
-                if (context.mounted) {
-                  context.push('/notes/$noteId/drawing', extra: path);
-                }
-              },
+              onTap: () => _newSheet(context, ref, noteId),
             ),
             _ToolButton(
               icon: Icons.mic_none,
@@ -302,6 +297,56 @@ class _EditorToolbar extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+/// Hoja en blanco o práctica de caligrafía china (varias páginas si hace falta).
+Future<void> _newSheet(BuildContext context, WidgetRef ref, String noteId) async {
+  final kind = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.draw_outlined),
+            title: const Text('Hoja para escribir o dibujar'),
+            subtitle: const Text('Después puedes cambiar la plantilla'),
+            onTap: () => Navigator.pop(context, 'blank'),
+          ),
+          ListTile(
+            leading: const Text('田', style: TextStyle(fontSize: 24)),
+            title: const Text('Práctica de caligrafía china'),
+            subtitle: const Text('Caracteres modelo para calcar, con pinyin'),
+            onTap: () => Navigator.pop(context, 'practice'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (kind == null || !context.mounted) return;
+
+  final List<Drawing> pages;
+  if (kind == 'practice') {
+    final sheet = await showPracticeSheetDialog(context);
+    if (sheet == null) return;
+    pages = buildPracticePages(sheet);
+  } else {
+    pages = [Drawing.blank()];
+  }
+
+  final storage = ref.read(fileStorageProvider);
+  final store = ref.read(drawingStoreProvider);
+  final repo = ref.read(notesRepositoryProvider);
+  String? first;
+  for (final d in pages) {
+    final path = await storage.newDrawingPath();
+    await store.save(path, d);
+    await repo.addDrawingBlock(noteId, path);
+    first ??= path;
+  }
+  if (first != null && context.mounted) {
+    context.push('/notes/$noteId/drawing', extra: first);
   }
 }
 

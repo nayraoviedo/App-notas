@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../application/drawing_controller.dart';
 import '../../domain/drawing.dart';
 import '../painters/paper_painter.dart';
+import 'practice_sheet_dialog.dart';
 
 /// Elegir tipo de hoja, color, separación de renglones y orientación.
 class PaperSheet extends StatelessWidget {
@@ -90,6 +91,38 @@ class PaperSheet extends StatelessWidget {
                       ),
                   ],
                 ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Text('田', style: TextStyle(fontSize: 18)),
+                      label: Text(paper.practice == null
+                          ? 'Práctica de caligrafía china'
+                          : 'Editar práctica'),
+                      onPressed: () async {
+                        final r = await showPracticeSheetDialog(context, initial: paper.practice);
+                        if (r != null) controller.setPaper(paper.copyWith(practice: r));
+                      },
+                    ),
+                    if (paper.practice != null)
+                      TextButton(
+                        onPressed: () =>
+                            controller.setPaper(paper.copyWith(clearPractice: true)),
+                        child: const Text('Quitar práctica'),
+                      ),
+                  ],
+                ),
+                if (paper.practice != null)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      'En esta página caben las filas que se ven; para muchos '
+                      'caracteres crea la práctica desde la nota (botón Hoja) y se '
+                      'reparten en varias páginas.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 const Text('Color'),
                 const SizedBox(height: 8),
