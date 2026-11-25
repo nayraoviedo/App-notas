@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../core/widgets/cat_mascot.dart';
+
 import '../domain/notebook.dart';
 
 class NotebookFormResult {
@@ -188,7 +190,10 @@ class _NotebookFormState extends State<_NotebookForm> {
                   children: [
                     for (final s in coverStickers)
                       ChoiceChip(
-                        label: Text(s.isEmpty ? 'Ninguno' : s, style: const TextStyle(fontSize: 18)),
+                        label: s.startsWith('cat:')
+                            ? CatMascot(
+                                kind: s == 'cat:gray' ? CatKind.gray : CatKind.orange, size: 26)
+                            : Text(s.isEmpty ? 'Ninguno' : s, style: const TextStyle(fontSize: 18)),
                         selected: _style.sticker == s,
                         onSelected: (_) => setState(() => _style = _style.copyWith(sticker: s)),
                       ),
@@ -267,7 +272,16 @@ class NotebookCover extends StatelessWidget {
             ),
             if (icon != null)
               Center(child: Icon(icon, color: Colors.white, size: width * 0.3)),
-            if (style.sticker.isNotEmpty && icon == null)
+            if (style.sticker.startsWith('cat:') && icon == null)
+              Positioned(
+                right: width * 0.06,
+                top: width * 0.08,
+                child: CatMascot(
+                  kind: style.sticker == 'cat:gray' ? CatKind.gray : CatKind.orange,
+                  size: width * 0.42,
+                ),
+              )
+            else if (style.sticker.isNotEmpty && icon == null)
               Positioned(
                 right: width * 0.08,
                 top: width * 0.1,

@@ -1,4 +1,5 @@
-/// Elementos que se ponen encima de la hoja (estilo collage): textos y fotos.
+/// Elementos que se ponen encima de la hoja (estilo collage): textos, fotos,
+/// stickers y formas.
 /// Se pueden mover, agrandar y girar. Viven dentro de una capa, así que
 /// respetan el orden de las capas.
 sealed class CanvasItem {
@@ -56,6 +57,7 @@ sealed class CanvasItem {
           align: TextItemAlign.values.byName(j['align'] as String? ?? 'left'),
           background: j['bg'] as int?,
           width: (j['w'] as num?)?.toDouble() ?? 500,
+          lineHeight: (j['lh'] as num?)?.toDouble() ?? 1.25,
         );
       case 'image':
         return ImageItem(
@@ -68,6 +70,33 @@ sealed class CanvasItem {
           width: (j['w'] as num).toDouble(),
           height: (j['h'] as num).toDouble(),
           frame: ImageFrame.values.byName(j['frame'] as String? ?? 'none'),
+        );
+      case 'sticker':
+        return StickerItem(
+          id: id,
+          x: x,
+          y: y,
+          scale: s,
+          rotation: r,
+          sticker: j['st']! as String,
+          width: (j['w'] as num?)?.toDouble() ?? 200,
+          height: (j['h'] as num?)?.toDouble() ?? 200,
+        );
+      case 'shape':
+        final kind = ShapeKind.values.where((k) => k.name == j['sh']).firstOrNull;
+        if (kind == null) return null;
+        return ShapeItem(
+          id: id,
+          x: x,
+          y: y,
+          scale: s,
+          rotation: r,
+          shape: kind,
+          width: (j['w'] as num?)?.toDouble() ?? 200,
+          height: (j['h'] as num?)?.toDouble() ?? 200,
+          color: j['color'] as int? ?? 0xFF1F2328,
+          strokeWidth: (j['sw'] as num?)?.toDouble() ?? 4,
+          fill: j['fill'] as int?,
         );
     }
     return null;
@@ -92,9 +121,13 @@ class TextItem extends CanvasItem {
     this.align = TextItemAlign.left,
     this.background,
     this.width = 500,
+    this.lineHeight = 1.25,
   });
 
   final String text;
+
+  /// Interlineado (1.0×, 1.25×, 1.5×…).
+  final double lineHeight;
 
   /// Fuente de Google Fonts (null = del sistema).
   final String? font;
@@ -134,6 +167,7 @@ class TextItem extends CanvasItem {
     int? background,
     bool clearBackground = false,
     double? width,
+    double? lineHeight,
   }) =>
       TextItem(
         id: id,
@@ -150,11 +184,13 @@ class TextItem extends CanvasItem {
         align: align ?? this.align,
         background: clearBackground ? null : (background ?? this.background),
         width: width ?? this.width,
+        lineHeight: lineHeight ?? this.lineHeight,
       );
 
   @override
   Map<String, Object?> toJson() => {
         ...baseJson('text'),
+        if (lineHeight != 1.25) 'lh': lineHeight,
         'text': text,
         if (font != null) 'font': font,
         'size': size,
@@ -230,5 +266,165 @@ class ImageItem extends CanvasItem {
         'w': width,
         'h': height,
         if (frame != ImageFrame.none) 'frame': frame.name,
+      };
+}
+
+/// Sticker dibujado por la app (notas adhesivas, cintas, flores…). Ver
+/// `sticker_painter.dart` para el catálogo.
+class StickerItem extends CanvasItem {
+  const StickerItem({
+    required super.id,
+    required super.x,
+    required super.y,
+    super.scale,
+    super.rotation,
+    required this.sticker,
+    this.width = 200,
+    this.height = 200,
+  });
+
+  /// Identificador del sticker en el catálogo (por ejemplo "memo_heart").
+  final String sticker;
+  final double width;
+  final double height;
+
+  @override
+  StickerItem moved({double? x, double? y, double? scale, double? rotation}) => StickerItem(
+        id: id,
+        x: x ?? this.x,
+        y: y ?? this.y,
+        scale: scale ?? this.scale,
+        rotation: rotation ?? this.rotation,
+        sticker: sticker,
+        width: width,
+        height: height,
+      );
+
+  @override
+  Map<String, Object?> toJson() => {
+        ...baseJson('sticker'),
+        'st': sticker,
+        'w': width,
+        'h': height,
+      };
+}
+
+/// Formas del panel "Forma" (líneas, flechas, figuras).
+enum ShapeKind {
+  line('Línea'),
+  wavy('Ondulada'),
+  curve('Curva'),
+  dashed('Punteada'),
+  arrow('Flecha'),
+  doubleArrow('Flecha doble'),
+  curveArrow('Flecha curva'),
+  angle('Ángulo'),
+  axes('Ejes'),
+  axes3d('Ejes 3D'),
+  brace('Llave'),
+  triangle('Triángulo'),
+  isoTriangle('Isósceles'),
+  rightTriangle('Rectángulo'),
+  square('Cuadrado'),
+  rectangle('Rectángulo'),
+  roundedRect('Redondeado'),
+  pill('Píldora'),
+  trapezoid('Trapecio'),
+  parallelogram('Paralelogramo'),
+  circle('Círculo'),
+  ellipse('Elipse'),
+  diamond('Rombo'),
+  pentagon('Pentágono'),
+  hexagon('Hexágono'),
+  star('Estrella'),
+  heart('Corazón'),
+  bubble('Globo de diálogo'),
+  cloud('Nube'),
+  cube('Cubo'),
+  cylinder('Cilindro'),
+  cone('Cono');
+
+  const ShapeKind(this.label);
+  final String label;
+
+  /// Las líneas no se rellenan.
+  bool get isLine => index <= ShapeKind.brace.index;
+
+  /// Tamaño inicial (ancho, alto) al ponerla en la hoja.
+  (double, double) get defaultSize => switch (this) {
+        ShapeKind.line || ShapeKind.dashed || ShapeKind.arrow || ShapeKind.doubleArrow => (260, 24),
+        ShapeKind.wavy => (260, 40),
+        ShapeKind.curve || ShapeKind.curveArrow => (240, 90),
+        ShapeKind.brace => (60, 220),
+        ShapeKind.rectangle || ShapeKind.roundedRect || ShapeKind.ellipse => (280, 180),
+        ShapeKind.pill || ShapeKind.parallelogram || ShapeKind.trapezoid => (280, 140),
+        ShapeKind.bubble || ShapeKind.cloud => (260, 190),
+        _ => (200, 200),
+      };
+}
+
+class ShapeItem extends CanvasItem {
+  const ShapeItem({
+    required super.id,
+    required super.x,
+    required super.y,
+    super.scale,
+    super.rotation,
+    required this.shape,
+    this.width = 200,
+    this.height = 200,
+    this.color = 0xFF1F2328,
+    this.strokeWidth = 4,
+    this.fill,
+  });
+
+  final ShapeKind shape;
+  final double width;
+  final double height;
+  final int color;
+  final double strokeWidth;
+
+  /// Color de relleno (null = sin relleno).
+  final int? fill;
+
+  @override
+  ShapeItem moved({double? x, double? y, double? scale, double? rotation}) =>
+      copyWith(x: x, y: y, scale: scale, rotation: rotation);
+
+  ShapeItem copyWith({
+    double? x,
+    double? y,
+    double? scale,
+    double? rotation,
+    double? width,
+    double? height,
+    int? color,
+    double? strokeWidth,
+    int? fill,
+    bool clearFill = false,
+  }) =>
+      ShapeItem(
+        id: id,
+        x: x ?? this.x,
+        y: y ?? this.y,
+        scale: scale ?? this.scale,
+        rotation: rotation ?? this.rotation,
+        shape: shape,
+        width: width ?? this.width,
+        height: height ?? this.height,
+        color: color ?? this.color,
+        strokeWidth: strokeWidth ?? this.strokeWidth,
+        fill: clearFill ? null : (fill ?? this.fill),
+      );
+
+  @override
+  Map<String, Object?> toJson() => {
+        ...baseJson('shape'),
+        'sh': shape.name,
+        'w': width,
+        'h': height,
+        'color': color,
+        'sw': strokeWidth,
+        if (fill != null) 'fill': fill,
       };
 }

@@ -5,10 +5,13 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/providers.dart';
 import '../../../core/widgets/study_timer.dart';
 import '../../notes/domain/note_block.dart';
+import '../../notes/presentation/note_tags_dialog.dart';
+import '../../recording/application/recording_controller.dart';
 import '../../settings/settings.dart';
 import '../application/drawing_controller.dart';
 import '../domain/drawing.dart';
@@ -20,7 +23,8 @@ import 'painters/drawing_painter.dart';
 import 'painters/paper_painter.dart';
 import 'widgets/layers_sheet.dart';
 import 'widgets/paper_sheet.dart';
-import 'widgets/tool_settings_sheet.dart';
+import 'painters/sticker_painter.dart';
+import 'widgets/tool_panels.dart';
 
 /// Hojas para escribir a mano y dibujar, con capas. Las hojas de una nota
 /// forman un cuaderno: se puede pasar de página, ver miniaturas, marcar,
@@ -188,50 +192,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     if (chosen != null && chosen != _path) await _load(chosen);
   }
 
-  Future<void> _pageMenu() async {
-    final ctl = _ctl!;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.note_add_outlined),
-              title: const Text('Agregar página después'),
-              onTap: () => Navigator.pop(context, 'add'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy_outlined),
-              title: const Text('Copiar página'),
-              onTap: () => Navigator.pop(context, 'copy'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.rotate_90_degrees_ccw_outlined),
-              title: Text(ctl.drawing.isLandscape ? 'Poner vertical' : 'Poner horizontal'),
-              onTap: () => Navigator.pop(context, 'rotate'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Borrar página'),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-          ],
-        ),
-      ),
-    );
-    switch (action) {
-      case 'add':
-        await _addPage(copy: false);
-      case 'copy':
-        await _addPage(copy: true);
-      case 'rotate':
-        ctl.setLandscape(!ctl.drawing.isLandscape);
-      case 'delete':
-        await _deletePage();
-    }
-  }
-
   // ------------------------------------------------------------------ Entrada
 
   bool _accepts(PointerEvent e) {
@@ -352,6 +312,20 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 
   // ---------------------------------------------------------------- Interfaz
 
+  // --------------------------------------------------------- Barra superior
+
+  ToolPanel _panel = ToolPanel.none;
+  bool _toolbarOpen = true;
+
+  /// Última pluma usada (fuente, bolígrafo, pincel…).
+  ToolType _pen = ToolType.pen;
+
+  void _togglePanel(ToolPanel p) => setState(() => _panel = _panel == p ? ToolPanel.none : p);
+
+  void _closePanel() {
+    if (_panel != ToolPanel.none) setState(() => _panel = ToolPanel.none);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ctl = _ctl;
@@ -360,138 +334,447 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
         .whereType<DrawingBlock>()
         .toList();
     final index = pages.indexWhere((p) => p.path == _path);
+    final scheme = Theme.of(context).colorScheme;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _close();
       },
       child: Scaffold(
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-        appBar: AppBar(
-          leading: BackButton(onPressed: _close),
-          titleSpacing: 0,
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: 'Página anterior',
-                icon: const Icon(Icons.chevron_left),
-                onPressed: index > 0 ? () => _goTo(index - 1) : null,
-              ),
-              GestureDetector(
-                onTap: _showThumbnails,
-                child: Text(
-                  index < 0 ? '–' : '${index + 1}/${pages.length}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Página siguiente',
-                icon: const Icon(Icons.chevron_right),
-                onPressed: index >= 0 && index < pages.length - 1
-                    ? () => _goTo(index + 1)
-                    : null,
-              ),
-            ],
-          ),
-          actions: ctl == null
-              ? null
-              : [
-                  const StudyTimerButton(),
-                  ListenableBuilder(
-                    listenable: ctl,
-                    builder: (context, _) => Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Deshacer',
-                          icon: const Icon(Icons.undo),
-                          onPressed: ctl.canUndo ? ctl.undo : null,
-                        ),
-                        IconButton(
-                          tooltip: 'Rehacer',
-                          icon: const Icon(Icons.redo),
-                          onPressed: ctl.canRedo ? ctl.redo : null,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Capas',
-                    icon: const Icon(Icons.layers_outlined),
-                    onPressed: () => _sheet(LayersSheet(controller: ctl)),
-                  ),
-                  PopupMenuButton<String>(
-                    onSelected: (a) {
-                      switch (a) {
-                        case 'thumbs':
-                          _showThumbnails();
-                        case 'bookmark':
-                          ctl.toggleBookmark();
-                        case 'paper':
-                          _sheet(PaperSheet(
-                            controller: ctl,
-                            onPickImage: ref.read(cameraServiceProvider).pickImageFromGallery,
-                          ));
-                        case 'page':
-                          _pageMenu();
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: 'thumbs',
-                        child: ListTile(
-                            leading: Icon(Icons.grid_view), title: Text('Miniaturas')),
-                      ),
-                      PopupMenuItem(
-                        value: 'bookmark',
-                        child: ListTile(
-                          leading: Icon(ctl.drawing.bookmarked
-                              ? Icons.bookmark
-                              : Icons.bookmark_border),
-                          title: Text(ctl.drawing.bookmarked
-                              ? 'Quitar marcador'
-                              : 'Marcar página'),
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'paper',
-                        child: ListTile(
-                            leading: Icon(Icons.description_outlined),
-                            title: Text('Cambiar plantilla')),
-                      ),
-                      const PopupMenuItem(
-                        value: 'page',
-                        child: ListTile(
-                            leading: Icon(Icons.auto_stories_outlined),
-                            title: Text('Página: agregar, copiar, girar…')),
-                      ),
-                    ],
-                  ),
-                ],
-        ),
+        backgroundColor: const Color(0xFFE9ECEF),
         body: ctl == null
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
-                  Expanded(child: _canvas(ctl)),
+                  Material(
+                    color: scheme.surface,
+                    elevation: 1,
+                    child: SafeArea(
+                      bottom: false,
+                      child: Column(
+                        children: [
+                          _topRow(ctl),
+                          if (_toolbarOpen) ...[
+                            const Divider(height: 1),
+                            _toolRow(ctl),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(child: _canvas(ctl)),
+                        // Número de página (toca para ver miniaturas).
+                        Positioned(
+                          bottom: 14,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Material(
+                              color: Colors.black.withValues(alpha: 0.12),
+                              shape: const StadiumBorder(),
+                              child: InkWell(
+                                customBorder: const StadiumBorder(),
+                                onTap: _showThumbnails,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                                  child: Text(
+                                    index < 0 ? '–' : '${index + 1}/${pages.length}',
+                                    style: const TextStyle(fontSize: 16, color: Colors.black54),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Pasar de página.
+                        Positioned(
+                          right: 8,
+                          bottom: 60,
+                          child: Material(
+                            color: scheme.surface.withValues(alpha: 0.9),
+                            shape: const StadiumBorder(),
+                            elevation: 2,
+                            child: Column(
+                              children: [
+                                IconButton(
+                                  tooltip: 'Página anterior',
+                                  icon: const Icon(Icons.keyboard_arrow_up),
+                                  onPressed: index > 0 ? () => _goTo(index - 1) : null,
+                                ),
+                                IconButton(
+                                  tooltip: index >= 0 && index < pages.length - 1
+                                      ? 'Página siguiente'
+                                      : 'Agregar página',
+                                  icon: Icon(index >= 0 && index < pages.length - 1
+                                      ? Icons.keyboard_arrow_down
+                                      : Icons.add),
+                                  onPressed: index >= 0 && index < pages.length - 1
+                                      ? () => _goTo(index + 1)
+                                      : () => _addPage(copy: false),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (_panel != ToolPanel.none) ...[
+                          // Tocar fuera cierra el panel.
+                          Positioned.fill(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _closePanel,
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            left: 12,
+                            right: 12,
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 400),
+                                child: _panelFor(ctl),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                   ListenableBuilder(
                     listenable: ctl,
                     builder: (context, _) => ctl.selectedItem != null
                         ? _ItemBar(
                             controller: ctl,
                             onEditText: _editText,
+                            onEditShape: () => setState(() => _panel = ToolPanel.shapes),
                           )
-                        : _ToolBar(
-                            controller: ctl,
-                            onOpenSettings: () => _sheet(ToolSettingsSheet(controller: ctl)),
-                            onAddImage: _chooseImageSource,
-                          ),
+                        : const SizedBox.shrink(),
                   ),
                 ],
               ),
       ),
     );
+  }
+
+  Widget _icon(IconData icon, String tooltip, VoidCallback? onTap, {bool selected = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 1),
+      child: IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        style: IconButton.styleFrom(
+          backgroundColor: selected ? scheme.primaryContainer.withValues(alpha: 0.6) : null,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        icon: Icon(icon, size: 24),
+        onPressed: onTap,
+      ),
+    );
+  }
+
+  /// Fila 1: volver, cámara, grabar, páginas, capas, hoja, página nueva,
+  /// etiquetas, más opciones y ocultar herramientas.
+  Widget _topRow(DrawingController ctl) {
+    final rec = ref.watch(recordingControllerProvider);
+    return SizedBox(
+      height: 52,
+      child: Row(
+        children: [
+          _icon(Icons.arrow_back_ios_new, 'Volver', _close),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _icon(Icons.photo_camera_outlined, 'Tomar foto', () => _addImage(camera: true)),
+                  if (rec.isActive || rec.status == RecordingStatus.processing)
+                    _RecordingPill(state: rec, onStop: _stopRecording)
+                  else
+                    _icon(Icons.mic_none, 'Grabar audio mientras escribes', _startRecording),
+                  const SizedBox(width: 6),
+                  _icon(Icons.auto_stories_outlined, 'Páginas', _showThumbnails),
+                  _icon(Icons.layers_outlined, 'Capas', () {
+                    _closePanel();
+                    _sheet(LayersSheet(controller: ctl));
+                  }),
+                  _icon(Icons.description_outlined, 'Plantilla de la hoja', () {
+                    _closePanel();
+                    _sheet(PaperSheet(
+                      controller: ctl,
+                      onPickImage: ref.read(cameraServiceProvider).pickImageFromGallery,
+                    ));
+                  }),
+                  _icon(Icons.note_add_outlined, 'Agregar página', () => _addPage(copy: false)),
+                  _icon(Icons.tag, 'Etiquetas', () => showNoteTagsDialog(context, ref, widget.noteId)),
+                  const StudyTimerButton(),
+                  _icon(Icons.more_horiz, 'Más', () {
+                    _closePanel();
+                    _moreMenu(ctl);
+                  }),
+                ],
+              ),
+            ),
+          ),
+          _icon(_toolbarOpen ? Icons.expand_less : Icons.expand_more,
+              _toolbarOpen ? 'Ocultar herramientas' : 'Mostrar herramientas',
+              () => setState(() {
+                    _toolbarOpen = !_toolbarOpen;
+                    _panel = ToolPanel.none;
+                  })),
+        ],
+      ),
+    );
+  }
+
+  /// Fila 2: deshacer/rehacer, herramientas y colores rápidos.
+  Widget _toolRow(DrawingController ctl) {
+    return ListenableBuilder(
+      listenable: ctl,
+      builder: (context, _) {
+        final c = ctl;
+        if (penTools.contains(c.tool)) _pen = c.tool;
+        final drawing = c.mode == InputMode.draw;
+        final penOn = drawing && penTools.contains(c.tool);
+        final hlOn = drawing && c.tool == ToolType.highlighter;
+        final eraserOn =
+            (drawing && c.tool == ToolType.eraser) || c.mode == InputMode.eraseStrokes;
+        final showColors = penOn || hlOn;
+        return SizedBox(
+          height: 54,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              children: [
+                _icon(Icons.undo, 'Deshacer', c.canUndo ? c.undo : null),
+                _icon(Icons.redo, 'Rehacer', c.canRedo ? c.redo : null),
+                const SizedBox(height: 30, child: VerticalDivider(width: 14)),
+                _icon(toolIcon(_pen), _pen.label, () {
+                  if (penOn) {
+                    _togglePanel(ToolPanel.pen);
+                  } else {
+                    c.selectTool(_pen);
+                    _closePanel();
+                  }
+                }, selected: penOn),
+                _icon(Icons.highlight, 'Resaltador', () {
+                  if (hlOn) {
+                    _togglePanel(ToolPanel.highlighter);
+                  } else {
+                    c.selectTool(ToolType.highlighter);
+                    _closePanel();
+                  }
+                }, selected: hlOn),
+                _icon(Icons.auto_fix_normal, 'Borrador', () {
+                  if (eraserOn) {
+                    _togglePanel(ToolPanel.eraser);
+                  } else {
+                    c.selectTool(ToolType.eraser);
+                    _closePanel();
+                  }
+                }, selected: eraserOn),
+                _icon(Icons.highlight_alt, 'Seleccionar y mover', () {
+                  c.selectMode(InputMode.select);
+                  _closePanel();
+                }, selected: c.mode == InputMode.select),
+                _icon(Icons.image_outlined, 'Poner una foto', () {
+                  _closePanel();
+                  _chooseImageSource();
+                }),
+                _icon(Icons.text_fields, 'Texto: toca la hoja para escribir', () {
+                  c.selectMode(InputMode.text);
+                  _closePanel();
+                }, selected: c.mode == InputMode.text),
+                _icon(Icons.category_outlined, 'Formas', () => _togglePanel(ToolPanel.shapes),
+                    selected: _panel == ToolPanel.shapes),
+                _icon(Icons.emoji_emotions_outlined, 'Stickers',
+                    () => _togglePanel(ToolPanel.stickers),
+                    selected: _panel == ToolPanel.stickers),
+                _icon(Icons.pan_tool_outlined, 'Mover la hoja', () {
+                  c.selectMode(InputMode.pan);
+                  _closePanel();
+                }, selected: c.mode == InputMode.pan),
+                if (showColors) ...[
+                  const SizedBox(height: 30, child: VerticalDivider(width: 14)),
+                  SizedBox(
+                    width: 200,
+                    child: QuickColorRow(
+                      size: 32,
+                      colors: c.quickColors(c.tool),
+                      selected: c.settings.color,
+                      onPick: c.setColor,
+                      onReplace: c.setQuickColor,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _panelFor(DrawingController ctl) => switch (_panel) {
+        ToolPanel.pen => PenPanel(controller: ctl),
+        ToolPanel.highlighter => HighlighterPanel(controller: ctl),
+        ToolPanel.eraser => EraserPanel(controller: ctl),
+        ToolPanel.shapes => ShapesPanel(controller: ctl, onInsert: _insertShape),
+        ToolPanel.stickers => StickersPanel(
+            onSticker: _insertSticker,
+            onTextSticker: _insertTextSticker,
+            onEmoji: _insertEmoji,
+          ),
+        ToolPanel.none => const SizedBox.shrink(),
+      };
+
+  Future<void> _moreMenu(DrawingController ctl) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(ctl.drawing.bookmarked ? Icons.bookmark : Icons.bookmark_border),
+              title: Text(ctl.drawing.bookmarked ? 'Quitar marcador' : 'Marcar página'),
+              onTap: () => Navigator.pop(context, 'bookmark'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined),
+              title: const Text('Copiar página'),
+              onTap: () => Navigator.pop(context, 'copy'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.rotate_90_degrees_ccw_outlined),
+              title: Text(ctl.drawing.isLandscape ? 'Poner vertical' : 'Poner horizontal'),
+              onTap: () => Navigator.pop(context, 'rotate'),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.edit_note),
+              title: const Text('Solo lápiz óptico'),
+              value: ctl.stylusOnly,
+              onChanged: (_) => Navigator.pop(context, 'stylus'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Borrar página'),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    switch (action) {
+      case 'bookmark':
+        ctl.toggleBookmark();
+      case 'copy':
+        await _addPage(copy: true);
+      case 'rotate':
+        ctl.setLandscape(!ctl.drawing.isLandscape);
+      case 'stylus':
+        ctl.toggleStylusOnly();
+      case 'delete':
+        await _deletePage();
+    }
+  }
+
+  // ------------------------------------------------- Grabar mientras escribes
+
+  Future<void> _startRecording() async {
+    final rec = ref.read(recordingControllerProvider.notifier);
+    await rec.start(widget.noteId);
+    final st = ref.read(recordingControllerProvider);
+    if (!mounted || st.status != RecordingStatus.error) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(st.message ?? 'No se pudo empezar a grabar'),
+      action: st.micBlocked
+          ? SnackBarAction(label: 'Abrir ajustes', onPressed: openAppSettings)
+          : null,
+    ));
+  }
+
+  Future<void> _stopRecording() async {
+    final rec = ref.read(recordingControllerProvider);
+    if (!rec.isActive) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Guardando y transcribiendo… el audio queda en la nota')));
+    await ref.read(recordingControllerProvider.notifier).stop();
+  }
+
+  // ---------------------------------------------------- Stickers y formas
+
+  void _placeAndSelect(CanvasItem item) {
+    final ctl = _ctl!;
+    if (!ctl.canDrawOnActiveLayer) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La capa activa está oculta o bloqueada')));
+      return;
+    }
+    ctl.addItem(item);
+    ctl.selectMode(InputMode.select);
+    ctl.selectItem(item.id);
+    _closePanel();
+  }
+
+  void _insertSticker(StickerDef def) {
+    final c = _visibleCenter;
+    _placeAndSelect(StickerItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      sticker: def.id,
+      width: def.width,
+      height: def.height,
+    ));
+  }
+
+  void _insertTextSticker(TextSticker t) {
+    final c = _visibleCenter;
+    _placeAndSelect(TextItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      text: t.text,
+      font: t.font,
+      size: 64,
+      color: t.color,
+      background: t.background,
+      width: 800,
+    ));
+  }
+
+  void _insertEmoji(String e) {
+    final c = _visibleCenter;
+    _placeAndSelect(TextItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      text: e,
+      size: 110,
+      width: 300,
+    ));
+  }
+
+  void _insertShape(ShapeKind kind) {
+    final ctl = _ctl!;
+    final c = _visibleCenter;
+    final (w, h) = kind.defaultSize;
+    _placeAndSelect(ShapeItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      shape: kind,
+      width: w,
+      height: h,
+      color: ctl.shapeColor,
+      strokeWidth: ctl.shapeStrokeWidth,
+      fill: ctl.shapeFill && !kind.isLine ? ShapesPanel.fillFor(ctl.shapeColor) : null,
+    ));
   }
 
   Widget _canvas(DrawingController ctl) {
@@ -698,138 +981,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
       );
 }
 
-class _ToolBar extends StatelessWidget {
-  const _ToolBar({
-    required this.controller,
-    required this.onOpenSettings,
-    required this.onAddImage,
-  });
-  final DrawingController controller;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onAddImage;
-
-  static const _icons = {
-    ToolType.pen: Icons.edit,
-    ToolType.pencil: Icons.create_outlined,
-    ToolType.brush: Icons.brush,
-    ToolType.marker: Icons.border_color,
-    ToolType.highlighter: Icons.highlight,
-    ToolType.eraser: Icons.auto_fix_normal,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        final scheme = Theme.of(context).colorScheme;
-        final c = controller;
-        Widget button({
-          required IconData icon,
-          required String tooltip,
-          required bool selected,
-          required VoidCallback onTap,
-          Color? dot,
-        }) =>
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Stack(
-                alignment: Alignment.bottomCenter,
-                children: [
-                  IconButton(
-                    tooltip: tooltip,
-                    isSelected: selected,
-                    style: IconButton.styleFrom(
-                      backgroundColor: selected ? scheme.primaryContainer : null,
-                    ),
-                    icon: Icon(icon),
-                    onPressed: onTap,
-                  ),
-                  if (dot != null)
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: dot,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black26),
-                      ),
-                    ),
-                ],
-              ),
-            );
-
-        return Material(
-          elevation: 8,
-          child: SafeArea(
-            top: false,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Row(
-                children: [
-                  for (final t in ToolType.values)
-                    button(
-                      icon: _icons[t]!,
-                      tooltip: t.label,
-                      selected: c.mode == InputMode.draw && c.tool == t,
-                      dot: t == ToolType.eraser ? null : Color(c.settingsFor(t).color),
-                      onTap: () {
-                        // Tocar la herramienta ya elegida abre color y grosor.
-                        if (c.mode == InputMode.draw && c.tool == t) {
-                          onOpenSettings();
-                        } else {
-                          c.selectTool(t);
-                        }
-                      },
-                    ),
-                  const SizedBox(height: 32, child: VerticalDivider()),
-                  button(
-                    icon: Icons.cleaning_services_outlined,
-                    tooltip: 'Borrar trazos completos',
-                    selected: c.mode == InputMode.eraseStrokes,
-                    onTap: () => c.selectMode(InputMode.eraseStrokes),
-                  ),
-                  button(
-                    icon: Icons.title,
-                    tooltip: 'Texto: toca la hoja para escribir',
-                    selected: c.mode == InputMode.text,
-                    onTap: () => c.selectMode(InputMode.text),
-                  ),
-                  button(
-                    icon: Icons.add_photo_alternate_outlined,
-                    tooltip: 'Poner una foto',
-                    selected: false,
-                    onTap: onAddImage,
-                  ),
-                  button(
-                    icon: Icons.ads_click,
-                    tooltip: 'Mover textos y fotos',
-                    selected: c.mode == InputMode.select,
-                    onTap: () => c.selectMode(InputMode.select),
-                  ),
-                  button(
-                    icon: Icons.pan_tool_outlined,
-                    tooltip: 'Mover la hoja',
-                    selected: c.mode == InputMode.pan,
-                    onTap: () => c.selectMode(InputMode.pan),
-                  ),
-                  button(
-                    icon: Icons.tune,
-                    tooltip: 'Color y grosor',
-                    selected: false,
-                    onTap: onOpenSettings,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 /// Miniaturas de todas las páginas de la nota, con filtro de marcadas.
 class _ThumbnailsSheet extends ConsumerStatefulWidget {
   const _ThumbnailsSheet({required this.noteId, required this.currentPath});
@@ -923,9 +1074,10 @@ class _ThumbnailsSheetState extends ConsumerState<_ThumbnailsSheet> {
 
 /// Acciones para el texto o la foto seleccionada.
 class _ItemBar extends StatelessWidget {
-  const _ItemBar({required this.controller, required this.onEditText});
+  const _ItemBar({required this.controller, required this.onEditText, required this.onEditShape});
   final DrawingController controller;
   final void Function(TextItem item) onEditText;
+  final VoidCallback onEditShape;
 
   @override
   Widget build(BuildContext context) {
@@ -952,6 +1104,8 @@ class _ItemBar extends StatelessWidget {
             children: [
               if (item is TextItem)
                 action(Icons.edit_outlined, 'Editar', () => onEditText(item))
+              else if (item is ShapeItem)
+                action(Icons.palette_outlined, 'Estilo', onEditShape)
               else if (item is ImageItem)
                 PopupMenuButton<ImageFrame>(
                   tooltip: 'Marco',
@@ -979,6 +1133,65 @@ class _ItemBar extends StatelessWidget {
               action(Icons.delete_outline, 'Borrar', () => controller.removeItem(item.id)),
               action(Icons.check, 'Listo', () => controller.selectItem(null)),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Píldora roja de "grabando" con el tiempo; tocar para terminar.
+class _RecordingPill extends StatelessWidget {
+  const _RecordingPill({required this.state, required this.onStop});
+  final RecordingState state;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    const pink = Color(0xFFE0409A);
+    final processing = state.status == RecordingStatus.processing;
+    final secs = state.elapsedMs ~/ 1000;
+    final label = processing
+        ? 'Transcribiendo ${state.progress}%'
+        : '${(secs ~/ 60).toString().padLeft(2, '0')}:${(secs % 60).toString().padLeft(2, '0')}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Material(
+        color: Colors.white,
+        shape: const StadiumBorder(side: BorderSide(color: Color(0x22000000))),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: processing ? null : onStop,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (processing)
+                  const SizedBox(
+                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                else
+                  Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: pink, width: 2),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                            color: pink, borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                Text(label,
+                    style: const TextStyle(color: pink, fontSize: 16, fontWeight: FontWeight.w500)),
+              ],
+            ),
           ),
         ),
       ),

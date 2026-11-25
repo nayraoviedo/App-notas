@@ -15,15 +15,35 @@ import 'shape_recognizer.dart';
 /// - select: mover, agrandar y girar textos y fotos (collage).
 enum InputMode { draw, eraseStrokes, pan, text, select }
 
-/// Color y grosor recordados por herramienta (como en las apps de notas).
+/// Color, grosor, sensibilidad a la presión y estabilización recordados por
+/// herramienta (como en las apps de notas).
 class ToolSettings {
-  const ToolSettings(this.color, this.size);
+  const ToolSettings(this.color, this.size, {this.pressure, this.stabilization});
   final int color;
   final double size;
 
-  ToolSettings copyWith({int? color, double? size}) =>
-      ToolSettings(color ?? this.color, size ?? this.size);
+  /// 0–1. null = lo propio de la herramienta.
+  final double? pressure;
+  final double? stabilization;
+
+  ToolSettings copyWith({int? color, double? size, double? pressure, double? stabilization}) =>
+      ToolSettings(
+        color ?? this.color,
+        size ?? this.size,
+        pressure: pressure ?? this.pressure,
+        stabilization: stabilization ?? this.stabilization,
+      );
 }
+
+/// Valores por defecto de presión y estabilización de cada herramienta
+/// (los mismos que usa el dibujo, en `stroke_renderer.dart`).
+(double, double) defaultFeel(ToolType t) => switch (t) {
+      ToolType.pen => (0.15, 0.5),
+      ToolType.fountain => (0.55, 0.5),
+      ToolType.pencil => (0.35, 0.35),
+      ToolType.brush => (0.8, 0.6),
+      _ => (0.0, 0.5),
+    };
 
 /// Estado del lienzo: herramientas, capas, deshacer/rehacer y guardado.
 class DrawingController extends ChangeNotifier {
@@ -47,6 +67,7 @@ class DrawingController extends ChangeNotifier {
 
   final Map<ToolType, ToolSettings> _settings = {
     ToolType.pen: const ToolSettings(0xFF1F2328, 4),
+    ToolType.fountain: const ToolSettings(0xFFB3261E, 5),
     ToolType.pencil: const ToolSettings(0xFF3A3A3A, 3),
     ToolType.brush: const ToolSettings(0xFF1677FF, 14),
     ToolType.marker: const ToolSettings(0xFFE5484D, 10),
@@ -77,6 +98,42 @@ class DrawingController extends ChangeNotifier {
 
   void setSize(double size) {
     _settings[tool] = settings.copyWith(size: size);
+    notifyListeners();
+  }
+
+  void setFeel({double? pressure, double? stabilization}) {
+    _settings[tool] = settings.copyWith(pressure: pressure, stabilization: stabilization);
+    notifyListeners();
+  }
+
+  /// Colores rápidos de la barra (los últimos usados por herramienta).
+  final Map<ToolType, List<int>> _recent = {};
+  List<int> quickColors(ToolType t) {
+    final defaults = t == ToolType.highlighter
+        ? const [0xFFFFE14D, 0xFFFFB27A, 0xFF8EF08E, 0xFFA8C8FF, 0xFFD7A8FF]
+        : const [0xFF000000, 0xFFB3261E, 0xFF2F55C0, 0xFF0B7A55, 0xFFE0A000];
+    return _recent[t] ?? defaults;
+  }
+
+  void setQuickColor(int slot, int color) {
+    final list = [...quickColors(tool)];
+    if (slot < 0 || slot >= list.length) return;
+    list[slot] = color;
+    _recent[tool] = list;
+    setColor(color);
+  }
+
+  // ------------------------------------------------------------- Formas
+
+  /// Estilo para las formas nuevas.
+  int shapeColor = 0xFF000000;
+  double shapeStrokeWidth = 4;
+  bool shapeFill = false;
+
+  void setShapeStyle({int? color, double? strokeWidth, bool? fill}) {
+    shapeColor = color ?? shapeColor;
+    shapeStrokeWidth = strokeWidth ?? shapeStrokeWidth;
+    shapeFill = fill ?? shapeFill;
     notifyListeners();
   }
 
@@ -317,6 +374,8 @@ class DrawingController extends ChangeNotifier {
       tool: tool,
       color: settings.color,
       size: (settings.size * sizeScale).clamp(0.5, 120),
+      thinning: settings.pressure,
+      streamline: settings.stabilization,
       points: [StrokePoint(at.dx, at.dy, pressure)],
     );
     notifyListeners();
@@ -353,7 +412,14 @@ class DrawingController extends ChangeNotifier {
     final r = ShapeRecognizer.recognize(s.points);
     if (r == null) return null;
     _snapped = true;
-    currentStroke = Stroke(tool: s.tool, color: s.color, size: s.size, points: r.$2);
+    currentStroke = Stroke(
+      tool: s.tool,
+      color: s.color,
+      size: s.size,
+      thinning: s.thinning,
+      streamline: s.streamline,
+      points: r.$2,
+    );
     notifyListeners();
     return r.$1;
   }

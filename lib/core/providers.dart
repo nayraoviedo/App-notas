@@ -74,6 +74,9 @@ final drawingFileProvider = FutureProvider.autoDispose.family<Drawing, String>(
 final notesListProvider = StreamProvider.family<List<Note>, String?>((ref, notebookId) =>
     ref.watch(notesRepositoryProvider).watchNotes(notebookId: notebookId));
 
+final allTagsProvider =
+    StreamProvider<List<String>>((ref) => ref.watch(notesRepositoryProvider).watchAllTags());
+
 final notebooksProvider = StreamProvider<List<Notebook>>(
     (ref) => ref.watch(notebooksRepositoryProvider).watchAll());
 

@@ -62,6 +62,34 @@ jobs:
           flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
 
+      # Capturas de las pantallas (se descargan desde Actions → "capturas").
+      - name: Capturas de pantalla
+        continue-on-error: true
+        run: |
+          mkdir -p screenshot_test/fonts
+          base=https://raw.githubusercontent.com/google/fonts/main
+          for pair in \
+            "Pacifico ofl/pacifico/Pacifico-Regular.ttf" \
+            "Dancing_Script ofl/dancingscript/DancingScript%5Bwght%5D.ttf" \
+            "Great_Vibes ofl/greatvibes/GreatVibes-Regular.ttf" \
+            "Satisfy apache/satisfy/Satisfy-Regular.ttf" \
+            "Allura ofl/allura/Allura-Regular.ttf" \
+            "Sacramento ofl/sacramento/Sacramento-Regular.ttf"; do
+            set -- $pair
+            curl -fsSL -o "screenshot_test/fonts/$1.ttf" "$base/$2" || echo "sin $1"
+          done
+          export FLUTTER_ROOT="${FLUTTER_ROOT:-$(dirname "$(dirname "$(which flutter)")")}"
+          flutter test screenshot_test --update-goldens || true
+          ls -la screenshot_test/out || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capturas
+          path: screenshot_test/out/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       # Algunas librerías (whisper_ggml) piden otra versión del NDK; Gradle la
       # instala sola, pero solo si las licencias están aceptadas.
       - name: Aceptar licencias del SDK de Android

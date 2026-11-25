@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/fonts.dart';
 import '../../application/drawing_controller.dart';
 import '../../domain/drawing.dart';
+import '../painters/shape_painter.dart';
+import '../painters/sticker_painter.dart';
 
 /// Lo que se ve de un elemento (texto o foto), sin posición ni giro.
 class CanvasItemContent extends StatelessWidget {
@@ -16,6 +18,27 @@ class CanvasItemContent extends StatelessWidget {
   Widget build(BuildContext context) => switch (item) {
         TextItem t => _TextContent(item: t),
         ImageItem i => _ImageContent(item: i),
+        StickerItem st => SizedBox(
+            width: st.width,
+            height: st.height,
+            child: CustomPaint(painter: StickerPainter(st.sticker)),
+          ),
+        ShapeItem sh => Padding(
+            // Margen para que el borde de selección no tape el trazo.
+            padding: EdgeInsets.all(sh.strokeWidth / 2 + 6),
+            child: SizedBox(
+              width: sh.width,
+              height: sh.height,
+              child: CustomPaint(
+                painter: ShapePainter(
+                  sh.shape,
+                  color: Color(sh.color),
+                  strokeWidth: sh.strokeWidth,
+                  fill: sh.fill == null ? null : Color(sh.fill!),
+                ),
+              ),
+            ),
+          ),
       };
 }
 
@@ -23,7 +46,7 @@ TextStyle textItemStyle(TextItem t) => fontStyle(t.font, size: t.size).copyWith(
       color: Color(t.color),
       fontWeight: t.bold ? FontWeight.bold : FontWeight.normal,
       fontStyle: t.italic ? FontStyle.italic : FontStyle.normal,
-      height: 1.25,
+      height: t.lineHeight,
     );
 
 TextAlign textItemAlign(TextItem t) => switch (t.align) {

@@ -33,6 +33,9 @@ class Notes extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// Etiquetas separadas por "|" (desde el esquema v5).
+  TextColumn get tags => text().withDefault(const Constant(''))();
+
   @override
   Set<Column> get primaryKey => {id};
 }

@@ -5,9 +5,13 @@ class Note {
     required this.createdAt,
     required this.updatedAt,
     this.notebookId,
+    this.tags = const [],
   });
 
   final String id;
+
+  /// Etiquetas (#clase, #ideas…).
+  final List<String> tags;
   final String title;
   final String? notebookId;
   final DateTime createdAt;

@@ -8,6 +8,7 @@ export 'canvas_item.dart';
 /// Herramientas de dibujo. Cada una se ve distinta (ver `stroke_renderer.dart`).
 enum ToolType {
   pen('Bolígrafo'),
+  fountain('Pluma estilográfica'),
   pencil('Lápiz'),
   brush('Pincel'),
   marker('Marcador'),
@@ -22,11 +23,26 @@ enum ToolType {
 enum PaperTemplate {
   blank('En blanco'),
   lined('Rayada'),
+  linedNarrow('Línea estrecha'),
+  linedWide('Línea ancha'),
   grid('Cuadriculada'),
+  miniGrid('Mini cuadrícula'),
   dots('Puntos'),
-  cornell('Cornell'),
+  cornell('Cornell A'),
+  cornellB('Cornell B'),
+  cornellC('Cornell C'),
+  ebbinghaus('Repaso Ebbinghaus'),
   todo('Lista de tareas'),
+  dailyPlan('Plan diario'),
+  weeklyPlan('Plan semanal'),
+  habits('Hábitos mensuales'),
+  reading('Registro de lectura'),
+  englishLines('Papel de inglés'),
   music('Pentagrama'),
+  guitarTab('Tablatura'),
+  soccer('Cancha de fútbol'),
+  basketball('Cancha de básquet'),
+  cover('Tapa'),
   tianzi('田字格 Tianzi'),
   mizi('米字格 Mizi'),
   jiugong('九宫格 Nueve casillas');
@@ -50,9 +66,16 @@ class Stroke {
     required this.color,
     required this.size,
     required this.points,
+    this.thinning,
+    this.streamline,
   });
 
   final ToolType tool;
+
+  /// Sensibilidad a la presión (0–1) y estabilización del trazo (0–1).
+  /// null = el valor propio de la herramienta.
+  final double? thinning;
+  final double? streamline;
 
   /// Color ARGB (0xAARRGGBB).
   final int color;
@@ -78,6 +101,8 @@ class Stroke {
         't': tool.name,
         'c': color,
         's': size,
+        if (thinning != null) 'th': _r(thinning!, 100),
+        if (streamline != null) 'sl': _r(streamline!, 100),
         // Formato compacto: [x, y, p, x, y, p, ...] con 1 decimal.
         'pts': [
           for (final pt in points) ...[
@@ -91,9 +116,11 @@ class Stroke {
   factory Stroke.fromJson(Map<String, Object?> j) {
     final raw = (j['pts']! as List).cast<num>();
     return Stroke(
-      tool: ToolType.values.byName(j['t']! as String),
+      tool: ToolType.values.where((t) => t.name == j['t']).firstOrNull ?? ToolType.pen,
       color: j['c']! as int,
       size: (j['s']! as num).toDouble(),
+      thinning: (j['th'] as num?)?.toDouble(),
+      streamline: (j['sl'] as num?)?.toDouble(),
       points: [
         for (var i = 0; i + 2 < raw.length; i += 3)
           StrokePoint(
@@ -223,7 +250,8 @@ class PaperStyle {
       };
 
   factory PaperStyle.fromJson(Map<String, Object?> j) => PaperStyle(
-        template: PaperTemplate.values.byName(j['template'] as String? ?? 'lined'),
+        template: PaperTemplate.values.where((t) => t.name == j['template']).firstOrNull ??
+            PaperTemplate.lined,
         background: j['background'] as int? ?? 0xFFFFFFFF,
         spacing: (j['spacing'] as num?)?.toDouble() ?? 40,
         imagePath: j['image'] as String?,

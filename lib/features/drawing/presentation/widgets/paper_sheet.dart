@@ -32,10 +32,10 @@ class PaperSheet extends StatelessWidget {
                   height: 150,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: PaperTemplate.values.length,
+                    itemCount: _templates.length,
                     separatorBuilder: (_, __) => const SizedBox(width: 12),
                     itemBuilder: (context, i) {
-                      final t = PaperTemplate.values[i];
+                      final t = _templates[i];
                       final selected = t == paper.template;
                       return GestureDetector(
                         onTap: () => controller.setPaper(paper.copyWith(template: t)),
@@ -180,3 +180,8 @@ class PaperSheet extends StatelessWidget {
     );
   }
 }
+
+final _templates = [
+  for (final (_, list) in Paper.groups) ...list,
+  PaperTemplate.cover,
+];

@@ -62,6 +62,7 @@ const notebookColors = <int>[
 ];
 
 /// Stickers para la portada.
+/// "cat:orange" y "cat:gray" son las mascotas dibujadas por la app.
 const coverStickers = <String>[
-  '', '🌸', '🎀', '⭐', '🍓', '🐱', '🐻', '☁️', '🌙', '🌷', '🍀', '📚', '✏️', '🎧', '🧸', '💌',
+  '', 'cat:orange', 'cat:gray', '🌸', '🎀', '⭐', '🍓', '🐱', '🐻', '☁️', '🌙', '🌷', '🍀', '📚', '✏️', '🎧', '🧸', '💌',
 ];

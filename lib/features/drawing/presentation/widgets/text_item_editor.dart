@@ -10,20 +10,19 @@ const textBackgrounds = <int>[
   0xFFFFF1A8, 0xFFFFD6E0, 0xFFD7F0FF, 0xFFDDF5D3, 0xFFEADCFF, 0xFFFFE3C7, 0xFF1F2328,
 ];
 
-/// Escribir o editar un texto sobre la hoja: fuente (incluidas cursivas y
-/// chinas), tamaño, color, negrita, cursiva, alineación y fondo.
+/// Escribir o editar un texto sobre la hoja, con una barra compacta sobre el
+/// teclado (como StarNote): fuente, tamaño − / +, interlineado, negrita,
+/// cursiva, alineación, color y fondo tipo etiqueta.
 /// Devuelve el texto editado, o null si se canceló.
 Future<TextItem?> showTextItemEditor(BuildContext context, TextItem initial) {
   return showModalBottomSheet<TextItem>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (context) => Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.72,
-        child: _TextItemEditor(initial: initial),
-      ),
+      child: _TextItemEditor(initial: initial),
     ),
   );
 }
@@ -51,14 +50,30 @@ class _TextItemEditorState extends State<_TextItemEditor> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final label = appFonts.where((f) => f.family == _item.font).firstOrNull?.label ?? 'Sistema';
+    final label = appFonts.where((f) => f.family == _item.font).firstOrNull?.label.split(' · ').first ??
+        'Fuente predeterminada';
+
+    Widget pill({required Widget child, VoidCallback? onTap}) => Material(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: child,
+            ),
+          ),
+        );
 
     return SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
               children: [
                 TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
                 const Spacer(),
@@ -68,124 +83,147 @@ class _TextItemEditorState extends State<_TextItemEditor> {
                 ),
               ],
             ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              children: [
-                // Vista previa con el estilo real.
-                Container(
-                  constraints: const BoxConstraints(minHeight: 90),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: scheme.outlineVariant),
-                  ),
-                  child: TextField(
-                    controller: _text,
-                    autofocus: widget.initial.text.isEmpty,
-                    maxLines: null,
-                    textAlign: textItemAlign(_item),
-                    style: textItemStyle(_item).copyWith(
-                      fontSize: _item.size.clamp(14, 44),
-                      backgroundColor:
-                          _item.background == null ? null : Color(_item.background!),
-                    ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Escribe aquí…',
-                    ),
-                  ),
+            // Cuadro de texto con el estilo real, como en la hoja.
+            Container(
+              constraints: const BoxConstraints(minHeight: 70, maxHeight: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: _item.background == null ? Colors.white : Color(_item.background!),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: scheme.primary, width: 1.5),
+              ),
+              child: TextField(
+                controller: _text,
+                autofocus: true,
+                maxLines: null,
+                textAlign: textItemAlign(_item),
+                style: textItemStyle(_item).copyWith(fontSize: _item.size.clamp(14, 40)),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Escribe aquí…',
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    ActionChip(
-                      avatar: const Icon(Icons.text_fields, size: 18),
-                      label: Text(label),
-                      onPressed: () async {
-                        final f = await _pickFont(context, _item.font);
-                        if (f != null) {
-                          _set((t) => t.copyWith(font: f.family, clearFont: f.family == null));
-                        }
-                      },
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      isSelected: _item.bold,
-                      icon: const Icon(Icons.format_bold),
-                      onPressed: () => _set((t) => t.copyWith(bold: !t.bold)),
-                    ),
-                    IconButton(
-                      isSelected: _item.italic,
-                      icon: const Icon(Icons.format_italic),
-                      onPressed: () => _set((t) => t.copyWith(italic: !t.italic)),
-                    ),
-                    IconButton(
-                      icon: Icon(switch (_item.align) {
-                        TextItemAlign.left => Icons.format_align_left,
-                        TextItemAlign.center => Icons.format_align_center,
-                        TextItemAlign.right => Icons.format_align_right,
-                      }),
-                      onPressed: () => _set((t) => t.copyWith(
-                          align: TextItemAlign.values[(t.align.index + 1) % 3])),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    const Text('Tamaño'),
-                    Expanded(
-                      child: Slider(
-                        min: 12,
-                        max: 140,
-                        value: _item.size.clamp(12, 140),
-                        onChanged: (v) => _set((t) => t.copyWith(size: v)),
-                      ),
-                    ),
-                    SizedBox(width: 36, child: Text('${_item.size.round()}')),
-                  ],
-                ),
-                const Text('Color de la letra'),
-                const SizedBox(height: 8),
-                _ColorRow(
-                  colors: drawingPalette,
-                  selected: _item.color,
-                  onPick: (c) => _set((t) => t.copyWith(color: c)),
-                ),
-                const SizedBox(height: 16),
-                const Text('Fondo (etiqueta)'),
-                const SizedBox(height: 8),
-                _ColorRow(
-                  colors: textBackgrounds,
-                  selected: _item.background,
-                  allowNone: true,
-                  onPick: (c) => _set((t) =>
-                      c == null ? t.copyWith(clearBackground: true) : t.copyWith(background: c)),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text('Ancho del cuadro'),
-                    Expanded(
-                      child: Slider(
-                        min: 120,
-                        max: 950,
-                        value: _item.width.clamp(120, 950),
-                        onChanged: (v) => _set((t) => t.copyWith(width: v)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Center(
-                  child: FittedBox(child: CanvasItemContent(item: _item.copyWith(text: _text.text))),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            // Fuente · tamaño · interlineado · B · I · alineación
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  pill(
+                    onTap: () async {
+                      final f = await _pickFont(context, _item.font);
+                      if (f != null) {
+                        _set((t) => t.copyWith(font: f.family, clearFont: f.family == null));
+                      }
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 140),
+                          child: Text(label,
+                              overflow: TextOverflow.ellipsis,
+                              style: fontStyle(_item.font, size: 15)),
+                        ),
+                        const Icon(Icons.expand_more, size: 18),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  pill(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: () => _set((t) => t.copyWith(size: (t.size - 2).clamp(8, 200))),
+                          child: const Icon(Icons.remove, size: 20),
+                        ),
+                        SizedBox(
+                          width: 40,
+                          child: Text('${_item.size.round()}', textAlign: TextAlign.center),
+                        ),
+                        InkWell(
+                          onTap: () => _set((t) => t.copyWith(size: (t.size + 2).clamp(8, 200))),
+                          child: const Icon(Icons.add, size: 20),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  PopupMenuButton<double>(
+                    tooltip: 'Interlineado',
+                    onSelected: (v) => _set((t) => t.copyWith(lineHeight: v)),
+                    itemBuilder: (_) => [
+                      for (final v in const [1.0, 1.25, 1.5, 2.0])
+                        PopupMenuItem(value: v, child: Text('${v.toStringAsFixed(v == 1.25 ? 2 : 1)}X')),
+                    ],
+                    child: pill(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('${_item.lineHeight.toStringAsFixed(_item.lineHeight == 1.25 ? 2 : 1)}X'),
+                          const Icon(Icons.expand_more, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    isSelected: _item.bold,
+                    tooltip: 'Negrita',
+                    icon: const Icon(Icons.format_bold),
+                    onPressed: () => _set((t) => t.copyWith(bold: !t.bold)),
+                  ),
+                  IconButton(
+                    isSelected: _item.italic,
+                    tooltip: 'Cursiva',
+                    icon: const Icon(Icons.format_italic),
+                    onPressed: () => _set((t) => t.copyWith(italic: !t.italic)),
+                  ),
+                  IconButton(
+                    tooltip: 'Alineación',
+                    icon: Icon(switch (_item.align) {
+                      TextItemAlign.left => Icons.format_align_left,
+                      TextItemAlign.center => Icons.format_align_center,
+                      TextItemAlign.right => Icons.format_align_right,
+                    }),
+                    onPressed: () =>
+                        _set((t) => t.copyWith(align: TextItemAlign.values[(t.align.index + 1) % 3])),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            // Color de la letra | fondo tipo etiqueta
+            SizedBox(
+              height: 38,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final c in drawingPalette)
+                    _Dot(
+                      color: c,
+                      selected: _item.color == c,
+                      onTap: () => _set((t) => t.copyWith(color: c)),
+                    ),
+                  const VerticalDivider(width: 18),
+                  _Dot(
+                    color: null,
+                    selected: _item.background == null,
+                    onTap: () => _set((t) => t.copyWith(clearBackground: true)),
+                  ),
+                  for (final c in textBackgrounds)
+                    _Dot(
+                      color: c,
+                      square: true,
+                      selected: _item.background == c,
+                      onTap: () => _set((t) => t.copyWith(background: c)),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -221,45 +259,30 @@ class _TextItemEditorState extends State<_TextItemEditor> {
   }
 }
 
-class _ColorRow extends StatelessWidget {
-  const _ColorRow({
-    required this.colors,
-    required this.selected,
-    required this.onPick,
-    this.allowNone = false,
-  });
-
-  final List<int> colors;
-  final int? selected;
-  final ValueChanged<int?> onPick;
-  final bool allowNone;
+class _Dot extends StatelessWidget {
+  const _Dot({required this.color, required this.selected, required this.onTap, this.square = false});
+  final int? color;
+  final bool selected;
+  final bool square;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    Widget dot(int? c) => GestureDetector(
-          onTap: () => onPick(c),
-          child: Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: c == null ? Colors.white : Color(c),
-              shape: BoxShape.circle,
-              border: Border.all(
-                width: selected == c ? 3 : 1,
-                color: selected == c ? primary : Colors.black26,
-              ),
-            ),
-            child: c == null ? const Icon(Icons.block, size: 18, color: Colors.black38) : null,
-          ),
-        );
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        if (allowNone) dot(null),
-        for (final c in colors) dot(c),
-      ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 30,
+        height: 30,
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        decoration: BoxDecoration(
+          color: color == null ? Colors.white : Color(color!),
+          shape: square ? BoxShape.rectangle : BoxShape.circle,
+          borderRadius: square ? BorderRadius.circular(7) : null,
+          border: Border.all(width: selected ? 3 : 1, color: selected ? primary : Colors.black26),
+        ),
+        child: color == null ? const Icon(Icons.block, size: 16, color: Colors.black38) : null,
+      ),
     );
   }
 }

@@ -7,6 +7,7 @@ import '../../domain/drawing.dart';
 /// Cómo se ve cada herramienta.
 ///
 /// - Bolígrafo: línea firme, casi sin variación de grosor.
+/// - Pluma estilográfica: tinta con trazo que engrosa con la presión.
 /// - Lápiz: fino, algo transparente y con borde suave (grafito).
 /// - Pincel: muy sensible a la presión, con puntas afinadas.
 /// - Marcador: grueso y opaco.
@@ -45,6 +46,7 @@ class StrokeRenderer {
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.6),
         );
       case ToolType.pen:
+      case ToolType.fountain:
       case ToolType.brush:
       case ToolType.marker:
         canvas.drawPath(_outline(stroke, live), Paint()..color = color);
@@ -76,47 +78,41 @@ class StrokeRenderer {
 
   static StrokeOptions _options(Stroke s, bool hasPressure, bool live) {
     final simulate = !hasPressure;
-    switch (s.tool) {
-      case ToolType.pen:
-        return StrokeOptions(
-          size: s.size,
-          thinning: 0.15,
-          smoothing: 0.6,
-          streamline: 0.5,
-          simulatePressure: simulate,
-          isComplete: !live,
-        );
-      case ToolType.pencil:
-        return StrokeOptions(
-          size: s.size,
-          thinning: 0.35,
-          smoothing: 0.4,
-          streamline: 0.35,
-          simulatePressure: simulate,
-          isComplete: !live,
-        );
-      case ToolType.brush:
-        return StrokeOptions(
-          size: s.size,
-          thinning: 0.8,
-          smoothing: 0.7,
-          streamline: 0.6,
-          simulatePressure: simulate,
-          start: StrokeEndOptions.start(taperEnabled: true, customTaper: s.size * 2),
-          end: StrokeEndOptions.end(taperEnabled: true, customTaper: s.size * 2),
-          isComplete: !live,
-        );
-      case ToolType.marker:
-      case ToolType.eraser:
-      case ToolType.highlighter:
-        return StrokeOptions(
-          size: s.size,
-          thinning: 0,
-          smoothing: 0.5,
-          streamline: 0.5,
-          simulatePressure: false,
-          isComplete: !live,
-        );
+    // Valores propios de cada herramienta: (presión, suavizado, estabilización).
+    final (thinning, smoothing, streamline) = switch (s.tool) {
+      ToolType.pen => (0.15, 0.6, 0.5),
+      ToolType.fountain => (0.55, 0.65, 0.5),
+      ToolType.pencil => (0.35, 0.4, 0.35),
+      ToolType.brush => (0.8, 0.7, 0.6),
+      ToolType.marker || ToolType.eraser || ToolType.highlighter => (0.0, 0.5, 0.5),
+    };
+    final flat = s.tool == ToolType.marker ||
+        s.tool == ToolType.eraser ||
+        s.tool == ToolType.highlighter;
+    final tapered = s.tool == ToolType.brush || s.tool == ToolType.fountain;
+    final taper = s.tool == ToolType.brush ? s.size * 2 : s.size * 0.8;
+    final th = flat ? 0.0 : (s.thinning ?? thinning);
+    final sl = s.streamline ?? streamline;
+    final sim = flat ? false : simulate;
+    if (tapered) {
+      return StrokeOptions(
+        size: s.size,
+        thinning: th,
+        smoothing: smoothing,
+        streamline: sl,
+        simulatePressure: sim,
+        start: StrokeEndOptions.start(taperEnabled: true, customTaper: taper),
+        end: StrokeEndOptions.end(taperEnabled: true, customTaper: taper),
+        isComplete: !live,
+      );
     }
+    return StrokeOptions(
+      size: s.size,
+      thinning: th,
+      smoothing: smoothing,
+      streamline: sl,
+      simulatePressure: sim,
+      isComplete: !live,
+    );
   }
 }

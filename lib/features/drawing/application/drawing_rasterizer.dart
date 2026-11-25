@@ -9,6 +9,8 @@ import '../../../core/fonts.dart';
 import '../domain/drawing.dart';
 import '../presentation/painters/drawing_painter.dart';
 import '../presentation/painters/paper_painter.dart';
+import '../presentation/painters/shape_painter.dart';
+import '../presentation/painters/sticker_painter.dart';
 import '../presentation/widgets/canvas_item_view.dart' show textItemAlign, textItemStyle;
 
 /// Convierte una hoja (fondo + capas) en una imagen PNG, para exportar.
@@ -127,6 +129,15 @@ void _paintItem(Canvas c, CanvasItem it, Map<String, ui.Image> images) {
             Paint()..color = const Color(0xD9F6D7A7));
         c.restore();
       }
+    case StickerItem st:
+      c.translate(-st.width / 2, -st.height / 2);
+      paintSticker(c, st.sticker, Size(st.width, st.height));
+    case ShapeItem sh:
+      c.translate(-sh.width / 2, -sh.height / 2);
+      paintShape(c, sh.shape, Size(sh.width, sh.height),
+          color: Color(sh.color),
+          strokeWidth: sh.strokeWidth,
+          fill: sh.fill == null ? null : Color(sh.fill!));
   }
   c.restore();
 }

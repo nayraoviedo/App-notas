@@ -27,13 +27,15 @@ class NotesRepository {
     return q.watchSingleOrNull().map((r) => r == null ? null : _toNote(r));
   }
 
-  Future<String> createNote({String title = '', String? notebookId}) async {
+  Future<String> createNote(
+      {String title = '', String? notebookId, List<String> tags = const []}) async {
     final id = _uuid.v4();
     final now = DateTime.now();
     await _db.into(_db.notes).insert(NotesCompanion.insert(
           id: id,
           title: Value(title),
           notebookId: Value(notebookId),
+          tags: Value(tags.join('|')),
           createdAt: now,
           updatedAt: now,
         ));
@@ -344,7 +346,36 @@ class NotesRepository {
         notebookId: r.notebookId,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
+        tags: decodeTags(r.tags),
       );
+
+  static List<String> decodeTags(String raw) =>
+      raw.split('|').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+
+  // -------------------------------------------------------------- Etiquetas
+
+  Future<void> setTags(String noteId, List<String> tags) =>
+      (_db.update(_db.notes)..where((n) => n.id.equals(noteId))).write(NotesCompanion(
+        tags: Value(tags.map((t) => t.replaceAll('|', ' ').trim()).where((t) => t.isNotEmpty).toSet().join('|')),
+      ));
+
+  /// Todas las etiquetas usadas, ordenadas.
+  Stream<List<String>> watchAllTags() => _db.select(_db.notes).watch().map((rows) {
+        final all = <String>{for (final r in rows) ...decodeTags(r.tags)};
+        return all.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      });
+
+  /// Cambia el nombre de una etiqueta en todas las notas (o la quita si
+  /// [to] es null).
+  Future<void> renameTag(String from, String? to) => _db.transaction(() async {
+        final rows = await _db.select(_db.notes).get();
+        for (final r in rows) {
+          final tags = decodeTags(r.tags);
+          if (!tags.contains(from)) continue;
+          final next = [for (final t in tags) if (t != from) t, if (to != null && to.trim().isNotEmpty) to.trim()];
+          await setTags(r.id, next);
+        }
+      });
 
   NoteBlock? _toBlock(BlockRow r) {
     switch (r.type) {
