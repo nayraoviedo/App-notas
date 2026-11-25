@@ -26,12 +26,13 @@ PERMISSIONS = """
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.CAMERA" />
 """
 
 s = MANIFEST.read_text()
-# Sin permiso CAMERA: la app usa la cámara del sistema (image_picker). Si el
-# permiso se declara, Android exige pedirlo antes y si no, cierra la app.
-s = s.replace('    <uses-permission android:name="android.permission.CAMERA" />\n', "")
+# La app usa su propia cámara (paquete camera), así que declara CAMERA y lo
+# pide al abrirla. Ya no abre la cámara del sistema: eso hacía que Android
+# cerrara la app mientras tanto.
 if "RECORD_AUDIO" not in s:
     i = s.index(">", s.index("<manifest")) + 1
     s = s[:i] + PERMISSIONS + s[i:]

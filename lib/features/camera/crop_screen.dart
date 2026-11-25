@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+
+import 'in_app_camera_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
@@ -24,9 +26,13 @@ Future<String?> pickAndCropImage(
   String? forNoteId,
 }) async {
   final service = ref.read(cameraServiceProvider);
-  final path = camera
-      ? await service.takePhoto(forNoteId: forNoteId)
-      : await service.pickImageFromGallery();
+  String? path;
+  if (camera) {
+    final temp = await captureWithInAppCamera(context);
+    if (temp != null) path = await service.savePhoto(temp);
+  } else {
+    path = await service.pickImageFromGallery();
+  }
   if (path == null || !context.mounted) return null;
   return cropImage(context, path);
 }

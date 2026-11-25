@@ -31,6 +31,8 @@ dependencies:
 
   # Fotos y video
   image_picker: ^1.1.2
+  # Cámara dentro de la app (la del sistema hacía que Android cerrara la app)
+  camera: ^0.11.0
   media_kit: ^1.1.11
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5

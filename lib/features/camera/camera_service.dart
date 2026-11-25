@@ -5,10 +5,9 @@ import '../../core/files/file_storage.dart';
 
 /// Fotos con la cámara y selección de imágenes y videos de la galería.
 ///
-/// Android a veces cierra la app mientras la cámara está abierta (sobre todo
-/// en teléfonos con poca memoria). Para no perder la foto, antes de abrir la
-/// cámara se guarda a qué nota iba; al volver a abrir la app,
-/// [recoverLostPhoto] la recupera y la agrega a esa nota.
+/// Las fotos se toman con la cámara dentro de la app; [recoverLostPhoto]
+/// queda solo para fotos de versiones anteriores que usaban la cámara del
+/// sistema.
 class CameraService {
   CameraService(this._storage, this._prefs);
 
@@ -18,23 +17,9 @@ class CameraService {
 
   static const _pendingNoteKey = 'camera.pendingNoteId';
 
-  /// Devuelve la ruta de la foto ya copiada a la carpeta de la app.
-  /// [forNoteId]: nota a la que va la foto (para recuperarla si Android
-  /// cierra la app mientras la cámara está abierta).
-  Future<String?> takePhoto({String? forNoteId}) async {
-    if (forNoteId != null) await _prefs.setString(_pendingNoteKey, forNoteId);
-    try {
-      final file = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-        maxWidth: 2400,
-      );
-      if (file == null) return null;
-      return _storage.importFile(file.path, folder: 'images');
-    } finally {
-      await _prefs.remove(_pendingNoteKey);
-    }
-  }
+  /// Copia a la carpeta de la app una foto tomada con la cámara propia
+  /// (ver `in_app_camera_screen.dart`) y devuelve la ruta final.
+  Future<String> savePhoto(String tempPath) => _storage.importFile(tempPath, folder: 'images');
 
   /// Si la app se cerró mientras se tomaba una foto, devuelve
   /// (nota, ruta de la foto) para agregarla. Si no hay nada, null.

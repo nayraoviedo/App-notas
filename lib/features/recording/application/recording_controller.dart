@@ -226,11 +226,13 @@ class RecordingController extends Notifier<RecordingState> {
   }
 
   /// Foto sincronizada con el minuto actual de la grabación.
-  Future<void> takePhoto() async {
+  /// [capture] abre la cámara y devuelve la ruta temporal de la foto.
+  Future<void> takePhoto(Future<String?> Function() capture) async {
     if (!state.isActive) return;
     final atMs = _wav?.durationMs ?? state.elapsedMs;
-    final path = await ref.read(cameraServiceProvider).takePhoto();
-    if (path == null) return;
+    final temp = await capture();
+    if (temp == null) return;
+    final path = await ref.read(cameraServiceProvider).savePhoto(temp);
     state = state.copyWith(photos: [...state.photos, PendingPhoto(path, atMs)]);
   }
 

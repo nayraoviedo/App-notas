@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../camera/in_app_camera_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -218,7 +220,9 @@ class _Controls extends StatelessWidget {
           _RoundButton(
             icon: Icons.photo_camera_outlined,
             label: 'Foto',
-            onPressed: state.isActive ? controller.takePhoto : null,
+            onPressed: state.isActive
+                ? () => controller.takePhoto(() => captureWithInAppCamera(context))
+                : null,
           ),
           _RoundButton(
             icon: paused ? Icons.play_arrow : Icons.pause,
