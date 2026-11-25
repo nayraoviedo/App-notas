@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/recording/application/audio_tools.dart';
+import '../features/transcription/data/groq_transcription.dart';
+
 import '../features/camera/camera_service.dart';
 import '../features/drawing/data/drawing_store.dart';
 import '../features/drawing/domain/drawing.dart';
@@ -45,8 +48,12 @@ final cameraServiceProvider = Provider<CameraService>((ref) => CameraService(
     ));
 
 /// Cambia aquí el motor de transcripción (local o en la nube).
-final transcriptionServiceProvider =
-    Provider<TranscriptionService>((ref) => WhisperTranscriptionService());
+/// Con clave de Groq transcribe en la nube (rápido); si no, en el teléfono.
+final transcriptionServiceProvider = Provider<TranscriptionService>((ref) => SmartTranscriptionService(
+      local: WhisperTranscriptionService(),
+      groqKey: () => ref.read(apiKeysProvider).read(AiProvider.groq),
+      compress: AudioTools.toM4a,
+    ));
 
 /// Huella de voz para detectar cambios de hablante. Usa `NoopVoiceEmbedder()`
 /// para apagar la detección automática.

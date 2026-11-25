@@ -111,6 +111,12 @@ class NoteEditorScreen extends ConsumerWidget {
                 ImageBlock img => ImageBlockView(
                     key: ValueKey(img.id),
                     block: img,
+                    onCrop: () async {
+                      final out = await cropImage(context, img.path);
+                      if (out != null) {
+                        await ref.read(notesRepositoryProvider).updateImagePath(img.id, out);
+                      }
+                    },
                     onOpenVideo: (path, ms) => _openVideo(context, path, ms),
                   ),
                 DrawingBlock dr => DrawingBlockView(

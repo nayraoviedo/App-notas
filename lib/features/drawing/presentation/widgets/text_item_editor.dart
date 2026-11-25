@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/fonts.dart';
 import '../../domain/drawing.dart';
 import 'canvas_item_view.dart';
-import 'tool_settings_sheet.dart' show drawingPalette;
+import 'tool_panels.dart' show fullPalette, pickColor;
 
 /// Colores de fondo tipo etiqueta / cinta para los textos del collage.
 const textBackgrounds = <int>[
@@ -200,7 +200,25 @@ class _TextItemEditorState extends State<_TextItemEditor> {
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  for (final c in drawingPalette)
+                  GestureDetector(
+                    onTap: () async {
+                      final c = await pickColor(context, current: _item.color);
+                      if (c != null) _set((t) => t.copyWith(color: c));
+                    },
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      margin: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: SweepGradient(colors: [
+                          Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red,
+                        ]),
+                      ),
+                      child: const Icon(Icons.add, size: 16, color: Colors.white),
+                    ),
+                  ),
+                  for (final c in fullPalette.take(18))
                     _Dot(
                       color: c,
                       selected: _item.color == c,

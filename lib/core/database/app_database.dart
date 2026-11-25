@@ -25,7 +25,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: 'app_notas'));
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -45,6 +45,10 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 5) {
             await m.addColumn(notes, notes.tags);
+          }
+          if (from < 6) {
+            await m.addColumn(blocks, blocks.marks);
+            await m.addColumn(blocks, blocks.textColor);
           }
         },
         beforeOpen: (details) async {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Marca en una grabación: "⭐ Importante" (sin [label]) o nota rápida.
 class AudioMarker {
   const AudioMarker({required this.atMs, this.label, this.id});
@@ -40,9 +42,17 @@ class TextBlock extends NoteBlock {
     required this.text,
     this.fontFamily,
     this.fontSize,
+    this.marks = const [],
+    this.textColor,
   });
 
   final String text;
+
+  /// Partes resaltadas (como con un resaltador).
+  final List<TextMark> marks;
+
+  /// Color de la letra (null = el del tema).
+  final int? textColor;
 
   /// null = fuente del sistema.
   final String? fontFamily;
@@ -96,4 +106,27 @@ class VideoRefBlock extends NoteBlock {
   final String videoPath;
   final int atMs;
   final String text;
+}
+
+/// Un tramo resaltado del texto: [start, end) con un color.
+class TextMark {
+  const TextMark(this.start, this.end, this.color);
+  final int start;
+  final int end;
+  final int color;
+
+  static List<TextMark> decode(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      return [
+        for (final m in jsonDecode(raw) as List)
+          TextMark((m as List)[0] as int, m[1] as int, m[2] as int),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static String encode(List<TextMark> marks) =>
+      jsonEncode([for (final m in marks) [m.start, m.end, m.color]]);
 }

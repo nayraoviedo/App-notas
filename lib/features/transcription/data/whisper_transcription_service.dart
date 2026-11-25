@@ -11,7 +11,7 @@ import '../domain/transcription_service.dart';
 ///
 /// whisper_ggml NO descarga el modelo solo: si falta el archivo, la
 /// transcripción falla en silencio. Por eso aquí se descarga primero (una
-/// sola vez, ~140 MB, con progreso) y queda guardado en el teléfono.
+/// sola vez, ~57 MB, reanudable y con progreso) y queda guardado.
 class WhisperTranscriptionService implements TranscriptionService {
   WhisperTranscriptionService({this.model = WhisperModel.base});
 
@@ -33,51 +33,83 @@ class WhisperTranscriptionService implements TranscriptionService {
     return _downloading ??= _download(onProgress).whenComplete(() => _downloading = null);
   }
 
+  /// Se baja la versión comprimida del modelo "base" (q5_1, ~57 MB en vez
+  /// de 147 MB): transcribe casi igual y descarga mucho más rápido. Se prueba
+  /// también un espejo por si Hugging Face anda lento.
+  static final _sources = [
+    Uri.parse('https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin'),
+    Uri.parse('https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin'),
+  ];
+
   Future<void> _download(void Function(int percent)? onProgress) async {
     if (await isModelReady()) return;
     final path = await _controller.getPath(model);
+    TranscriptionException? last;
+    for (final uri in _sources) {
+      try {
+        await _downloadFrom(uri, path, onProgress);
+        return;
+      } on TranscriptionException catch (e) {
+        last = e;
+      }
+    }
+    throw last ??
+        TranscriptionException('No se pudo descargar el modelo de voz.');
+  }
+
+  /// Descarga reanudable: si se corta, la próxima vez sigue donde quedó.
+  Future<void> _downloadFrom(Uri uri, String path, void Function(int percent)? onProgress) async {
     final part = File('$path.part');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20)
+      ..idleTimeout = const Duration(seconds: 20);
     try {
-      final req = await client.getUrl(model.modelUri);
-      final res = await req.close();
-      if (res.statusCode != 200) {
+      var have = part.existsSync() ? part.lengthSync() : 0;
+      final req = await client.getUrl(uri);
+      if (have > 0) req.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
+      final res = await req.close().timeout(const Duration(seconds: 30));
+      if (res.statusCode == 200) {
+        have = 0; // el servidor no reanuda: empezar de nuevo
+      } else if (res.statusCode != 206) {
         throw TranscriptionException(
             'No se pudo descargar el modelo de voz (error ${res.statusCode}).');
       }
-      final total = res.contentLength;
-      var got = 0;
+      final total = res.contentLength < 0 ? -1 : res.contentLength + have;
+      var got = have;
       var lastPct = -1;
-      final sink = part.openWrite();
-      await for (final chunk in res) {
-        sink.add(chunk);
-        got += chunk.length;
-        if (total > 0) {
-          final pct = got * 100 ~/ total;
-          if (pct != lastPct) {
-            lastPct = pct;
-            onProgress?.call(pct);
+      final sink = part.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
+      try {
+        // Si pasan 30 s sin recibir nada, se corta (y se reanuda luego).
+        await for (final chunk in res.timeout(const Duration(seconds: 30))) {
+          sink.add(chunk);
+          got += chunk.length;
+          if (total > 0) {
+            final pct = got * 100 ~/ total;
+            if (pct != lastPct) {
+              lastPct = pct;
+              onProgress?.call(pct);
+            }
           }
         }
+      } finally {
+        await sink.close();
       }
-      await sink.close();
       if (total > 0 && got < total) {
-        throw TranscriptionException('La descarga del modelo de voz se cortó. Intenta de nuevo.');
+        throw TranscriptionException('La descarga se cortó; vuelve a intentar y seguirá donde quedó.');
       }
       await part.rename(path);
+    } on TimeoutException {
+      throw TranscriptionException(
+          'La descarga del modelo de voz está muy lenta. Vuelve a intentar (sigue donde quedó) '
+          'o pon una clave gratis de Groq en Ajustes para transcribir sin descargar nada.');
     } on SocketException {
       throw TranscriptionException(
-          'Para transcribir, la primera vez se necesita internet para bajar el '
-          'modelo de voz (unos 140 MB). Conéctate y vuelve a intentar.');
+          'Para transcribir en el teléfono, la primera vez hay que bajar el modelo de voz '
+          '(~57 MB) y no hay conexión. También puedes poner una clave gratis de Groq en Ajustes.');
     } on HttpException {
       throw TranscriptionException('No se pudo descargar el modelo de voz. Intenta de nuevo.');
     } finally {
       client.close(force: true);
-      if (part.existsSync()) {
-        try {
-          part.deleteSync();
-        } catch (_) {}
-      }
     }
   }
 

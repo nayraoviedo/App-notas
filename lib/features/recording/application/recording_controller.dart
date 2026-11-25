@@ -280,51 +280,61 @@ class RecordingController extends Notifier<RecordingState> {
     await _wav?.close();
 
     final wav = _wav!;
-    final turns = _tracker?.turns ?? const <SpeakerTurn>[];
+    final turns = List.of(_tracker?.turns ?? const <SpeakerTurn>[]);
+    final markers = state.markers;
+    final photos = state.photos;
+    final liveText = state.liveText.trim();
 
-    var segments = <TranscriptSegment>[];
-    String? message;
-    final service = ref.read(transcriptionServiceProvider);
-    try {
-      if (!await service.isModelReady()) {
-        state = state.copyWith(
-            progress: 0, progressLabel: 'Descargando el modelo de voz (solo la primera vez)…');
-        await service.ensureModel(onProgress: (p) => state = state.copyWith(progress: p));
-      }
-      state = state.copyWith(progress: 0, progressLabel: 'Transcribiendo y ordenando por párrafos…');
-      segments = await service.transcribeFile(
-        wav.path,
-        lang: _lang,
-        vocabulary: vocabulary,
-        onProgress: (p) => state = state.copyWith(progress: p),
-      );
-      if (segments.isEmpty) {
-        message = 'No se escuchó voz en la grabación (o fue muy bajita).';
-      }
-    } on TranscriptionException catch (e) {
-      message = '${e.message} El audio quedó guardado: puedes transcribirlo después.';
-    } catch (_) {
-      message = 'No se pudo transcribir, pero el audio quedó guardado.';
-    }
-    final paragraphs = const SegmentMerger().merge(segments, turns);
-
+    // 1) Guardar el audio YA (con el texto en vivo, si hubo), para que nunca
+    //    se pierda aunque la transcripción tarde, falle o se cierre la app.
     final repo = ref.read(notesRepositoryProvider);
     final blockId = await repo.addAudioBlock(
       noteId,
       path: wav.path,
       durationMs: wav.durationMs,
-      segments: paragraphs,
-      markers: state.markers,
+      segments: [
+        if (liveText.isNotEmpty)
+          TranscriptSegment(startMs: 0, endMs: wav.durationMs, text: liveText),
+      ],
+      markers: markers,
     );
-    for (final photo in state.photos) {
+    for (final photo in photos) {
       await repo.addImageBlock(
         noteId,
         photo.path,
         anchor: MediaAnchor.audio(audioBlockId: blockId, atMs: photo.atMs),
       );
     }
-
     await _cleanup();
+
+    // 2) Transcribir con calma y reemplazar el texto provisional.
+    String? message;
+    final service = ref.read(transcriptionServiceProvider);
+    try {
+      if (!await service.isModelReady()) {
+        state = state.copyWith(
+            progress: 0,
+            progressLabel: 'Audio guardado ✔\nDescargando el modelo de voz (solo la primera vez)…');
+        await service.ensureModel(onProgress: (p) => state = state.copyWith(progress: p));
+      }
+      state = state.copyWith(
+          progress: 0, progressLabel: 'Audio guardado ✔\nTranscribiendo y ordenando por párrafos…');
+      final segments = await service.transcribeFile(
+        wav.path,
+        lang: _lang,
+        vocabulary: vocabulary,
+        onProgress: (p) => state = state.copyWith(progress: p),
+      );
+      if (segments.isEmpty) {
+        message = 'No se escuchó voz en la grabación (o fue muy bajita). El audio quedó guardado.';
+      } else {
+        await repo.replaceSegments(blockId, const SegmentMerger().merge(segments, turns));
+      }
+    } on TranscriptionException catch (e) {
+      message = '${e.message}\nEl audio quedó guardado: ábrelo y toca "Transcribir ahora".';
+    } catch (_) {
+      message = 'No se pudo transcribir, pero el audio quedó guardado.';
+    }
     state = state.copyWith(status: RecordingStatus.done, message: message);
   }
 

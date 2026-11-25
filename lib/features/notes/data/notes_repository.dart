@@ -126,6 +126,20 @@ class NotesRepository {
         BlocksCompanion(fontFamily: Value(fontFamily), fontSize: Value(fontSize)),
       );
 
+  Future<void> updateMarks(String blockId, List<TextMark> marks) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId))).write(
+        BlocksCompanion(marks: Value(marks.isEmpty ? null : TextMark.encode(marks))),
+      );
+
+  Future<void> updateTextColor(String blockId, int? color) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId)))
+          .write(BlocksCompanion(textColor: Value(color)));
+
+  /// Cambia la foto de un bloque (por ejemplo, después de recortarla).
+  Future<void> updateImagePath(String blockId, String path) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId)))
+          .write(BlocksCompanion(filePath: Value(path)));
+
   Future<String> addImageBlock(String noteId, String path,
           {MediaAnchor? anchor}) =>
       _insertBlock(
@@ -404,6 +418,8 @@ class NotesRepository {
           text: r.textContent ?? '',
           fontFamily: r.fontFamily,
           fontSize: r.fontSize,
+          marks: TextMark.decode(r.marks),
+          textColor: r.textColor,
         );
       case 'audio':
         return AudioBlock(

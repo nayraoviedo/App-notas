@@ -60,6 +60,12 @@ class Blocks extends Table {
   TextColumn get fontFamily => text().nullable()();
   RealColumn get fontSize => real().nullable()();
 
+  /// Resaltados del texto en JSON: [[inicio, fin, color], …] (desde v6).
+  TextColumn get marks => text().nullable()();
+
+  /// Color de la letra del bloque (desde v6).
+  IntColumn get textColor => integer().nullable()();
+
   /// Archivo en disco (audio .wav, imagen, video, hoja .json).
   TextColumn get filePath => text().nullable()();
   IntColumn get durationMs => integer().nullable()();

@@ -40,7 +40,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const _ApiKeyTile(
             provider: AiProvider.groq,
-            help: 'Clave gratis en console.groq.com → "API Keys"',
+            help: 'Gratis en console.groq.com → "API Keys". Sirve para resúmenes y para '
+                'transcribir rápido sin descargar nada (el audio se envía a Groq).',
           ),
           _TextSettingTile(
             label: 'Modelo de Groq',

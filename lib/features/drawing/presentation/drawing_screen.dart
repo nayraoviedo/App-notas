@@ -451,6 +451,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                             controller: ctl,
                             onEditText: _editText,
                             onEditShape: () => setState(() => _panel = ToolPanel.shapes),
+                            onCrop: _cropImageItem,
                           )
                         : const SizedBox.shrink(),
                   ),
@@ -766,6 +767,31 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     ctl.selectMode(InputMode.select);
     ctl.selectItem(item.id);
     _closePanel();
+  }
+
+  /// Recortar una foto que ya está en la hoja (mantiene su ancho).
+  Future<void> _cropImageItem(ImageItem it) async {
+    final out = await cropImage(context, it.path);
+    if (out == null || !mounted) return;
+    final buffer = await ui.ImmutableBuffer.fromFilePath(out);
+    final desc = await ui.ImageDescriptor.encoded(buffer);
+    final w = desc.width.toDouble(), h = desc.height.toDouble();
+    desc.dispose();
+    buffer.dispose();
+    _ctl?.updateItem(
+      it.id,
+      (_) => ImageItem(
+        id: it.id,
+        x: it.x,
+        y: it.y,
+        scale: it.scale,
+        rotation: it.rotation,
+        path: out,
+        width: it.width,
+        height: it.width * h / w,
+        frame: it.frame,
+      ),
+    );
   }
 
   void _insertSticker(StickerDef def) {
@@ -1121,9 +1147,15 @@ class _ThumbnailsSheetState extends ConsumerState<_ThumbnailsSheet> {
 
 /// Acciones para el texto o la foto seleccionada.
 class _ItemBar extends StatelessWidget {
-  const _ItemBar({required this.controller, required this.onEditText, required this.onEditShape});
+  const _ItemBar({
+    required this.controller,
+    required this.onEditText,
+    required this.onEditShape,
+    required this.onCrop,
+  });
   final DrawingController controller;
   final void Function(TextItem item) onEditText;
+  final void Function(ImageItem item) onCrop;
   final VoidCallback onEditShape;
 
   @override
@@ -1153,7 +1185,8 @@ class _ItemBar extends StatelessWidget {
                 action(Icons.edit_outlined, 'Editar', () => onEditText(item))
               else if (item is ShapeItem)
                 action(Icons.palette_outlined, 'Estilo', onEditShape)
-              else if (item is ImageItem)
+              else if (item is ImageItem) ...[
+                action(Icons.crop, 'Recortar', () => onCrop(item)),
                 PopupMenuButton<ImageFrame>(
                   tooltip: 'Marco',
                   onSelected: (f) => controller.updateItem(
@@ -1170,6 +1203,7 @@ class _ItemBar extends StatelessWidget {
                     ),
                   ),
                 ),
+              ],
               action(Icons.copy_outlined, 'Duplicar', () => controller.duplicateItem(item.id)),
               action(Icons.flip_to_front, 'Al frente',
                   () => controller.reorderItem(item.id, toFront: true)),

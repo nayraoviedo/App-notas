@@ -22,11 +22,20 @@ IconData toolIcon(ToolType t) => switch (t) {
       ToolType.eraser => Icons.auto_fix_normal,
     };
 
-/// Paleta completa (para cambiar un color rápido).
+/// Paleta completa: neutros, tintas, pasteles, tonos tierra y neón.
 const fullPalette = <int>[
-  0xFF000000, 0xFF5C6370, 0xFF9AA0A6, 0xFFFFFFFF, 0xFFB3261E, 0xFFE5484D, 0xFFF28B82, 0xFFFFB4C6,
-  0xFFE0A000, 0xFFFFD60A, 0xFFFFE14D, 0xFFFFB27A, 0xFFFF8A3D, 0xFF8D6E63, 0xFF0B7A55, 0xFF30A46C,
-  0xFF8EF08E, 0xFF12A594, 0xFF2F55C0, 0xFF1677FF, 0xFFA8C8FF, 0xFF6E56CF, 0xFFD7A8FF, 0xFFD6409F,
+  // Neutros
+  0xFF000000, 0xFF3C4043, 0xFF5C6370, 0xFF9AA0A6, 0xFFDADCE0, 0xFFFFFFFF,
+  // Tintas
+  0xFFB3261E, 0xFFE5484D, 0xFFFF8A3D, 0xFFE0A000, 0xFF0B7A55, 0xFF12A594,
+  0xFF2F55C0, 0xFF1677FF, 0xFF6E56CF, 0xFF8E24AA, 0xFFD6409F, 0xFF8D6E63,
+  // Pasteles
+  0xFFFFB4C6, 0xFFF8BBD0, 0xFFFFCCBC, 0xFFFFE0B2, 0xFFFFF59D, 0xFFDCEDC8,
+  0xFFB2DFDB, 0xFFB3E5FC, 0xFFC5CAE9, 0xFFE1BEE7, 0xFFD7CCC8, 0xFFCFD8DC,
+  // Tierra / vintage
+  0xFF7B4B2A, 0xFFA0522D, 0xFFC4915E, 0xFFD9CBB4, 0xFF97B3A5, 0xFF4F7189,
+  // Neón (resaltadores)
+  0xFFFFEA00, 0xFF39FF14, 0xFF00E5FF, 0xFFFF3EA5, 0xFFFF6D00, 0xFFB388FF,
 ];
 
 /// Tarjeta blanca con título, como los paneles de StarNote.
@@ -148,6 +157,29 @@ class QuickColorRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
+        // Más colores: reemplaza el color elegido por uno de la paleta.
+        GestureDetector(
+          onTap: () async {
+            final c = await pickColor(context, current: selected);
+            if (c == null) return;
+            final slot = colors.indexOf(selected);
+            onReplace(slot < 0 ? 0 : slot, c);
+          },
+          child: Container(
+            width: size,
+            height: size,
+            padding: const EdgeInsets.all(3),
+            child: Container(
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: SweepGradient(colors: [
+                  Colors.red, Colors.yellow, Colors.green, Colors.cyan, Colors.blue, Colors.purple, Colors.red,
+                ]),
+              ),
+              child: Icon(Icons.add, size: size * 0.5, color: Colors.white),
+            ),
+          ),
+        ),
         for (var i = 0; i < colors.length; i++)
           GestureDetector(
             onTap: () async {
@@ -190,32 +222,115 @@ class QuickColorRow extends StatelessWidget {
 
 Future<int?> pickColor(BuildContext context, {int? current}) => showDialog<int>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Elige un color'),
-        content: Wrap(
-          spacing: 10,
-          runSpacing: 10,
+      builder: (_) => _ColorPickerDialog(current: current),
+    );
+
+/// Paleta + color personalizado (tono, intensidad y brillo).
+class _ColorPickerDialog extends StatefulWidget {
+  const _ColorPickerDialog({this.current});
+  final int? current;
+
+  @override
+  State<_ColorPickerDialog> createState() => _ColorPickerDialogState();
+}
+
+class _ColorPickerDialogState extends State<_ColorPickerDialog> {
+  late HSVColor _hsv = HSVColor.fromColor(Color(widget.current ?? 0xFFE5484D));
+  bool _custom = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final color = _hsv.toColor();
+    Widget slider(String label, double value, double max, ValueChanged<double> onChanged,
+            List<Color> track) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final c in fullPalette)
-              GestureDetector(
-                onTap: () => Navigator.pop(context, c),
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Color(c),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      width: c == current ? 3 : 1,
-                      color: c == current ? Theme.of(context).colorScheme.primary : Colors.black26,
-                    ),
-                  ),
-                ),
+            Text(label, style: const TextStyle(fontSize: 12)),
+            Container(
+              height: 14,
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                gradient: LinearGradient(colors: track),
               ),
+            ),
+            Slider(value: value, max: max, onChanged: onChanged),
           ],
+        );
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Expanded(child: Text('Elige un color')),
+          TextButton(
+            onPressed: () => setState(() => _custom = !_custom),
+            child: Text(_custom ? 'Paleta' : 'Personalizado'),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 320,
+        child: SingleChildScrollView(
+          child: _custom
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.black12),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    slider('Tono', _hsv.hue, 360, (v) => setState(() => _hsv = _hsv.withHue(v)), [
+                      for (var h = 0; h <= 360; h += 60) HSVColor.fromAHSV(1, h.toDouble(), 1, 1).toColor(),
+                    ]),
+                    slider('Intensidad', _hsv.saturation, 1,
+                        (v) => setState(() => _hsv = _hsv.withSaturation(v)),
+                        [_hsv.withSaturation(0).toColor(), _hsv.withSaturation(1).toColor()]),
+                    slider('Brillo', _hsv.value, 1, (v) => setState(() => _hsv = _hsv.withValue(v)),
+                        [Colors.black, _hsv.withValue(1).toColor()]),
+                  ],
+                )
+              : Wrap(
+                  spacing: 9,
+                  runSpacing: 9,
+                  children: [
+                    for (final c in fullPalette)
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context, c),
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Color(c),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              width: c == widget.current ? 3 : 1,
+                              color: c == widget.current ? primary : Colors.black26,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
         ),
       ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        if (_custom)
+          FilledButton(
+            onPressed: () => Navigator.pop(context, color.toARGB32()),
+            child: const Text('Usar este color'),
+          ),
+      ],
     );
+  }
+}
 
 // ------------------------------------------------------------------ Plumas
 

@@ -6,11 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/fonts.dart';
 import '../../../../core/providers.dart';
 import '../../data/notes_repository.dart';
+import '../../../drawing/presentation/widgets/tool_panels.dart' show pickColor;
 import '../../domain/note_block.dart';
+import 'highlight_text_controller.dart';
 
 /// Bloque de texto con fuente y tamaño propios. Guarda solo, medio segundo
 /// después de dejar de escribir. Al tocarlo aparece la barra de fuente.
-/// TODO: flutter_quill para negritas, listas y checklists.
+/// Se puede resaltar lo seleccionado (como con un marcador) y cambiar el
+/// color de la letra.
 class TextBlockView extends ConsumerStatefulWidget {
   const TextBlockView({super.key, required this.block});
   final TextBlock block;
@@ -20,7 +23,10 @@ class TextBlockView extends ConsumerStatefulWidget {
 }
 
 class _TextBlockViewState extends ConsumerState<TextBlockView> {
-  late final _controller = TextEditingController(text: widget.block.text);
+  late final _controller =
+      HighlightTextController(text: widget.block.text, marks: widget.block.marks);
+  Timer? _marksDebounce;
+  bool _showMarker = false;
   final _focus = FocusNode();
   Timer? _debounce;
   late final NotesRepository _repo;
@@ -30,6 +36,11 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
     super.initState();
     _repo = ref.read(notesRepositoryProvider); // para usarlo también en dispose()
     _focus.addListener(() => setState(() {}));
+    _controller.onMarksChanged = () {
+      _marksDebounce?.cancel();
+      _marksDebounce = Timer(const Duration(milliseconds: 500),
+          () => _repo.updateMarks(widget.block.id, _controller.marks));
+    };
   }
 
   void _onChanged(String text) {
@@ -44,6 +55,10 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
     if (_debounce?.isActive ?? false) {
       _debounce!.cancel();
       _repo.updateText(widget.block.id, _controller.text);
+    }
+    if (_marksDebounce?.isActive ?? false) {
+      _marksDebounce!.cancel();
+      _repo.updateMarks(widget.block.id, _controller.marks);
     }
     _controller.dispose();
     _focus.dispose();
@@ -103,7 +118,8 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
   Widget build(BuildContext context) {
     final b = widget.block;
     final base = Theme.of(context).textTheme.bodyLarge;
-    final style = fontStyle(b.fontFamily, size: b.fontSize, base: base);
+    var style = fontStyle(b.fontFamily, size: b.fontSize, base: base);
+    if (b.textColor != null) style = style.copyWith(color: Color(b.textColor!));
     final label =
         appFonts.where((f) => f.family == b.fontFamily).firstOrNull?.label ??
             b.fontFamily ??
@@ -115,26 +131,77 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
         if (_focus.hasFocus)
           // Tocar la barra no debe quitar el foco del texto.
           TextFieldTapRegion(
-            child: Row(
-            children: [
-              ActionChip(
-                avatar: const Icon(Icons.text_fields, size: 18),
-                label: Text(label),
-                onPressed: _pickFont,
-              ),
-              const SizedBox(width: 8),
-              DropdownButton<double>(
-                value: fontSizes.contains(b.fontSize) ? b.fontSize : null,
-                hint: const Text('Tamaño'),
-                underline: const SizedBox.shrink(),
-                items: [
-                  for (final s in fontSizes)
-                    DropdownMenuItem(value: s, child: Text('${s.round()}')),
-                ],
-                onChanged: (s) => _setStyle(size: s),
-              ),
-            ],
-          ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.text_fields, size: 18),
+                        label: Text(label),
+                        onPressed: _pickFont,
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<double>(
+                        value: fontSizes.contains(b.fontSize) ? b.fontSize : null,
+                        hint: const Text('Tamaño'),
+                        underline: const SizedBox.shrink(),
+                        items: [
+                          for (final s in fontSizes)
+                            DropdownMenuItem(value: s, child: Text('${s.round()}')),
+                        ],
+                        onChanged: (s) => _setStyle(size: s),
+                      ),
+                      IconButton(
+                        tooltip: 'Color de la letra',
+                        icon: Icon(Icons.format_color_text,
+                            color: b.textColor == null ? null : Color(b.textColor!)),
+                        onPressed: () async {
+                          final c = await pickColor(context, current: b.textColor);
+                          if (c != null) await _repo.updateTextColor(b.id, c);
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'Resaltador: selecciona texto y elige un color',
+                        isSelected: _showMarker,
+                        icon: const Icon(Icons.border_color),
+                        onPressed: () => setState(() => _showMarker = !_showMarker),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_showMarker)
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        IconButton(
+                          tooltip: 'Quitar resaltado',
+                          icon: const Icon(Icons.format_color_reset_outlined),
+                          onPressed: () => _controller.highlightSelection(null),
+                        ),
+                        for (final c in highlighterColors)
+                          GestureDetector(
+                            onTap: () => _controller.highlightSelection(c),
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Color(c),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.black12),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         TextField(
           controller: _controller,
