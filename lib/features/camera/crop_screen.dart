@@ -116,7 +116,7 @@ class _CropScreenState extends ConsumerState<CropScreen> {
   Future<void> _save() async {
     final img = _image!;
     final full = Offset.zero & _imgSize;
-    if (!_changed && (_crop.size - full.size).distance < 2) {
+    if (!_changed && (_crop.width - full.width).abs() < 2 && (_crop.height - full.height).abs() < 2) {
       Navigator.pop(context, widget.path);
       return;
     }
