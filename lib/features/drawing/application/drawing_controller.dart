@@ -8,7 +8,12 @@ import '../domain/drawing.dart';
 import 'shape_recognizer.dart';
 
 /// Qué hace el dedo/lápiz sobre la hoja.
-enum InputMode { draw, eraseStrokes, pan }
+/// - draw: dibujar con la herramienta elegida.
+/// - eraseStrokes: borrar trazos completos.
+/// - pan: mover la hoja.
+/// - text: tocar la hoja para escribir; tocar un texto para editarlo.
+/// - select: mover, agrandar y girar textos y fotos (collage).
+enum InputMode { draw, eraseStrokes, pan, text, select }
 
 /// Color y grosor recordados por herramienta (como en las apps de notas).
 class ToolSettings {
@@ -55,11 +60,13 @@ class DrawingController extends ChangeNotifier {
   void selectTool(ToolType t) {
     tool = t;
     mode = InputMode.draw;
+    selectedItemId = null;
     notifyListeners();
   }
 
   void selectMode(InputMode m) {
     mode = m;
+    if (m != InputMode.select && m != InputMode.text) selectedItemId = null;
     notifyListeners();
   }
 
@@ -111,6 +118,7 @@ class DrawingController extends ChangeNotifier {
         name: '${src.name} (copia)',
         opacity: src.opacity,
         strokes: [...src.strokes],
+        items: [for (final it in src.items) _cloneItem(it)],
       );
       _drawing = _drawing.copyWith(layers: [..._drawing.layers]..insert(i + 1, copy));
       _active = i + 1;
@@ -152,7 +160,122 @@ class DrawingController extends ChangeNotifier {
     }
   }
 
-  void clearLayer(int i) => updateLayer(i, (l) => l.copyWith(strokes: const []));
+  void clearLayer(int i) =>
+      updateLayer(i, (l) => l.copyWith(strokes: const [], items: const []));
+
+  // ------------------------------------------------ Textos y fotos (collage)
+
+  String? selectedItemId;
+
+  static int _idCounter = 0;
+  static String newItemId() =>
+      '${DateTime.now().microsecondsSinceEpoch}-${_idCounter++}';
+
+  CanvasItem _cloneItem(CanvasItem it) =>
+      CanvasItem.fromJson({...it.toJson(), 'id': newItemId()})!;
+
+  /// Capa y elemento con ese id (o null).
+  (int, CanvasItem)? findItem(String? id) {
+    if (id == null) return null;
+    for (var i = 0; i < _drawing.layers.length; i++) {
+      for (final it in _drawing.layers[i].items) {
+        if (it.id == id) return (i, it);
+      }
+    }
+    return null;
+  }
+
+  CanvasItem? get selectedItem => findItem(selectedItemId)?.$2;
+
+  void selectItem(String? id) {
+    selectedItemId = id;
+    notifyListeners();
+  }
+
+  /// Agrega el elemento a la capa activa y lo deja seleccionado.
+  void addItem(CanvasItem item) {
+    if (!canDrawOnActiveLayer) return;
+    _commit(() {
+      final i = activeLayerIndex;
+      final layers = [..._drawing.layers];
+      layers[i] = layers[i].copyWith(items: [...layers[i].items, item]);
+      _drawing = _drawing.copyWith(layers: layers);
+      selectedItemId = item.id;
+    });
+  }
+
+  /// Guarda un punto de "deshacer" antes de arrastrar/agrandar/girar, para
+  /// que todo el gesto se deshaga de una vez.
+  void beginItemChange() {
+    _undo.add(_drawing);
+    if (_undo.length > _maxHistory) _undo.removeAt(0);
+    _redo.clear();
+  }
+
+  void updateItem(String id, CanvasItem Function(CanvasItem) change,
+      {bool undoable = true}) {
+    final found = findItem(id);
+    if (found == null) return;
+    final (li, _) = found;
+    void apply() {
+      final layers = [..._drawing.layers];
+      layers[li] = layers[li].copyWith(
+        items: [for (final it in layers[li].items) it.id == id ? change(it) : it],
+      );
+      _drawing = _drawing.copyWith(layers: layers);
+    }
+
+    if (undoable) {
+      _commit(apply);
+    } else {
+      apply();
+      _changed();
+    }
+  }
+
+  void removeItem(String id) {
+    final found = findItem(id);
+    if (found == null) return;
+    final (li, _) = found;
+    _commit(() {
+      final layers = [..._drawing.layers];
+      layers[li] = layers[li].copyWith(
+          items: layers[li].items.where((it) => it.id != id).toList());
+      _drawing = _drawing.copyWith(layers: layers);
+      if (selectedItemId == id) selectedItemId = null;
+    });
+  }
+
+  void duplicateItem(String id) {
+    final it = findItem(id)?.$2;
+    if (it == null) return;
+    final copy = CanvasItem.fromJson({
+      ...it.toJson(),
+      'id': newItemId(),
+      'x': it.x + 30,
+      'y': it.y + 30,
+    })!;
+    final (li, _) = findItem(id)!;
+    _commit(() {
+      final layers = [..._drawing.layers];
+      layers[li] = layers[li].copyWith(items: [...layers[li].items, copy]);
+      _drawing = _drawing.copyWith(layers: layers);
+      selectedItemId = copy.id;
+    });
+  }
+
+  /// Pone el elemento encima (true) o debajo (false) de los demás de su capa.
+  void reorderItem(String id, {required bool toFront}) {
+    final found = findItem(id);
+    if (found == null) return;
+    final (li, item) = found;
+    _commit(() {
+      final layers = [..._drawing.layers];
+      final rest = layers[li].items.where((it) => it.id != id).toList();
+      layers[li] = layers[li].copyWith(items: toFront ? [...rest, item] : [item, ...rest]);
+      _drawing = _drawing.copyWith(layers: layers);
+    });
+  }
 
   // ------------------------------------------------------------------- Hoja
 
@@ -316,6 +439,7 @@ class DrawingController extends ChangeNotifier {
     if (!canUndo) return;
     _redo.add(_drawing);
     _drawing = _undo.removeLast();
+    if (findItem(selectedItemId) == null) selectedItemId = null;
     _changed();
   }
 
@@ -323,6 +447,7 @@ class DrawingController extends ChangeNotifier {
     if (!canRedo) return;
     _undo.add(_drawing);
     _drawing = _redo.removeLast();
+    if (findItem(selectedItemId) == null) selectedItemId = null;
     _changed();
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/providers.dart';
 import '../../../core/utils/time_format.dart';
@@ -83,7 +84,13 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              if (state.message != null && !processing)
+              if (state.status == RecordingStatus.error)
+                _MicPermissionHelp(
+                  message: state.message ?? '',
+                  blocked: state.micBlocked,
+                  onRetry: () => controller.start(widget.noteId),
+                )
+              else if (state.message != null && !processing)
                 Padding(
                   padding: const EdgeInsets.all(8),
                   child: Text(state.message!,
@@ -96,7 +103,9 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                         controller: _scroll,
                         padding: const EdgeInsets.all(16),
                         child: Text(
-                          state.liveText.isEmpty ? 'Escuchando…' : state.liveText,
+                          state.status == RecordingStatus.error
+                              ? ''
+                              : (state.liveText.isEmpty ? 'Escuchando…' : state.liveText),
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
@@ -314,6 +323,57 @@ class _Processing extends StatelessWidget {
               const Text('Transcribiendo y ordenando por párrafos…'),
             ],
           ),
+        ),
+      );
+}
+
+/// Ayuda cuando falta el permiso del micrófono: volver a pedirlo o abrir
+/// los ajustes de la app.
+class _MicPermissionHelp extends StatelessWidget {
+  const _MicPermissionHelp({
+    required this.message,
+    required this.blocked,
+    required this.onRetry,
+  });
+
+  final String message;
+  final bool blocked;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const Icon(Icons.mic_off_outlined, size: 48),
+            const SizedBox(height: 12),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton.icon(
+                  icon: const Icon(Icons.mic),
+                  label: const Text('Dar permiso'),
+                  onPressed: onRetry,
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.settings_outlined),
+                  label: const Text('Abrir ajustes'),
+                  onPressed: () => openAppSettings(),
+                ),
+              ],
+            ),
+            if (blocked)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                  'Después de activarlo, vuelve aquí y toca "Dar permiso".',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+          ],
         ),
       );
 }

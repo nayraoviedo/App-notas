@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,9 @@ import '../../settings/settings.dart';
 import '../application/drawing_controller.dart';
 import '../domain/drawing.dart';
 import 'drawing_block_view.dart';
+import 'widgets/canvas_item_view.dart';
+import 'widgets/text_item_editor.dart';
+import '../../camera/crop_screen.dart';
 import 'painters/drawing_painter.dart';
 import 'painters/paper_painter.dart';
 import 'widgets/layers_sheet.dart';
@@ -42,6 +46,12 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 
   final _pointers = <int>{};
   int? _drawingPointer;
+
+  // Textos y fotos (collage).
+  final _pageKey = GlobalKey();
+  Size _viewport = Size.zero;
+  bool _pointerOnItem = false;
+  Offset? _tapStart;
 
   /// Hoja abierta ahora.
   late String _path = widget.path;
@@ -241,6 +251,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   void _onDown(PointerDownEvent e) {
     final ctl = _ctl!;
     _pointers.add(e.pointer);
+    if (ctl.mode == InputMode.text || ctl.mode == InputMode.select) {
+      _tapStart = _pointers.length == 1 ? e.localPosition : null;
+      return;
+    }
     if (_pointers.length > 1) {
       // Segundo dedo: es un gesto de zoom, no un trazo.
       ctl.cancelStroke();
@@ -293,6 +307,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   }
 
   void _onMove(PointerMoveEvent e) {
+    if (_ctl!.mode == InputMode.text || _ctl!.mode == InputMode.select) return;
     if (e.pointer != _drawingPointer) return;
     final ctl = _ctl!;
     if (ctl.mode == InputMode.eraseStrokes) {
@@ -306,6 +321,21 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   void _onUp(PointerUpEvent e) {
     _pointers.remove(e.pointer);
     _disarmHold();
+    final ctl = _ctl!;
+    if (ctl.mode == InputMode.text || ctl.mode == InputMode.select) {
+      final start = _tapStart;
+      final onItem = _pointerOnItem;
+      _tapStart = null;
+      _pointerOnItem = false;
+      if (onItem || start == null || (e.localPosition - start).distance > 12) return;
+      // Toque en un espacio vacío.
+      if (ctl.selectedItemId != null) {
+        ctl.selectItem(null);
+      } else if (ctl.mode == InputMode.text) {
+        _newText(e.localPosition);
+      }
+      return;
+    }
     if (e.pointer != _drawingPointer) return;
     _drawingPointer = null;
     _ctl!.endStroke();
@@ -445,7 +475,19 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
             : Column(
                 children: [
                   Expanded(child: _canvas(ctl)),
-                  _ToolBar(controller: ctl, onOpenSettings: () => _sheet(ToolSettingsSheet(controller: ctl))),
+                  ListenableBuilder(
+                    listenable: ctl,
+                    builder: (context, _) => ctl.selectedItem != null
+                        ? _ItemBar(
+                            controller: ctl,
+                            onEditText: _editText,
+                          )
+                        : _ToolBar(
+                            controller: ctl,
+                            onOpenSettings: () => _sheet(ToolSettingsSheet(controller: ctl)),
+                            onAddImage: _chooseImageSource,
+                          ),
+                  ),
                 ],
               ),
       ),
@@ -472,6 +514,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                 ..setEntry(0, 3, 8)
                 ..setEntry(1, 3, 8);
             }
+            _viewport = Size(c.maxWidth, c.maxHeight);
             return InteractiveViewer(
               transformationController: _transform,
               constrained: false,
@@ -480,6 +523,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
               boundaryMargin: const EdgeInsets.all(400),
               panEnabled: ctl.mode == InputMode.pan || ctl.stylusOnly,
               child: Container(
+                key: _pageKey,
                 width: d.width,
                 height: d.height,
                 decoration: const BoxDecoration(
@@ -497,9 +541,37 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                       RepaintBoundary(
                         child: PaperView(paper: d.paper),
                       ),
-                      RepaintBoundary(
-                        child: CustomPaint(painter: DrawingPainter(ctl)),
-                      ),
+                      // Cada capa: sus trazos y encima sus textos y fotos.
+                      for (var i = 0; i < d.layers.length; i++)
+                        if (d.layers[i].visible) ...[
+                          RepaintBoundary(
+                            child: CustomPaint(painter: LayerPainter(ctl, i)),
+                          ),
+                          if (d.layers[i].items.isNotEmpty)
+                            Opacity(
+                              opacity: d.layers[i].opacity,
+                              child: IgnorePointer(
+                                // Los elementos solo se tocan con "Texto" o "Mover".
+                                ignoring: !(ctl.mode == InputMode.select ||
+                                        ctl.mode == InputMode.text) ||
+                                    d.layers[i].locked,
+                                child: Stack(
+                                  clipBehavior: Clip.hardEdge,
+                                  children: [
+                                    for (final it in d.layers[i].items)
+                                      EditableCanvasItem(
+                                        key: ValueKey(it.id),
+                                        item: it,
+                                        controller: ctl,
+                                        pageKey: _pageKey,
+                                        onEditText: _editText,
+                                        onPointerDown: () => _pointerOnItem = true,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
                     ],
                   ),
                 ),
@@ -509,6 +581,110 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
         );
       },
     );
+  }
+
+  // ------------------------------------------------------- Textos y fotos
+
+  /// Último estilo usado, para que el siguiente texto salga igual.
+  TextItem? _lastTextStyle;
+
+  Future<void> _newText(Offset at) async {
+    final ctl = _ctl!;
+    if (!ctl.canDrawOnActiveLayer) return;
+    final base = (_lastTextStyle ??
+            const TextItem(id: '', x: 0, y: 0, text: '', font: 'Dancing Script', size: 40))
+        .copyWith(text: '', x: at.dx, y: at.dy, scale: 1, rotation: 0);
+    final draft = TextItem(
+      id: DrawingController.newItemId(),
+      x: at.dx,
+      y: at.dy,
+      text: '',
+      font: base.font,
+      size: base.size,
+      color: base.color,
+      bold: base.bold,
+      italic: base.italic,
+      align: base.align,
+      background: base.background,
+      width: base.width,
+    );
+    final result = await showTextItemEditor(context, draft);
+    if (result == null || result.text.trim().isEmpty) return;
+    _lastTextStyle = result;
+    ctl.addItem(result);
+  }
+
+  Future<void> _editText(TextItem item) async {
+    final result = await showTextItemEditor(context, item);
+    if (result == null) return;
+    final ctl = _ctl!;
+    if (result.text.trim().isEmpty) {
+      ctl.removeItem(item.id);
+      return;
+    }
+    _lastTextStyle = result;
+    ctl.updateItem(item.id, (_) => result);
+  }
+
+  /// Centro de lo que se ve ahora, en coordenadas de la hoja.
+  Offset get _visibleCenter {
+    final d = _ctl!.drawing;
+    if (_viewport == Size.zero) return Offset(d.width / 2, d.height / 2);
+    final p = _transform.toScene(_viewport.center(Offset.zero));
+    return Offset(p.dx.clamp(0, d.width).toDouble(), p.dy.clamp(0, d.height).toDouble());
+  }
+
+  Future<void> _addImage({required bool camera}) async {
+    final ctl = _ctl!;
+    if (!ctl.canDrawOnActiveLayer) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La capa activa está oculta o bloqueada')));
+      return;
+    }
+    final path = await pickAndCropImage(context, ref, camera: camera, forNoteId: widget.noteId);
+    if (path == null) return;
+    final buffer = await ui.ImmutableBuffer.fromFilePath(path);
+    final desc = await ui.ImageDescriptor.encoded(buffer);
+    final w = desc.width.toDouble(), h = desc.height.toDouble();
+    desc.dispose();
+    buffer.dispose();
+    // Tamaño inicial: que entre en ~la mitad de la hoja.
+    final k = 480 / (w > h ? w : h);
+    final c = _visibleCenter;
+    ctl.addItem(ImageItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      path: path,
+      width: w * k,
+      height: h * k,
+    ));
+    ctl.selectMode(InputMode.select);
+    ctl.selectItem(ctl.drawing.layers[ctl.activeLayerIndex].items.last.id);
+  }
+
+  Future<void> _chooseImageSource() async {
+    final camera = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Tomar foto'),
+              onTap: () => Navigator.pop(context, true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Elegir de la galería'),
+              onTap: () => Navigator.pop(context, false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (camera != null) await _addImage(camera: camera);
   }
 
   void _sheet(Widget child) => showModalBottomSheet<void>(
@@ -523,9 +699,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 }
 
 class _ToolBar extends StatelessWidget {
-  const _ToolBar({required this.controller, required this.onOpenSettings});
+  const _ToolBar({
+    required this.controller,
+    required this.onOpenSettings,
+    required this.onAddImage,
+  });
   final DrawingController controller;
   final VoidCallback onOpenSettings;
+  final VoidCallback onAddImage;
 
   static const _icons = {
     ToolType.pen: Icons.edit,
@@ -608,6 +789,24 @@ class _ToolBar extends StatelessWidget {
                     tooltip: 'Borrar trazos completos',
                     selected: c.mode == InputMode.eraseStrokes,
                     onTap: () => c.selectMode(InputMode.eraseStrokes),
+                  ),
+                  button(
+                    icon: Icons.title,
+                    tooltip: 'Texto: toca la hoja para escribir',
+                    selected: c.mode == InputMode.text,
+                    onTap: () => c.selectMode(InputMode.text),
+                  ),
+                  button(
+                    icon: Icons.add_photo_alternate_outlined,
+                    tooltip: 'Poner una foto',
+                    selected: false,
+                    onTap: onAddImage,
+                  ),
+                  button(
+                    icon: Icons.ads_click,
+                    tooltip: 'Mover textos y fotos',
+                    selected: c.mode == InputMode.select,
+                    onTap: () => c.selectMode(InputMode.select),
                   ),
                   button(
                     icon: Icons.pan_tool_outlined,
@@ -718,6 +917,71 @@ class _ThumbnailsSheetState extends ConsumerState<_ThumbnailsSheet> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Acciones para el texto o la foto seleccionada.
+class _ItemBar extends StatelessWidget {
+  const _ItemBar({required this.controller, required this.onEditText});
+  final DrawingController controller;
+  final void Function(TextItem item) onEditText;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = controller.selectedItem!;
+    Widget action(IconData icon, String label, VoidCallback onTap) => InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [Icon(icon), Text(label, style: const TextStyle(fontSize: 11))],
+            ),
+          ),
+        );
+    return Material(
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            children: [
+              if (item is TextItem)
+                action(Icons.edit_outlined, 'Editar', () => onEditText(item))
+              else if (item is ImageItem)
+                PopupMenuButton<ImageFrame>(
+                  tooltip: 'Marco',
+                  onSelected: (f) => controller.updateItem(
+                      item.id, (it) => (it as ImageItem).withFrame(f)),
+                  itemBuilder: (_) => [
+                    for (final f in ImageFrame.values)
+                      PopupMenuItem(value: f, child: Text(f.label)),
+                  ],
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [Icon(Icons.filter_frames_outlined), Text('Marco', style: TextStyle(fontSize: 11))],
+                    ),
+                  ),
+                ),
+              action(Icons.copy_outlined, 'Duplicar', () => controller.duplicateItem(item.id)),
+              action(Icons.flip_to_front, 'Al frente',
+                  () => controller.reorderItem(item.id, toFront: true)),
+              action(Icons.flip_to_back, 'Atrás',
+                  () => controller.reorderItem(item.id, toFront: false)),
+              action(Icons.restart_alt, 'Enderezar',
+                  () => controller.updateItem(item.id, (it) => it.moved(rotation: 0))),
+              action(Icons.delete_outline, 'Borrar', () => controller.removeItem(item.id)),
+              action(Icons.check, 'Listo', () => controller.selectItem(null)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

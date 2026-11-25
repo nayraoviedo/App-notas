@@ -8,6 +8,7 @@ import '../../../core/utils/time_format.dart';
 import '../../notes/domain/note_block.dart';
 import '../../notes/presentation/widgets/audio_block_view.dart';
 import '../../settings/settings.dart';
+import '../application/audio_tools.dart';
 import '../../summary/application/summary_runner.dart';
 import '../../summary/domain/summary.dart';
 
@@ -59,6 +60,40 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(note?.displayTitle ?? ''),
+          actions: [
+            if (audio != null)
+              PopupMenuButton<AudioExport>(
+                tooltip: 'Exportar',
+                icon: const Icon(Icons.ios_share),
+                onSelected: (what) async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  messenger.showSnackBar(const SnackBar(content: Text('Preparando…')));
+                  try {
+                    await shareRecording(ref, audio, title: note?.displayTitle ?? '', what: what);
+                  } catch (e) {
+                    messenger.showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: AudioExport.audio,
+                    child: ListTile(leading: Icon(Icons.graphic_eq), title: Text('Audio (m4a)')),
+                  ),
+                  PopupMenuItem(
+                    value: AudioExport.transcript,
+                    child: ListTile(leading: Icon(Icons.subject), title: Text('Transcripción (.txt)')),
+                  ),
+                  PopupMenuItem(
+                    value: AudioExport.summary,
+                    child: ListTile(leading: Icon(Icons.auto_awesome), title: Text('Resumen (.txt)')),
+                  ),
+                  PopupMenuItem(
+                    value: AudioExport.all,
+                    child: ListTile(leading: Icon(Icons.folder_zip_outlined), title: Text('Todo junto')),
+                  ),
+                ],
+              ),
+          ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(88),
             child: Column(

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/providers.dart';
 import '../../importing/import_service.dart';
 import '../domain/note.dart';
+import 'create_note_sheet.dart';
 import 'notes_search_delegate.dart';
 
 /// Notas de un cuaderno, o todas si [notebookId] es null.
@@ -48,13 +49,26 @@ class NotesListScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
         label: const Text('Nueva nota'),
-        onPressed: () async {
-          final id =
-              await ref.read(notesRepositoryProvider).createNote(notebookId: notebookId);
-          if (context.mounted) context.push('/notes/$id');
-        },
+        onPressed: () => _create(context, ref),
       ),
     );
+  }
+
+  /// Crear nota eligiendo la hoja (como en StarNote).
+  Future<void> _create(BuildContext context, WidgetRef ref) async {
+    final opts = await showCreateNoteSheet(context);
+    if (opts == null) return;
+    final repo = ref.read(notesRepositoryProvider);
+    final id = await repo.createNote(title: opts.title, notebookId: notebookId);
+    String? sheet;
+    if (opts.withSheet) {
+      sheet = await ref.read(fileStorageProvider).newDrawingPath();
+      await ref.read(drawingStoreProvider).save(sheet, opts.firstPage());
+      await repo.addDrawingBlock(id, sheet);
+    }
+    if (!context.mounted) return;
+    context.push('/notes/$id');
+    if (sheet != null) context.push('/notes/$id/drawing', extra: sheet);
   }
 
   Future<void> _importPdf(BuildContext context, WidgetRef ref) async {

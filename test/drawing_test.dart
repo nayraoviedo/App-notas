@@ -64,4 +64,29 @@ void main() {
     expect(c.activeLayer.id, activeId);
     expect(c.activeLayerIndex, 0);
   });
+
+  test('textos y fotos del collage se guardan y se pueden deshacer', () {
+    final c = DrawingController(Drawing.blank());
+    c.addItem(const TextItem(id: 't1', x: 100, y: 200, text: 'Hola', font: 'Dancing Script'));
+    c.addItem(const ImageItem(id: 'i1', x: 300, y: 300, path: '/a.png', width: 200, height: 100));
+    expect(c.activeLayer.items, hasLength(2));
+    expect(c.selectedItemId, 'i1');
+
+    c.beginItemChange();
+    c.updateItem('t1', (it) => it.moved(x: 150, scale: 2, rotation: 0.5), undoable: false);
+    final t = c.findItem('t1')!.$2 as TextItem;
+    expect([t.x, t.scale, t.rotation], [150, 2, 0.5]);
+    c.undo();
+    expect((c.findItem('t1')!.$2 as TextItem).x, 100);
+
+    final back = Drawing.fromJson(c.drawing.toJson());
+    final items = back.layers.single.items;
+    expect(items.first, isA<TextItem>());
+    expect((items.first as TextItem).font, 'Dancing Script');
+    expect(items.last, isA<ImageItem>());
+
+    c.removeItem('i1');
+    expect(c.activeLayer.items, hasLength(1));
+    expect(c.selectedItemId, isNull);
+  });
 }

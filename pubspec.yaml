@@ -45,6 +45,10 @@ dependencies:
   pdfx: ^2.9.0
   file_picker: ^8.1.4
 
+  # Compartir y convertir audios
+  share_plus: ">=11.0.0 <14.0.0"
+  ffmpeg_kit_flutter_new_min: any
+
   # Ajustes, IA en la nube y exportar
   shared_preferences: ^2.3.3
   flutter_secure_storage: ^9.2.2

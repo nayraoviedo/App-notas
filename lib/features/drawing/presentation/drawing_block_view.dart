@@ -5,6 +5,7 @@ import '../../../core/providers.dart';
 import '../../notes/domain/note_block.dart';
 import 'painters/drawing_painter.dart';
 import 'painters/paper_painter.dart';
+import 'widgets/canvas_item_view.dart';
 
 /// Miniatura de la hoja dentro de la nota. Al tocarla se abre para editar.
 class DrawingBlockView extends ConsumerWidget {
@@ -34,7 +35,7 @@ class DrawingBlockView extends ConsumerWidget {
                   fit: StackFit.expand,
                   children: [
                     PaperView(paper: d.paper),
-                    CustomPaint(painter: StaticDrawingPainter(d)),
+                    DrawingLayersStaticView(drawing: d, painterFor: StaticLayerPainter.new),
                     if (d.bookmarked)
                       const Positioned(
                         top: 0,

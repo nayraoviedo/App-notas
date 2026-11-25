@@ -50,7 +50,8 @@ class LibraryScreen extends ConsumerWidget {
                 cover: LayoutBuilder(
                   builder: (_, c) => NotebookCover(
                     name: 'Todas las notas',
-                    color: 0xFF5C6370,
+                    color: 0xFFCDB4DB,
+                    style: const CoverStyle(pattern: CoverPattern.gingham, sticker: ''),
                     width: c.maxWidth,
                     icon: Icons.notes,
                   ),
@@ -76,6 +77,7 @@ class LibraryScreen extends ConsumerWidget {
                   name: nb.name,
                   color: nb.color,
                   coverPath: nb.coverPath,
+                  style: nb.style,
                   width: c.maxWidth,
                 ),
               ),
@@ -97,7 +99,7 @@ class LibraryScreen extends ConsumerWidget {
     if (r == null) return;
     await ref
         .read(notebooksRepositoryProvider)
-        .create(r.name, color: r.color, coverPath: r.coverPath);
+        .create(r.name, color: r.color, coverPath: r.coverPath, style: r.style);
   }
 
   Future<void> _options(BuildContext context, WidgetRef ref, Notebook nb) async {
@@ -131,7 +133,8 @@ class LibraryScreen extends ConsumerWidget {
         pickCover: ref.read(cameraServiceProvider).pickImageFromGallery,
       );
       if (r != null) {
-        await repo.update(nb.id, name: r.name, color: r.color, coverPath: r.coverPath);
+        await repo.update(nb.id,
+            name: r.name, color: r.color, coverPath: r.coverPath, style: r.style);
       }
     } else if (action == 'delete') {
       await repo.delete(nb.id);

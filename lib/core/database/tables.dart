@@ -11,6 +11,9 @@ class Notebooks extends Table {
 
   /// Imagen de portada opcional.
   TextColumn get coverPath => text().nullable()();
+
+  /// Diseño de portada "patrón;emoji" (desde el esquema v4).
+  TextColumn get coverStyle => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
 
   @override

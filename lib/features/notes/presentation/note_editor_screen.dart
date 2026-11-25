@@ -8,10 +8,12 @@ import '../../../core/router.dart';
 import '../../../core/widgets/study_timer.dart';
 import '../../export/pdf_exporter.dart';
 import '../../drawing/domain/drawing.dart';
+import '../../camera/crop_screen.dart';
 import '../../drawing/application/practice_builder.dart';
 import '../../drawing/presentation/drawing_block_view.dart';
 import '../../drawing/presentation/widgets/practice_sheet_dialog.dart';
 import '../../importing/import_service.dart';
+import '../../recording/application/audio_tools.dart';
 import '../../video/data/video_backend.dart';
 import '../../notebooks/domain/notebook.dart';
 import '../domain/note_block.dart';
@@ -241,7 +243,6 @@ class _EditorToolbar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.read(notesRepositoryProvider);
-    final camera = ref.read(cameraServiceProvider);
 
     return SafeArea(
       child: Padding(
@@ -269,7 +270,8 @@ class _EditorToolbar extends ConsumerWidget {
               icon: Icons.photo_camera_outlined,
               label: 'Foto',
               onTap: () async {
-                final path = await camera.takePhoto(forNoteId: noteId);
+                final path =
+                    await pickAndCropImage(context, ref, camera: true, forNoteId: noteId);
                 if (path != null) await repo.addImageBlock(noteId, path);
               },
             ),
@@ -277,7 +279,7 @@ class _EditorToolbar extends ConsumerWidget {
               icon: Icons.image_outlined,
               label: 'Galería',
               onTap: () async {
-                final path = await camera.pickImageFromGallery();
+                final path = await pickAndCropImage(context, ref, camera: false);
                 if (path != null) await repo.addImageBlock(noteId, path);
               },
             ),
@@ -430,12 +432,54 @@ Future<void> _import(BuildContext context, WidgetRef ref, String noteId) async {
             subtitle: const Text('Apuntes, pizarras o páginas de libros'),
             onTap: () => Navigator.pop(context, 'photos'),
           ),
+          ListTile(
+            leading: const Icon(Icons.audio_file_outlined),
+            title: const Text('Audio'),
+            subtitle: const Text('mp3, m4a, notas de voz de WhatsApp… se transcribe solo'),
+            onTap: () => Navigator.pop(context, 'audio'),
+          ),
         ],
       ),
     ),
   );
   if (kind == null || !context.mounted) return;
   final service = ref.read(importServiceProvider);
+  if (kind == 'audio') {
+    final status = ValueNotifier<String>('Elige el audio…');
+    var dialogOpen = false;
+    try {
+      final future = importAudio(ref, noteId, onStatus: (s) {
+        status.value = s;
+        if (!dialogOpen && context.mounted) {
+          dialogOpen = true;
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => AlertDialog(
+              content: ValueListenableBuilder<String>(
+                valueListenable: status,
+                builder: (_, v, __) => Row(children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(width: 16),
+                  Expanded(child: Text(v)),
+                ]),
+              ),
+            ),
+          );
+        }
+      });
+      await future;
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('No se pudo importar: $e')));
+      }
+    } finally {
+      if (dialogOpen && context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      status.dispose();
+    }
+    return;
+  }
   if (kind == 'pdf') {
     final pdf = await service.pickPdf();
     if (pdf == null || !context.mounted) return;

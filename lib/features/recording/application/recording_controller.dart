@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
 import '../../../core/providers.dart';
@@ -34,6 +35,7 @@ class RecordingState {
     this.currentSpeakerId,
     this.progress = 0,
     this.message,
+    this.micBlocked = false,
   });
 
   final RecordingStatus status;
@@ -47,6 +49,9 @@ class RecordingState {
   /// Progreso de la transcripción final (0–100).
   final int progress;
   final String? message;
+
+  /// Permiso del micrófono negado (o bloqueado en Ajustes).
+  final bool micBlocked;
 
   bool get isActive =>
       status == RecordingStatus.recording || status == RecordingStatus.paused;
@@ -62,6 +67,7 @@ class RecordingState {
     String? currentSpeakerId,
     int? progress,
     String? message,
+    bool? micBlocked,
   }) =>
       RecordingState(
         status: status ?? this.status,
@@ -75,6 +81,7 @@ class RecordingState {
         currentSpeakerId: currentSpeakerId ?? this.currentSpeakerId,
         progress: progress ?? this.progress,
         message: message ?? this.message,
+        micBlocked: micBlocked ?? this.micBlocked,
       );
 }
 
@@ -109,14 +116,22 @@ class RecordingController extends Notifier<RecordingState> {
     state = const RecordingState();
     _noteId = noteId;
 
-    final recorder = AudioRecorder();
-    if (!await recorder.hasPermission()) {
+    // Pedir el permiso del micrófono. Si se negó "para siempre", Android ya no
+    // muestra el aviso: hay que activarlo desde Ajustes.
+    var mic = await Permission.microphone.status;
+    if (!mic.isGranted) mic = await Permission.microphone.request();
+    if (!mic.isGranted) {
       state = state.copyWith(
-          status: RecordingStatus.error,
-          message: 'La app necesita permiso para usar el micrófono.');
-      await recorder.dispose();
+        status: RecordingStatus.error,
+        micBlocked: mic.isPermanentlyDenied || mic.isRestricted,
+        message: mic.isPermanentlyDenied
+            ? 'El micrófono está bloqueado para la app. Actívalo en Ajustes → '
+                'Permisos → Micrófono.'
+            : 'Para grabar, la app necesita permiso para usar el micrófono.',
+      );
       return;
     }
+    final recorder = AudioRecorder();
     _recorder = recorder;
 
     final path = await ref.read(fileStorageProvider).newAudioPath();

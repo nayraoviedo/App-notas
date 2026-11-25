@@ -1,6 +1,9 @@
 import 'dart:ui';
 
+import 'canvas_item.dart';
 import 'practice.dart';
+
+export 'canvas_item.dart';
 
 /// Herramientas de dibujo. Cada una se ve distinta (ver `stroke_renderer.dart`).
 enum ToolType {
@@ -113,6 +116,7 @@ class DrawingLayer {
     this.locked = false,
     this.opacity = 1,
     this.strokes = const [],
+    this.items = const [],
   });
 
   final String id;
@@ -122,12 +126,16 @@ class DrawingLayer {
   final double opacity;
   final List<Stroke> strokes;
 
+  /// Textos y fotos del collage, encima de los trazos de esta capa.
+  final List<CanvasItem> items;
+
   DrawingLayer copyWith({
     String? name,
     bool? visible,
     bool? locked,
     double? opacity,
     List<Stroke>? strokes,
+    List<CanvasItem>? items,
   }) =>
       DrawingLayer(
         id: id,
@@ -136,10 +144,12 @@ class DrawingLayer {
         locked: locked ?? this.locked,
         opacity: opacity ?? this.opacity,
         strokes: strokes ?? this.strokes,
+        items: items ?? this.items,
       );
 
   Map<String, Object?> toJson() => {
         'id': id,
+        if (items.isNotEmpty) 'items': items.map((i) => i.toJson()).toList(),
         'name': name,
         'visible': visible,
         'locked': locked,
@@ -157,6 +167,10 @@ class DrawingLayer {
           for (final s in (j['strokes'] as List? ?? const []))
             Stroke.fromJson((s as Map).cast<String, Object?>()),
         ],
+        items: (j['items'] as List? ?? const [])
+            .map((i) => CanvasItem.fromJson((i as Map).cast<String, Object?>()))
+            .nonNulls
+            .toList(),
       );
 }
 

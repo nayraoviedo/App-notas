@@ -33,24 +33,31 @@ class NotebooksRepository {
         });
   }
 
-  Future<String> create(String name, {required int color, String? coverPath}) async {
+  Future<String> create(String name,
+      {required int color, String? coverPath, CoverStyle style = const CoverStyle()}) async {
     final id = _uuid.v4();
     await _db.into(_db.notebooks).insert(NotebooksCompanion.insert(
           id: id,
           name: name,
           color: Value(color),
           coverPath: Value(coverPath),
+          coverStyle: Value(style.encode()),
           createdAt: DateTime.now(),
         ));
     return id;
   }
 
-  Future<void> update(String id, {required String name, required int color, String? coverPath}) =>
+  Future<void> update(String id,
+          {required String name,
+          required int color,
+          String? coverPath,
+          required CoverStyle style}) =>
       (_db.update(_db.notebooks)..where((n) => n.id.equals(id))).write(
         NotebooksCompanion(
           name: Value(name),
           color: Value(color),
           coverPath: Value(coverPath),
+          coverStyle: Value(style.encode()),
         ),
       );
 
@@ -62,5 +69,11 @@ class NotebooksRepository {
       });
 
   Notebook _toNotebook(NotebookRow r) =>
-      Notebook(id: r.id, name: r.name, color: r.color, coverPath: r.coverPath);
+      Notebook(
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        coverPath: r.coverPath,
+        style: CoverStyle.decode(r.coverStyle),
+      );
 }
