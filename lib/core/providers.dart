@@ -89,7 +89,7 @@ final blocksProvider = StreamProvider.family<List<NoteBlock>, String>(
 final segmentsProvider = StreamProvider.family<List<TranscriptSegment>, String>(
     (ref, blockId) => ref.watch(notesRepositoryProvider).watchSegments(blockId));
 
-final markersProvider = StreamProvider.family<List<int>, String>(
+final markersProvider = StreamProvider.family<List<AudioMarker>, String>(
     (ref, blockId) => ref.watch(notesRepositoryProvider).watchMarkers(blockId));
 
 final speakersProvider = StreamProvider<List<Speaker>>(

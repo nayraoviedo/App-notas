@@ -1,0 +1,457 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
+
+import '../../../core/providers.dart';
+import '../../../core/utils/time_format.dart';
+import '../../notes/domain/note_block.dart';
+import '../../notes/presentation/widgets/audio_block_view.dart';
+import '../../settings/settings.dart';
+import '../../summary/application/summary_runner.dart';
+import '../../summary/domain/summary.dart';
+
+/// Vista completa de una grabación, con tres pestañas:
+/// Transcripción · Notas rápidas · Resumen, y el reproductor abajo.
+class RecordingDetailScreen extends ConsumerStatefulWidget {
+  const RecordingDetailScreen({super.key, required this.noteId, required this.blockId});
+  final String noteId;
+  final String blockId;
+
+  @override
+  ConsumerState<RecordingDetailScreen> createState() => _RecordingDetailScreenState();
+}
+
+class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
+  final _player = AudioPlayer();
+  String? _loadedPath;
+  bool _onlyImportant = false;
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _seek(int ms) async {
+    await _player.seek(Duration(milliseconds: ms));
+    if (!_player.playing) await _player.play();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final note = ref.watch(noteProvider(widget.noteId)).valueOrNull;
+    final blocks = ref.watch(blocksProvider(widget.noteId)).valueOrNull ?? const [];
+    final audio = blocks.whereType<AudioBlock>().where((b) => b.id == widget.blockId).firstOrNull;
+    final photos = blocks
+        .whereType<ImageBlock>()
+        .where((b) => b.anchor?.audioBlockId == widget.blockId)
+        .toList();
+    final lang = ref.watch(settingsProvider).language;
+
+    if (audio != null && _loadedPath != audio.path) {
+      _loadedPath = audio.path;
+      _player.setFilePath(audio.path);
+    }
+
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(note?.displayTitle ?? ''),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(88),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Chip(label: Text(lang == 'auto' ? 'Idioma automático' : lang.toUpperCase())),
+                      const SizedBox(width: 8),
+                      Chip(
+                        avatar: const Icon(Icons.schedule, size: 16),
+                        label: Text(formatMs(audio?.durationMs ?? 0)),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Solo lo importante ⭐',
+                        isSelected: _onlyImportant,
+                        icon: const Icon(Icons.star_border),
+                        selectedIcon: const Icon(Icons.star, color: Colors.amber),
+                        onPressed: () => setState(() => _onlyImportant = !_onlyImportant),
+                      ),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Transcripción'),
+                    Tab(text: 'Notas rápidas'),
+                    Tab(text: 'Resumen'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        body: audio == null
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                children: [
+                  TranscriptView(
+                    blockId: widget.blockId,
+                    player: _player,
+                    photos: photos,
+                    onlyImportant: _onlyImportant,
+                  ),
+                  _QuickNotesTab(blockId: widget.blockId, player: _player, onSeek: _seek),
+                  _SummaryTab(blockId: widget.blockId, onSeek: _seek),
+                ],
+              ),
+        bottomNavigationBar: audio == null
+            ? null
+            : Material(
+                elevation: 8,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                    child: PlayerBar(player: _player, durationMs: audio.durationMs),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------ Notas rápidas
+
+class _QuickNotesTab extends ConsumerStatefulWidget {
+  const _QuickNotesTab({required this.blockId, required this.player, required this.onSeek});
+  final String blockId;
+  final AudioPlayer player;
+  final Future<void> Function(int ms) onSeek;
+
+  @override
+  ConsumerState<_QuickNotesTab> createState() => _QuickNotesTabState();
+}
+
+class _QuickNotesTabState extends ConsumerState<_QuickNotesTab> {
+  final _text = TextEditingController();
+  final _focus = FocusNode();
+  int? _atMs;
+
+  @override
+  void initState() {
+    super.initState();
+    // La nota queda en el minuto en que empezaste a escribir.
+    _focus.addListener(() {
+      if (_focus.hasFocus) _atMs = widget.player.position.inMilliseconds;
+    });
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final t = _text.text.trim();
+    if (t.isEmpty) return;
+    await ref.read(notesRepositoryProvider).addMarker(
+          widget.blockId,
+          _atMs ?? widget.player.position.inMilliseconds,
+          label: t,
+        );
+    _text.clear();
+    _atMs = null;
+    _focus.unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final markers = ref.watch(markersProvider(widget.blockId)).valueOrNull ?? const [];
+    final repo = ref.read(notesRepositoryProvider);
+
+    return Column(
+      children: [
+        Expanded(
+          child: markers.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Aquí aparecen las notas rápidas y las marcas ⭐ que hiciste al '
+                      'grabar. También puedes agregar más mientras escuchas.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: markers.length,
+                  itemBuilder: (context, i) {
+                    final m = markers[i];
+                    return ListTile(
+                      leading: ActionChip(
+                        avatar: const Icon(Icons.play_arrow, size: 16),
+                        label: Text(formatMs(m.atMs)),
+                        onPressed: () => widget.onSeek(m.atMs),
+                      ),
+                      title: Text(m.isQuickNote ? m.label! : '⭐ Momento importante'),
+                      onTap: () => widget.onSeek(m.atMs),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (a) async {
+                          if (a == 'delete' && m.id != null) {
+                            await repo.deleteMarker(m.id!);
+                          } else if (a == 'edit' && m.id != null) {
+                            final c = TextEditingController(text: m.label ?? '');
+                            final v = await showDialog<String>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: Text('Nota en ${formatMs(m.atMs)}'),
+                                content: TextField(controller: c, autofocus: true, maxLines: null),
+                                actions: [
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Cancelar')),
+                                  FilledButton(
+                                      onPressed: () => Navigator.pop(context, c.text.trim()),
+                                      child: const Text('Guardar')),
+                                ],
+                              ),
+                            );
+                            if (v != null && v.isNotEmpty) await repo.updateMarker(m.id!, v);
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Editar')),
+                          PopupMenuItem(value: 'delete', child: Text('Borrar')),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _text,
+                  focusNode: _focus,
+                  minLines: 1,
+                  maxLines: 3,
+                  onSubmitted: (_) => _add(),
+                  decoration: const InputDecoration(
+                    hintText: 'Nota rápida en este minuto…',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              IconButton(icon: const Icon(Icons.send), onPressed: _add),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ------------------------------------------------------------------ Resumen
+
+class _SummaryTab extends ConsumerStatefulWidget {
+  const _SummaryTab({required this.blockId, required this.onSeek});
+  final String blockId;
+  final Future<void> Function(int ms) onSeek;
+
+  @override
+  ConsumerState<_SummaryTab> createState() => _SummaryTabState();
+}
+
+class _SummaryTabState extends ConsumerState<_SummaryTab> {
+  bool _byChapters = false;
+  String? _status;
+  String? _error;
+
+  Future<void> _generate() async {
+    setState(() {
+      _status = 'Preparando…';
+      _error = null;
+    });
+    try {
+      await generateSummary(ref, widget.blockId,
+          onStatus: (s) {
+        if (mounted) setState(() => _status = s);
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _status = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = ref.watch(summaryProvider(widget.blockId)).valueOrNull;
+    final text = Theme.of(context).textTheme;
+
+    if (_status != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 12),
+            Text(_status!),
+          ],
+        ),
+      );
+    }
+
+    if (summary == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.auto_awesome, size: 40),
+              const SizedBox(height: 12),
+              const Text(
+                'Genera un resumen completo y por capítulos, con puntos clave y '
+                'tareas mencionadas.',
+                textAlign: TextAlign.center,
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Generar resumen'),
+                onPressed: _generate,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        Row(
+          children: [
+            ChoiceChip(
+              label: const Text('Resumen completo'),
+              selected: !_byChapters,
+              onSelected: (_) => setState(() => _byChapters = false),
+            ),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('Por capítulos'),
+              selected: _byChapters,
+              onSelected: (_) => setState(() => _byChapters = true),
+            ),
+            const Spacer(),
+            IconButton(
+              tooltip: 'Copiar',
+              icon: const Icon(Icons.copy_outlined),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: _asText(summary)));
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('Resumen copiado')));
+              },
+            ),
+            IconButton(
+              tooltip: 'Volver a generar',
+              icon: const Icon(Icons.refresh),
+              onPressed: _generate,
+            ),
+          ],
+        ),
+        if (_error != null)
+          Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        const SizedBox(height: 12),
+        Text(summary.title, style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
+        if (!_byChapters) ...[
+          Text(summary.overview, style: text.bodyLarge),
+          if (summary.keyPoints.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text('Puntos clave', style: text.titleMedium),
+            const SizedBox(height: 6),
+            for (final k in summary.keyPoints)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [const Text('•  '), Expanded(child: Text(k))],
+                ),
+              ),
+          ],
+          if (summary.tasks.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text('Tareas y fechas', style: text.titleMedium),
+            for (final t in summary.tasks)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: false,
+                onChanged: (_) {},
+                title: Text(t.task),
+                subtitle: t.due == null ? null : Text(t.due!),
+              ),
+          ],
+        ] else
+          for (final c in summary.chapters)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.play_arrow, size: 16),
+                    label: Text(formatMs(c.atMs)),
+                    onPressed: () => widget.onSeek(c.atMs),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(c.title, style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(c.summary, style: text.bodyLarge),
+                ],
+              ),
+            ),
+        const SizedBox(height: 12),
+        Text('Generado con ${summary.provider}', style: text.bodySmall),
+      ],
+    );
+  }
+
+  static String _asText(TranscriptSummary s) {
+    final b = StringBuffer()
+      ..writeln(s.title)
+      ..writeln()
+      ..writeln(s.overview);
+    if (s.keyPoints.isNotEmpty) {
+      b.writeln('\nPuntos clave:');
+      for (final k in s.keyPoints) {
+        b.writeln('• $k');
+      }
+    }
+    if (s.chapters.isNotEmpty) {
+      b.writeln('\nCapítulos:');
+      for (final c in s.chapters) {
+        b.writeln('[${formatMs(c.atMs)}] ${c.title}\n${c.summary}\n');
+      }
+    }
+    return b.toString();
+  }
+}

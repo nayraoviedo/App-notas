@@ -8,6 +8,7 @@ import '../../../core/providers.dart';
 import '../../notes/domain/note_block.dart';
 import '../../speakers/application/speaker_tracker.dart';
 import '../../speakers/domain/speaker.dart';
+import '../../settings/settings.dart';
 import '../../speakers/domain/voice_embedder.dart';
 import '../../transcription/application/segment_merger.dart';
 import '../../transcription/domain/transcript_segment.dart';
@@ -27,7 +28,7 @@ class RecordingState {
     this.status = RecordingStatus.idle,
     this.elapsedMs = 0,
     this.liveText = '',
-    this.markersMs = const [],
+    this.markers = const [],
     this.photos = const [],
     this.pendingSpeakerChange,
     this.currentSpeakerId,
@@ -38,7 +39,7 @@ class RecordingState {
   final RecordingStatus status;
   final int elapsedMs;
   final String liveText;
-  final List<int> markersMs;
+  final List<AudioMarker> markers;
   final List<PendingPhoto> photos;
   final SpeakerChangeSuggestion? pendingSpeakerChange;
   final String? currentSpeakerId;
@@ -54,7 +55,7 @@ class RecordingState {
     RecordingStatus? status,
     int? elapsedMs,
     String? liveText,
-    List<int>? markersMs,
+    List<AudioMarker>? markers,
     List<PendingPhoto>? photos,
     SpeakerChangeSuggestion? pendingSpeakerChange,
     bool clearPending = false,
@@ -66,7 +67,7 @@ class RecordingState {
         status: status ?? this.status,
         elapsedMs: elapsedMs ?? this.elapsedMs,
         liveText: liveText ?? this.liveText,
-        markersMs: markersMs ?? this.markersMs,
+        markers: markers ?? this.markers,
         photos: photos ?? this.photos,
         pendingSpeakerChange: clearPending
             ? null
@@ -90,18 +91,21 @@ class RecordingController extends Notifier<RecordingState> {
   StreamSubscription<SpeakerChangeSuggestion>? _suggestionSub;
   Timer? _ticker;
   String? _noteId;
+  String _lang = 'es';
 
   /// Términos que Whisper debe escribir bien (idea: vocabulario por materia).
   List<String> vocabulary = const [];
 
-  /// Sugerir "¿Habla otra persona?" automáticamente.
-  bool autoSpeakerDetection = true;
 
   @override
   RecordingState build() => const RecordingState();
 
-  Future<void> start(String noteId, {bool liveTranscription = true}) async {
+  Future<void> start(String noteId) async {
     if (state.isActive) return;
+    final settings = ref.read(settingsProvider);
+    final autoSpeakerDetection = settings.autoSpeakerDetection;
+    final liveTranscription = settings.liveTranscription;
+    _lang = settings.language;
     state = const RecordingState();
     _noteId = noteId;
 
@@ -161,7 +165,7 @@ class RecordingController extends Notifier<RecordingState> {
 
     if (liveTranscription) {
       try {
-        _live = await ref.read(transcriptionServiceProvider).startLive(pcm);
+        _live = await ref.read(transcriptionServiceProvider).startLive(pcm, lang: _lang);
         _liveSub = _live!.partials
             .listen((text) => state = state.copyWith(liveText: text));
       } catch (_) {
@@ -188,7 +192,15 @@ class RecordingController extends Notifier<RecordingState> {
   /// Botón "⭐ Importante".
   void addMarker() {
     if (!state.isActive) return;
-    state = state.copyWith(markersMs: [...state.markersMs, state.elapsedMs]);
+    state = state.copyWith(markers: [...state.markers, AudioMarker(atMs: state.elapsedMs)]);
+  }
+
+  /// Nota rápida escrita mientras se graba, pegada al minuto [atMs]
+  /// (el momento en que se empezó a escribir).
+  void addQuickNote(String text, {required int atMs}) {
+    if (text.trim().isEmpty) return;
+    state = state.copyWith(
+        markers: [...state.markers, AudioMarker(atMs: atMs, label: text.trim())]);
   }
 
   /// Foto sincronizada con el minuto actual de la grabación.
@@ -251,6 +263,7 @@ class RecordingController extends Notifier<RecordingState> {
     try {
       segments = await ref.read(transcriptionServiceProvider).transcribeFile(
             wav.path,
+            lang: _lang,
             vocabulary: vocabulary,
             onProgress: (p) => state = state.copyWith(progress: p),
           );
@@ -265,7 +278,7 @@ class RecordingController extends Notifier<RecordingState> {
       path: wav.path,
       durationMs: wav.durationMs,
       segments: paragraphs,
-      markersMs: state.markersMs,
+      markers: state.markers,
     );
     for (final photo in state.photos) {
       await repo.addImageBlock(

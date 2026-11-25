@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/providers.dart';
 import '../../../core/router.dart';
+import '../../../core/widgets/study_timer.dart';
+import '../../export/pdf_exporter.dart';
 import '../../drawing/domain/drawing.dart';
 import '../../drawing/presentation/drawing_block_view.dart';
 import '../../importing/import_service.dart';
@@ -39,6 +41,20 @@ class NoteEditorScreen extends ConsumerWidget {
             icon: const Icon(Icons.drive_file_move_outline),
             tooltip: 'Mover a cuaderno',
             onPressed: () => _move(context, ref, note?.notebookId),
+          ),
+          const StudyTimerButton(),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: 'Exportar a PDF',
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              messenger.showSnackBar(const SnackBar(content: Text('Preparando PDF…')));
+              try {
+                await exportNoteToPdf(ref, noteId);
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
+              }
+            },
           ),
         ],
       ),
@@ -78,7 +94,8 @@ class NoteEditorScreen extends ConsumerWidget {
                 AudioBlock a => AudioBlockView(
                     key: ValueKey(a.id),
                     block: a,
-                    photos: audioPhotos[a.id] ?? const [],
+                    photoCount: audioPhotos[a.id]?.length ?? 0,
+                    onOpen: () => context.push('/notes/$noteId/audio/${a.id}'),
                   ),
                 ImageBlock img => ImageBlockView(
                     key: ValueKey(img.id),

@@ -10,14 +10,22 @@ part 'app_database.g.dart';
 /// Base de datos local. Después de cambiar las tablas ejecuta:
 /// `dart run build_runner build --delete-conflicting-outputs`
 @DriftDatabase(
-  tables: [Notebooks, Notes, Blocks, Speakers, TranscriptSegments, Markers],
+  tables: [
+    Notebooks,
+    Notes,
+    Blocks,
+    Speakers,
+    TranscriptSegments,
+    Markers,
+    Summaries,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: 'app_notas'));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -28,6 +36,9 @@ class AppDatabase extends _$AppDatabase {
             await m.addColumn(notes, notes.notebookId);
             await m.addColumn(blocks, blocks.fontFamily);
             await m.addColumn(blocks, blocks.fontSize);
+          }
+          if (from < 3) {
+            await m.createTable(summaries);
           }
         },
         beforeOpen: (details) async {

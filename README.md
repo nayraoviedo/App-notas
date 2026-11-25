@@ -54,8 +54,15 @@ que la pide `whisper_ggml`.
 
 ### Notas sobre dependencias
 
-- **Base de datos:** el esquema va en la versión 2 (cuadernos y fuentes). La
-  migración desde la 1 ya está escrita en `app_database.dart`.
+- **Base de datos:** el esquema va en la versión 3 (cuadernos, fuentes y
+  resúmenes). Las migraciones están en `app_database.dart`.
+- **IA gratis:** saca una clave en https://aistudio.google.com (Gemini) o en
+  https://console.groq.com (Groq) y pégala en Ajustes. Se guarda cifrada en el
+  teléfono. Los planes gratis tienen límites diarios; si uno se agota, la app
+  prueba con el otro. Los nombres de modelo cambian seguido: si da error,
+  cambia el modelo en Ajustes.
+- **PDF con acentos y otros alfabetos:** la fuente por defecto del PDF cubre
+  español; para otros idiomas agrega una fuente TTF en `pdf_exporter.dart`.
 - **Fuentes sin internet:** Google Fonts las descarga la primera vez. Para
   incluirlas en la app, baja los `.ttf` a `assets/google_fonts/`, decláralos
   en `pubspec.yaml` y llama a `GoogleFonts.config.allowRuntimeFetching = false`.
@@ -127,10 +134,24 @@ lib/
       reordenar, vaciar y eliminar; deshacer/rehacer
 - [x] Importar PDF (nota nueva o dentro de una nota) y fotos como hojas
 - [x] Fuentes y tamaños por bloque de texto (Google Fonts)
+- [x] Vista de grabación con pestañas **Transcripción / Notas rápidas /
+      Resumen**, velocidad 0.75–2x y botones ±10 s
+- [x] Notas rápidas durante y después de grabar, pegadas a su minuto
+- [x] **Resumen con IA gratis** (Gemini o Groq, con la clave de cada uno en
+      Ajustes): resumen completo, por capítulos con su minuto, puntos clave y
+      tareas/fechas mencionadas; las grabaciones largas se resumen por partes
+- [x] Cuaderno de varias páginas: pasar de página, miniaturas, marcadores,
+      agregar/copiar/borrar página y girarla
+- [x] Ajuste de figura (mantén quieto el lápiz al final del trazo), grosor
+      según zoom y modo de mezcla del resaltador
+- [x] Exportar la nota completa a PDF y compartirla
+- [x] Temporizador de estudio
+- [x] Pantalla de Ajustes
 - [ ] Servicio en primer plano en Android para grabar con la pantalla apagada
 - [ ] Editor enriquecido (`flutter_quill`): negritas, listas, checklists
 - [ ] Vocabulario por materia/proyecto (`RecordingController.vocabulary`)
-- [ ] Resumen, tareas y preguntas abiertas al terminar una grabación
+- [ ] "Embellecimiento" de la escritura a mano en tiempo real
+- [ ] Asistente de IA para preguntarle a tus notas
 - [ ] Texto escrito con teclado dentro de las hojas (cuadros de texto) y
       herramienta lazo para mover trazos
 - [ ] Reconocer escritura a mano para que también se pueda buscar

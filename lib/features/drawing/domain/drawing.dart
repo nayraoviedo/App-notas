@@ -210,6 +210,7 @@ class Drawing {
     required this.height,
     required this.paper,
     required this.layers,
+    this.bookmarked = false,
   });
 
   /// Tamaño A4 vertical en unidades lógicas.
@@ -228,6 +229,9 @@ class Drawing {
   final PaperStyle paper;
   final List<DrawingLayer> layers;
 
+  /// Página marcada (aparece con 🔖 en las miniaturas).
+  final bool bookmarked;
+
   bool get isLandscape => width > height;
 
   Drawing copyWith({
@@ -235,12 +239,14 @@ class Drawing {
     double? height,
     PaperStyle? paper,
     List<DrawingLayer>? layers,
+    bool? bookmarked,
   }) =>
       Drawing(
         width: width ?? this.width,
         height: height ?? this.height,
         paper: paper ?? this.paper,
         layers: layers ?? this.layers,
+        bookmarked: bookmarked ?? this.bookmarked,
       );
 
   Map<String, Object?> toJson() => {
@@ -248,6 +254,7 @@ class Drawing {
         'w': width,
         'h': height,
         'paper': paper.toJson(),
+        if (bookmarked) 'bookmarked': true,
         'layers': layers.map((l) => l.toJson()).toList(),
       };
 
@@ -255,6 +262,7 @@ class Drawing {
         width: (j['w'] as num?)?.toDouble() ?? a4Width,
         height: (j['h'] as num?)?.toDouble() ?? a4Height,
         paper: PaperStyle.fromJson((j['paper'] as Map? ?? const {}).cast<String, Object?>()),
+        bookmarked: j['bookmarked'] as bool? ?? false,
         layers: [
           for (final l in (j['layers'] as List? ?? const []))
             DrawingLayer.fromJson((l as Map).cast<String, Object?>()),

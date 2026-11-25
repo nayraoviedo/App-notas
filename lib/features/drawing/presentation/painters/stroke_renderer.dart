@@ -13,6 +13,9 @@ import '../../domain/drawing.dart';
 /// - Resaltador: plano, translúcido y "multiplica" el color (no tapa).
 /// - Borrador: borra píxeles solo de la capa activa.
 class StrokeRenderer {
+  /// Mezcla del resaltador (se toma de Ajustes).
+  static BlendMode highlighterBlend = BlendMode.multiply;
+
   static void paint(Canvas canvas, Stroke stroke, {bool live = false}) {
     if (stroke.points.isEmpty) return;
     final color = Color(stroke.color);
@@ -27,7 +30,7 @@ class StrokeRenderer {
             ..strokeWidth = stroke.size
             ..strokeCap = StrokeCap.square
             ..strokeJoin = StrokeJoin.round
-            ..blendMode = BlendMode.multiply,
+            ..blendMode = highlighterBlend,
         );
       case ToolType.eraser:
         canvas.drawPath(

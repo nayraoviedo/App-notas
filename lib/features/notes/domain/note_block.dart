@@ -1,3 +1,13 @@
+/// Marca en una grabación: "⭐ Importante" (sin [label]) o nota rápida.
+class AudioMarker {
+  const AudioMarker({required this.atMs, this.label, this.id});
+  final int? id;
+  final int atMs;
+  final String? label;
+
+  bool get isQuickNote => label != null && label!.trim().isNotEmpty;
+}
+
 /// Ancla un bloque a un momento de un audio o de un video.
 class MediaAnchor {
   const MediaAnchor.audio({required String this.audioBlockId, required this.atMs})

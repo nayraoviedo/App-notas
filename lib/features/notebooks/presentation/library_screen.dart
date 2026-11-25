@@ -25,6 +25,11 @@ class LibraryScreen extends ConsumerWidget {
             tooltip: 'Buscar (también dentro de los audios)',
             onPressed: () => showSearch(context: context, delegate: NotesSearchDelegate(ref)),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Ajustes',
+            onPressed: () => context.push('/settings'),
+          ),
         ],
       ),
       body: notebooks.when(

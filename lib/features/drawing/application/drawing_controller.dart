@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 
 import '../domain/drawing.dart';
+import 'shape_recognizer.dart';
 
 /// Qué hace el dedo/lápiz sobre la hoja.
 enum InputMode { draw, eraseStrokes, pan }
@@ -165,6 +166,11 @@ class DrawingController extends ChangeNotifier {
     }
   }
 
+  void toggleBookmark() {
+    _drawing = _drawing.copyWith(bookmarked: !_drawing.bookmarked);
+    _changed();
+  }
+
   void setLandscape(bool landscape) {
     if (landscape == _drawing.isLandscape) return;
     _commit(() => _drawing =
@@ -177,12 +183,17 @@ class DrawingController extends ChangeNotifier {
 
   bool get canDrawOnActiveLayer => activeLayer.visible && !activeLayer.locked;
 
-  void startStroke(Offset at, double? pressure) {
+  /// True si el trazo actual ya se convirtió en figura (se ignoran más puntos).
+  bool _snapped = false;
+
+  /// [sizeScale] < 1 hace el trazo más fino (por ejemplo, con zoom alto).
+  void startStroke(Offset at, double? pressure, {double sizeScale = 1}) {
     if (!canDrawOnActiveLayer) return;
+    _snapped = false;
     currentStroke = Stroke(
       tool: tool,
       color: settings.color,
-      size: settings.size,
+      size: (settings.size * sizeScale).clamp(0.5, 120),
       points: [StrokePoint(at.dx, at.dy, pressure)],
     );
     notifyListeners();
@@ -190,7 +201,7 @@ class DrawingController extends ChangeNotifier {
 
   void extendStroke(Offset at, double? pressure) {
     final s = currentStroke;
-    if (s == null) return;
+    if (s == null || _snapped) return;
     final last = s.points.last;
     // Ignorar movimientos mínimos (menos puntos = archivo más liviano).
     if ((Offset(last.x, last.y) - at).distanceSquared < 0.8) return;
@@ -208,6 +219,20 @@ class DrawingController extends ChangeNotifier {
       layers[i] = layers[i].copyWith(strokes: [...layers[i].strokes, s]);
       _drawing = _drawing.copyWith(layers: layers);
     });
+  }
+
+  /// "Ajuste de figura": si el trazo actual parece una figura, lo reemplaza
+  /// por la figura perfecta. Devuelve la figura reconocida (o null).
+  RecognizedShape? snapCurrentStroke() {
+    final s = currentStroke;
+    if (s == null || _snapped) return null;
+    if (s.tool == ToolType.eraser || s.tool == ToolType.highlighter) return null;
+    final r = ShapeRecognizer.recognize(s.points);
+    if (r == null) return null;
+    _snapped = true;
+    currentStroke = Stroke(tool: s.tool, color: s.color, size: s.size, points: r.$2);
+    notifyListeners();
+    return r.$1;
   }
 
   /// Cancela el trazo (por ejemplo, al poner un segundo dedo para hacer zoom).

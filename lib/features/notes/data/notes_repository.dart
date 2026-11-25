@@ -121,6 +121,32 @@ class NotesRepository {
         BlocksCompanion(type: const Value('drawing'), filePath: Value(path)),
       );
 
+  /// Inserta una hoja justo después de [afterBlockId] (para "agregar página"
+  /// y "copiar página" dentro del cuaderno).
+  Future<String> insertDrawingBlockAfter(
+      String noteId, String afterBlockId, String path) {
+    return _db.transaction(() async {
+      final after = await (_db.select(_db.blocks)
+            ..where((b) => b.id.equals(afterBlockId)))
+          .getSingle();
+      await (_db.update(_db.blocks)
+            ..where((b) =>
+                b.noteId.equals(noteId) & b.position.isBiggerThanValue(after.position)))
+          .write(BlocksCompanion.custom(position: _db.blocks.position + const Constant(1)));
+      final id = _uuid.v4();
+      await _db.into(_db.blocks).insert(BlocksCompanion.insert(
+            id: id,
+            noteId: noteId,
+            position: after.position + 1,
+            type: 'drawing',
+            filePath: Value(path),
+            createdAt: DateTime.now(),
+          ));
+      await _touch(noteId);
+      return id;
+    });
+  }
+
   Future<String> addVideoRefBlock(
     String noteId, {
     required String videoPath,
@@ -144,7 +170,7 @@ class NotesRepository {
     required String path,
     required int durationMs,
     required List<TranscriptSegment> segments,
-    required List<int> markersMs,
+    required List<AudioMarker> markers,
   }) {
     return _db.transaction(() async {
       final blockId = await _insertBlock(
@@ -168,8 +194,8 @@ class NotesRepository {
         );
         b.insertAll(
           _db.markers,
-          markersMs.map(
-              (ms) => MarkersCompanion.insert(blockId: blockId, atMs: ms)),
+          markers.map((m) => MarkersCompanion.insert(
+              blockId: blockId, atMs: m.atMs, label: Value(m.label))),
         );
       });
       return blockId;
@@ -204,12 +230,35 @@ class NotesRepository {
       (_db.update(_db.transcriptSegments)..where((s) => s.id.equals(segmentId)))
           .write(TranscriptSegmentsCompanion(speakerId: Value(speakerId)));
 
-  Stream<List<int>> watchMarkers(String blockId) {
+  Stream<List<AudioMarker>> watchMarkers(String blockId) {
     final q = _db.select(_db.markers)
       ..where((m) => m.blockId.equals(blockId))
       ..orderBy([(m) => OrderingTerm.asc(m.atMs)]);
-    return q.watch().map((rows) => rows.map((r) => r.atMs).toList());
+    return q.watch().map((rows) => rows
+        .map((r) => AudioMarker(id: r.id, atMs: r.atMs, label: r.label))
+        .toList());
   }
+
+  /// Nota rápida (o ⭐ si [label] es null) agregada después de grabar.
+  Future<void> addMarker(String blockId, int atMs, {String? label}) => _db
+      .into(_db.markers)
+      .insert(MarkersCompanion.insert(blockId: blockId, atMs: atMs, label: Value(label)));
+
+  Future<void> updateMarker(int id, String label) =>
+      (_db.update(_db.markers)..where((m) => m.id.equals(id)))
+          .write(MarkersCompanion(label: Value(label)));
+
+  Future<void> deleteMarker(int id) =>
+      (_db.delete(_db.markers)..where((m) => m.id.equals(id))).go();
+
+  // ---------------------------------------------------------- Resúmenes
+
+  Stream<SummaryRow?> watchSummary(String blockId) =>
+      (_db.select(_db.summaries)..where((s) => s.blockId.equals(blockId)))
+          .watchSingleOrNull();
+
+  Future<void> saveSummary(SummariesCompanion data) =>
+      _db.into(_db.summaries).insertOnConflictUpdate(data);
 
   // ---------------------------------------------------------- Búsqueda
 

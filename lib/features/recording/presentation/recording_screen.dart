@@ -115,11 +115,13 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                     },
                   ),
                 ),
-              if (state.markersMs.isNotEmpty || state.photos.isNotEmpty)
+              if (state.markers.isNotEmpty || state.photos.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    '⭐ ${state.markersMs.length}   📷 ${state.photos.length}',
+                    '⭐ ${state.markers.where((m) => !m.isQuickNote).length}   '
+                    '📝 ${state.markers.where((m) => m.isQuickNote).length}   '
+                    '📷 ${state.photos.length}',
                   ),
                 ),
               if (!processing) _Controls(state: state, controller: controller),
@@ -191,14 +193,18 @@ class _Controls extends StatelessWidget {
   Widget build(BuildContext context) {
     final paused = state.status == RecordingStatus.paused;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
+        children: <Widget>[
           _RoundButton(
             icon: Icons.star_border,
             label: 'Importante',
             onPressed: state.isActive ? controller.addMarker : null,
+          ),
+          _RoundButton(
+            icon: Icons.edit_note,
+            label: 'Nota rápida',
+            onPressed: state.isActive ? () => _quickNote(context) : null,
           ),
           _RoundButton(
             icon: Icons.photo_camera_outlined,
@@ -218,9 +224,46 @@ class _Controls extends StatelessWidget {
             color: Colors.red,
             onPressed: state.isActive ? controller.stop : null,
           ),
-        ],
+        ].map((w) => Expanded(child: w)).toList(),
       ),
     );
+  }
+}
+
+extension on _Controls {
+  /// La nota queda en el minuto en que se tocó el botón, no al guardarla.
+  Future<void> _quickNote(BuildContext context) async {
+    final atMs = state.elapsedMs;
+    final c = TextEditingController();
+    final text = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            16, 16, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: c,
+                autofocus: true,
+                maxLines: 3,
+                minLines: 1,
+                decoration: InputDecoration(
+                  hintText: 'Nota rápida en ${formatMs(atMs)}…',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.check),
+              onPressed: () => Navigator.pop(context, c.text),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (text != null) controller.addQuickNote(text, atMs: atMs);
   }
 }
 
@@ -247,7 +290,10 @@ class _RoundButton extends StatelessWidget {
             icon: Icon(icon, color: color),
           ),
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11)),
         ],
       );
 }

@@ -35,6 +35,12 @@ class DrawingBlockView extends ConsumerWidget {
                   children: [
                     PaperView(paper: d.paper),
                     CustomPaint(painter: StaticDrawingPainter(d)),
+                    if (d.bookmarked)
+                      const Positioned(
+                        top: 0,
+                        right: 40,
+                        child: Icon(Icons.bookmark, size: 120, color: Color(0xFFE5484D)),
+                      ),
                   ],
                 ),
               ),

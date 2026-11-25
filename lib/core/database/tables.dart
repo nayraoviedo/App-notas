@@ -99,7 +99,31 @@ class TranscriptSegments extends Table {
   TextColumn get speakerId => text().nullable().references(Speakers, #id)();
 }
 
-/// Momentos marcados como "Importante" durante una grabación.
+/// Resumen con IA de una grabación (desde el esquema v3).
+@DataClassName('SummaryRow')
+class Summaries extends Table {
+  TextColumn get blockId =>
+      text().references(Blocks, #id, onDelete: KeyAction.cascade)();
+  TextColumn get title => text()();
+  TextColumn get overview => text()();
+
+  /// JSON: [{"atMs":0,"title":"…","summary":"…"}, …]
+  TextColumn get chaptersJson => text()();
+
+  /// JSON: ["punto clave", …]
+  TextColumn get keyPointsJson => text().withDefault(const Constant('[]'))();
+
+  /// JSON: [{"task":"…","due":"…"}, …]
+  TextColumn get tasksJson => text().withDefault(const Constant('[]'))();
+  TextColumn get provider => text()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {blockId};
+}
+
+/// Momentos marcados durante una grabación: "⭐ Importante" (sin texto) o
+/// "Nota rápida" (con texto).
 @DataClassName('MarkerRow')
 class Markers extends Table {
   IntColumn get id => integer().autoIncrement()();
