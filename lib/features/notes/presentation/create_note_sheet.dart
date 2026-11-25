@@ -204,7 +204,7 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
               ],
             ),
           ),
-          // Tapa · Papel · datos (en pantallas angostas, los datos van abajo)
+          // Tapa · Papel · datos
           LayoutBuilder(builder: (context, c) {
             final wide = c.maxWidth >= 560;
             final info = _info(accent, row);
@@ -285,7 +285,6 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
     );
   }
 
-
   Widget _info(Color accent, Widget Function(String, Widget, {VoidCallback? onTap}) row) => Container(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
@@ -357,7 +356,8 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
                                   onChanged: (v) => setState(() => _withSheet = v ?? true),
                                 ),
                               ),
-                            ],,
+                            ],
+        ),
       );
 
   Widget _coverPicker(Color accent) => GridView.builder(
