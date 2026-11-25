@@ -5,11 +5,20 @@ escribir a mano y dibujar con pinceles, lápices y capas, grabar audio con
 transcripción, tomar fotos, importar PDFs para escribir encima y ver videos
 tomando notas. Funciona sin internet.
 
+## Probar sin instalar nada: APK desde GitHub
+
+Cada cambio en la rama se compila solo en GitHub (pestaña **Actions** →
+"Compilar APK"). Cuando termina, el APK queda en **Releases → APK de prueba**:
+descarga `AppNotas-arm64.apk` desde el celular e instálalo (Android pedirá
+permitir "instalar apps desconocidas").
+
 ## Puesta en marcha
 
 ```bash
 # 1. Generar las carpetas android/ e ios/ (no están en el repo todavía)
 flutter create . --org com.appnotas --project-name app_notas --platforms android,ios
+rm test/widget_test.dart          # prueba de ejemplo de Flutter, no aplica
+python3 tool/setup_android.py      # permisos, nombre y minSdk de Android
 
 # 2. Dependencias
 flutter pub get

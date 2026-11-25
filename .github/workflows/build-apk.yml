@@ -1,0 +1,85 @@
+# Compila el APK en los servidores de GitHub (no hace falta Android Studio).
+# Se ejecuta con cada cambio en la rama y también a mano desde la pestaña
+# "Actions" → "Compilar APK" → "Run workflow".
+#
+# El APK queda en la pestaña "Releases" del repositorio, en "APK de prueba".
+
+name: Compilar APK
+
+on:
+  push:
+    branches: [esqueleto-inicial, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Crear carpetas de Android
+        run: |
+          flutter create . --project-name app_notas --org com.appnotas --platforms android
+          rm -f test/widget_test.dart
+          python3 tool/setup_android.py
+
+      - name: Dependencias y código generado
+        run: |
+          flutter pub get
+          dart run build_runner build
+
+      - name: Análisis y pruebas
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      - name: Compilar APK
+        run: flutter build apk --release --split-per-abi
+
+      - name: Nombrar los APK
+        run: |
+          mkdir -p salida
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk salida/AppNotas-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk salida/AppNotas-arm32.apk
+          ls -lh salida
+
+      # Copia descargable desde la pestaña Actions (zip).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AppNotas-apk
+          path: salida/*.apk
+          retention-days: 14
+
+      # Publica en Releases para descargar directo desde el celular.
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-de-prueba
+          name: APK de prueba
+          prerelease: true
+          make_latest: false
+          body: |
+            Compilado automáticamente desde `${{ github.ref_name }}` (${{ github.sha }}).
+
+            **¿Cuál descargo?** Casi todos los celulares de los últimos años usan
+            **AppNotas-arm64.apk**. Si no se instala, prueba **AppNotas-arm32.apk**.
+          files: salida/*.apk
+          overwrite_files: true
