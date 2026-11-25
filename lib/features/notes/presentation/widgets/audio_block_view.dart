@@ -7,7 +7,10 @@ import 'package:just_audio/just_audio.dart';
 import '../../../../core/providers.dart';
 import '../../../../core/utils/time_format.dart';
 import '../../../speakers/domain/speaker.dart';
+import '../../../settings/settings.dart';
+import '../../../transcription/application/segment_merger.dart';
 import '../../../transcription/domain/transcript_segment.dart';
+import '../../../transcription/domain/transcription_service.dart';
 import '../../domain/note_block.dart';
 
 /// Tarjeta compacta de una grabación dentro de la nota: reproductor, los
@@ -102,9 +105,13 @@ class TranscriptView extends ConsumerWidget {
     required this.player,
     this.photos = const [],
     this.onlyImportant = false,
+    this.audioPath,
   });
 
   final String blockId;
+
+  /// Archivo de audio, para poder transcribir de nuevo si quedó vacío.
+  final String? audioPath;
   final AudioPlayer player;
   final List<ImageBlock> photos;
   final bool onlyImportant;
@@ -133,6 +140,10 @@ class TranscriptView extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         children: [
           const Text('Sin transcripción.'),
+          if (audioPath != null) ...[
+            const SizedBox(height: 12),
+            TranscribeNowButton(blockId: blockId, audioPath: audioPath!),
+          ],
           for (final p in photos) _PhotoAtTime(photo: p, onTap: () => _seek(p.anchor!.atMs)),
         ],
       );
@@ -454,4 +465,86 @@ class _PhotoAtTime extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// Transcribe (o vuelve a transcribir) una grabación ya guardada.
+class TranscribeNowButton extends ConsumerStatefulWidget {
+  const TranscribeNowButton({super.key, required this.blockId, required this.audioPath});
+  final String blockId;
+  final String audioPath;
+
+  @override
+  ConsumerState<TranscribeNowButton> createState() => _TranscribeNowButtonState();
+}
+
+class _TranscribeNowButtonState extends ConsumerState<TranscribeNowButton> {
+  String? _status;
+  String? _error;
+
+  Future<void> _run() async {
+    final service = ref.read(transcriptionServiceProvider);
+    setState(() {
+      _error = null;
+      _status = 'Preparando…';
+    });
+    try {
+      if (!await service.isModelReady()) {
+        await service.ensureModel(
+          onProgress: (p) {
+            if (mounted) setState(() => _status = 'Descargando el modelo de voz (solo la primera vez)… $p%');
+          },
+        );
+      }
+      if (mounted) setState(() => _status = 'Transcribiendo…');
+      final raw = await service.transcribeFile(
+        widget.audioPath,
+        lang: ref.read(settingsProvider).language,
+        onProgress: (p) {
+          if (mounted) setState(() => _status = 'Transcribiendo… $p%');
+        },
+      );
+      if (raw.isEmpty) {
+        throw TranscriptionException('No se escuchó voz en esta grabación.');
+      }
+      await ref
+          .read(notesRepositoryProvider)
+          .replaceSegments(widget.blockId, const SegmentMerger().merge(raw, const []));
+      if (mounted) setState(() => _status = null);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _status = null;
+          _error = e is TranscriptionException ? e.message : 'No se pudo transcribir: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_status != null) {
+      return Row(
+        children: [
+          const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(_status!)),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ),
+        FilledButton.icon(
+          onPressed: _run,
+          icon: const Icon(Icons.subtitles_outlined),
+          label: const Text('Transcribir ahora'),
+        ),
+      ],
+    );
+  }
 }

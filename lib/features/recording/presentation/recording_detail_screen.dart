@@ -136,6 +136,7 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                 children: [
                   TranscriptView(
                     blockId: widget.blockId,
+                    audioPath: audio.path,
                     player: _player,
                     photos: photos,
                     onlyImportant: _onlyImportant,

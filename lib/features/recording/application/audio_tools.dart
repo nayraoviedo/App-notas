@@ -150,6 +150,12 @@ Future<String?> importAudio(
   final wav = await AudioTools.toWav16k(input, await storage.newAudioPath());
   if (wav == null) throw Exception('No se pudo leer ese archivo de audio');
 
+  final service = ref.read(transcriptionServiceProvider);
+  if (!await service.isModelReady()) {
+    onStatus?.call('Descargando el modelo de voz (solo la primera vez)…');
+    await service.ensureModel(
+        onProgress: (p) => onStatus?.call('Descargando el modelo de voz… $p%'));
+  }
   onStatus?.call('Transcribiendo… (puede tardar unos minutos)');
   final settings = ref.read(settingsProvider);
   final raw = await ref.read(transcriptionServiceProvider).transcribeFile(

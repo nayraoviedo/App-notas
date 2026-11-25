@@ -34,6 +34,7 @@ class RecordingState {
     this.pendingSpeakerChange,
     this.currentSpeakerId,
     this.progress = 0,
+    this.progressLabel,
     this.message,
     this.micBlocked = false,
   });
@@ -48,6 +49,9 @@ class RecordingState {
 
   /// Progreso de la transcripción final (0–100).
   final int progress;
+
+  /// Qué se está haciendo al terminar ("Descargando el modelo de voz…").
+  final String? progressLabel;
   final String? message;
 
   /// Permiso del micrófono negado (o bloqueado en Ajustes).
@@ -66,6 +70,7 @@ class RecordingState {
     bool clearPending = false,
     String? currentSpeakerId,
     int? progress,
+    String? progressLabel,
     String? message,
     bool? micBlocked,
   }) =>
@@ -80,6 +85,7 @@ class RecordingState {
             : (pendingSpeakerChange ?? this.pendingSpeakerChange),
         currentSpeakerId: currentSpeakerId ?? this.currentSpeakerId,
         progress: progress ?? this.progress,
+        progressLabel: progressLabel ?? this.progressLabel,
         message: message ?? this.message,
         micBlocked: micBlocked ?? this.micBlocked,
       );
@@ -187,7 +193,8 @@ class RecordingController extends Notifier<RecordingState> {
         // Si el teléfono no puede con la transcripción en vivo, se sigue
         // grabando y se transcribe todo al final.
         state = state.copyWith(
-            message: 'Transcripción en vivo no disponible; se hará al terminar.');
+            message: 'La transcripción en vivo empieza cuando esté listo el modelo de voz; '
+                'igual se transcribe todo al terminar.');
       }
     }
   }
@@ -275,13 +282,25 @@ class RecordingController extends Notifier<RecordingState> {
 
     var segments = <TranscriptSegment>[];
     String? message;
+    final service = ref.read(transcriptionServiceProvider);
     try {
-      segments = await ref.read(transcriptionServiceProvider).transcribeFile(
-            wav.path,
-            lang: _lang,
-            vocabulary: vocabulary,
-            onProgress: (p) => state = state.copyWith(progress: p),
-          );
+      if (!await service.isModelReady()) {
+        state = state.copyWith(
+            progress: 0, progressLabel: 'Descargando el modelo de voz (solo la primera vez)…');
+        await service.ensureModel(onProgress: (p) => state = state.copyWith(progress: p));
+      }
+      state = state.copyWith(progress: 0, progressLabel: 'Transcribiendo y ordenando por párrafos…');
+      segments = await service.transcribeFile(
+        wav.path,
+        lang: _lang,
+        vocabulary: vocabulary,
+        onProgress: (p) => state = state.copyWith(progress: p),
+      );
+      if (segments.isEmpty) {
+        message = 'No se escuchó voz en la grabación (o fue muy bajita).';
+      }
+    } on TranscriptionException catch (e) {
+      message = '${e.message} El audio quedó guardado: puedes transcribirlo después.';
     } catch (_) {
       message = 'No se pudo transcribir, pero el audio quedó guardado.';
     }

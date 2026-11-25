@@ -98,7 +98,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                 ),
               Expanded(
                 child: processing
-                    ? _Processing(progress: state.progress)
+                    ? _Processing(progress: state.progress, label: state.progressLabel)
                     : SingleChildScrollView(
                         controller: _scroll,
                         padding: const EdgeInsets.all(16),
@@ -308,8 +308,9 @@ class _RoundButton extends StatelessWidget {
 }
 
 class _Processing extends StatelessWidget {
-  const _Processing({required this.progress});
+  const _Processing({required this.progress, this.label});
   final int progress;
+  final String? label;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -320,7 +321,8 @@ class _Processing extends StatelessWidget {
             children: [
               CircularProgressIndicator(value: progress == 0 ? null : progress / 100),
               const SizedBox(height: 16),
-              const Text('Transcribiendo y ordenando por párrafos…'),
+              Text(label ?? 'Transcribiendo y ordenando por párrafos…', textAlign: TextAlign.center),
+              if (progress > 0) Text('$progress%'),
             ],
           ),
         ),

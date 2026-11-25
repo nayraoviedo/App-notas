@@ -710,6 +710,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Guardando y transcribiendo… el audio queda en la nota')));
     await ref.read(recordingControllerProvider.notifier).stop();
+    final msg = ref.read(recordingControllerProvider).message;
+    if (mounted && msg != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
   // ---------------------------------------------------- Stickers y formas
@@ -1158,7 +1162,7 @@ class _RecordingPill extends StatelessWidget {
     final processing = state.status == RecordingStatus.processing;
     final secs = state.elapsedMs ~/ 1000;
     final label = processing
-        ? 'Transcribiendo ${state.progress}%'
+        ? '${(state.progressLabel ?? '').startsWith('Descargando') ? 'Bajando modelo' : 'Transcribiendo'} ${state.progress}%'
         : '${(secs ~/ 60).toString().padLeft(2, '0')}:${(secs % 60).toString().padLeft(2, '0')}';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),

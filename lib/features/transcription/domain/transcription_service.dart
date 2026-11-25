@@ -16,7 +16,22 @@ class LiveTranscription {
 
 /// Contrato del motor de transcripción. Permite cambiar Whisper local por
 /// una API en la nube sin tocar el resto de la app.
+/// Error con un mensaje para mostrar tal cual.
+class TranscriptionException implements Exception {
+  TranscriptionException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 abstract interface class TranscriptionService {
+  /// ¿Ya está el modelo de voz en el teléfono?
+  Future<bool> isModelReady();
+
+  /// Descarga el modelo de voz si falta (solo la primera vez).
+  Future<void> ensureModel({void Function(int percent)? onProgress});
+
   /// Transcripción en vivo (aproximada) a partir de PCM16 mono 16 kHz.
   Future<LiveTranscription> startLive(
     Stream<Uint8List> pcm16, {

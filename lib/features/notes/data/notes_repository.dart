@@ -225,6 +225,24 @@ class NotesRepository {
     });
   }
 
+  /// Reemplaza la transcripción de una grabación (para transcribir de nuevo).
+  Future<void> replaceSegments(String blockId, List<TranscriptSegment> segments) =>
+      _db.transaction(() async {
+        await (_db.delete(_db.transcriptSegments)..where((t) => t.blockId.equals(blockId))).go();
+        await _db.batch((b) {
+          b.insertAll(
+            _db.transcriptSegments,
+            segments.map((s) => TranscriptSegmentsCompanion.insert(
+                  blockId: blockId,
+                  startMs: s.startMs,
+                  endMs: s.endMs,
+                  content: s.text,
+                  speakerId: Value(s.speakerId),
+                )),
+          );
+        });
+      });
+
   Future<void> deleteBlock(String blockId) => _db.transaction(() async {
         await _deleteBlockChildren([blockId]);
         await (_db.delete(_db.blocks)..where((b) => b.id.equals(blockId))).go();
