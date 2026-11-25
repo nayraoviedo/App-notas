@@ -483,6 +483,11 @@ class _CoverPatternPainter extends CustomPainter {
                   ink);
           }
         }
+      case CoverPattern.sageFlowers:
+      case CoverPattern.blueTrellis:
+      case CoverPattern.tulipChecker:
+      case CoverPattern.starryCat:
+        break; // se dibujan en cover_designs.dart
       case CoverPattern.checker:
         for (var y = 0, row = 0; y * u < size.height; y++, row++) {
           for (var x = 0; x * u < size.width; x++) {

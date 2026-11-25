@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/fonts.dart';
 import '../../application/drawing_controller.dart';
@@ -9,7 +10,7 @@ import '../painters/shape_painter.dart';
 import '../painters/sticker_painter.dart';
 
 /// Panel flotante que se abre bajo la barra de herramientas (como StarNote).
-enum ToolPanel { none, pen, highlighter, eraser, shapes, stickers }
+enum ToolPanel { none, pen, highlighter, eraser, shapes, stickers, tape }
 
 /// Plumas del estuche, en el orden del panel.
 const penTools = [ToolType.fountain, ToolType.pen, ToolType.brush, ToolType.marker, ToolType.pencil];
@@ -22,6 +23,7 @@ IconData toolIcon(ToolType t) => switch (t) {
       ToolType.pencil => Icons.create_outlined,
       ToolType.highlighter => Icons.highlight,
       ToolType.eraser => Icons.auto_fix_normal,
+      ToolType.tape => Icons.linear_scale,
     };
 
 /// Paleta completa: neutros, tintas, pasteles, tonos tierra y neón.
@@ -240,6 +242,30 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
   late HSVColor _hsv = HSVColor.fromColor(Color(widget.current ?? 0xFFE5484D));
   bool _custom = false;
 
+  /// "Mis colores": favoritos guardados en el teléfono.
+  List<int> _favorites = const [];
+  SharedPreferences? _prefs;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (!mounted) return;
+      setState(() {
+        _prefs = p;
+        _favorites = [
+          for (final v in p.getStringList('colors.favorites') ?? const <String>[])
+            if (int.tryParse(v) case final c?) c,
+        ];
+      });
+    });
+  }
+
+  Future<void> _saveFavorites(List<int> list) async {
+    setState(() => _favorites = list);
+    await _prefs?.setStringList('colors.favorites', [for (final c in list) '$c']);
+  }
+
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -302,6 +328,24 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
                   spacing: 9,
                   runSpacing: 9,
                   children: [
+                    if (_favorites.isNotEmpty) ...[
+                      const SizedBox(width: double.infinity, child: Text('Mis colores (mantén para quitar)')),
+                      for (final c in _favorites)
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context, c),
+                          onLongPress: () => _saveFavorites([..._favorites]..remove(c)),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Color(c),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.black26),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: double.infinity, child: Divider()),
+                    ],
                     for (final c in fullPalette)
                       GestureDetector(
                         onTap: () => Navigator.pop(context, c),
@@ -324,6 +368,15 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        if (_custom)
+          TextButton(
+            onPressed: () {
+              final c = color.toARGB32();
+              if (!_favorites.contains(c)) _saveFavorites([..._favorites, c]);
+              setState(() => _custom = false); // mostrarlo en "Mis colores"
+            },
+            child: const Text('♡ Guardar'),
+          ),
         if (_custom)
           FilledButton(
             onPressed: () => Navigator.pop(context, color.toARGB32()),
@@ -501,6 +554,7 @@ class PenGlyphPainter extends CustomPainter {
         canvas.drawPath(tip, Paint()..color = color);
       case ToolType.pen:
       case ToolType.eraser:
+      case ToolType.tape:
         tip
           ..moveTo(w * 0.15, bodyTop)
           ..lineTo(w * 0.42, h * 0.08)
@@ -519,17 +573,18 @@ class PenGlyphPainter extends CustomPainter {
 // --------------------------------------------------------------- Resaltador
 
 class HighlighterPanel extends StatelessWidget {
-  const HighlighterPanel({super.key, required this.controller});
+  const HighlighterPanel({super.key, required this.controller, this.tool = ToolType.highlighter});
   final DrawingController controller;
+  final ToolType tool;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
           final c = controller;
-          final s = c.settingsFor(ToolType.highlighter);
+          final s = c.settingsFor(tool);
           return PanelCard(
-            title: 'Resaltador',
+            title: tool == ToolType.tape ? 'Cinta washi: arrástrala sobre la hoja' : 'Resaltador',
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
               child: Column(
@@ -547,7 +602,7 @@ class HighlighterPanel extends StatelessWidget {
                   const Text('Color'),
                   const SizedBox(height: 6),
                   QuickColorRow(
-                    colors: c.quickColors(ToolType.highlighter),
+                    colors: c.quickColors(tool),
                     selected: s.color,
                     onPick: c.setColor,
                     onReplace: c.setQuickColor,

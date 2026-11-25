@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -131,6 +132,17 @@ class SettingsController extends Notifier<AppSettings> {
 
 final settingsProvider =
     NotifierProvider<SettingsController, AppSettings>(SettingsController.new);
+
+/// Tema: según el teléfono, claro u oscuro.
+final themeModeProvider = StateProvider<ThemeMode>((ref) {
+  final v = ref.watch(sharedPreferencesProvider).getString('app.themeMode');
+  return ThemeMode.values.where((m) => m.name == v).firstOrNull ?? ThemeMode.system;
+});
+
+Future<void> setThemeMode(WidgetRef ref, ThemeMode m) async {
+  ref.read(themeModeProvider.notifier).state = m;
+  await ref.read(sharedPreferencesProvider).setString('app.themeMode', m.name);
+}
 
 /// Claves de API guardadas de forma cifrada en el teléfono (nunca en el código).
 class ApiKeys {

@@ -13,7 +13,8 @@ enum ToolType {
   brush('Pincel'),
   marker('Marcador'),
   highlighter('Resaltador'),
-  eraser('Borrador');
+  eraser('Borrador'),
+  tape('Cinta washi');
 
   const ToolType(this.label);
   final String label;

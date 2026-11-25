@@ -73,6 +73,7 @@ class DrawingController extends ChangeNotifier {
     ToolType.marker: const ToolSettings(0xFFE5484D, 10),
     ToolType.highlighter: const ToolSettings(0xFFFFD60A, 26),
     ToolType.eraser: const ToolSettings(0xFFFFFFFF, 30),
+    ToolType.tape: const ToolSettings(0xFFF6C6D2, 40),
   };
 
   ToolSettings get settings => _settings[tool]!;
@@ -115,7 +116,9 @@ class DrawingController extends ChangeNotifier {
   /// Colores rápidos de la barra (los últimos usados por herramienta).
   final Map<ToolType, List<int>> _recent = {};
   List<int> quickColors(ToolType t) {
-    final defaults = t == ToolType.highlighter
+    final defaults = t == ToolType.tape
+        ? const [0xFFF6C6D2, 0xFFE9D7B5, 0xFFB9E2CF, 0xFFB8D3F0, 0xFFD9C8F2]
+        : t == ToolType.highlighter
         ? const [0xFFFFE14D, 0xFFFFB27A, 0xFF8EF08E, 0xFFA8C8FF, 0xFFD7A8FF]
         : const [0xFF000000, 0xFFB3261E, 0xFF2F55C0, 0xFF0B7A55, 0xFFE0A000];
     return _recent[t] ?? defaults;
@@ -423,7 +426,9 @@ class DrawingController extends ChangeNotifier {
   RecognizedShape? snapCurrentStroke() {
     final s = currentStroke;
     if (s == null || _snapped) return null;
-    if (s.tool == ToolType.eraser || s.tool == ToolType.highlighter) return null;
+    if (s.tool == ToolType.eraser || s.tool == ToolType.highlighter || s.tool == ToolType.tape) {
+      return null;
+    }
     final r = ShapeRecognizer.recognize(s.points);
     if (r == null) return null;
     _snapped = true;

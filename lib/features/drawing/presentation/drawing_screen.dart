@@ -101,6 +101,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   @override
   void dispose() {
     _holdTimer?.cancel();
+    if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _editCtl.dispose();
     _editFocus.dispose();
     _ctl?.flush();
@@ -376,6 +377,15 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 
   ToolPanel _panel = ToolPanel.none;
   bool _toolbarOpen = true;
+  bool _fullscreen = false;
+
+  void _setFullscreen(bool on) {
+    setState(() {
+      _fullscreen = on;
+      _panel = ToolPanel.none;
+    });
+    SystemChrome.setEnabledSystemUIMode(on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+  }
 
   /// Última pluma usada (fuente, bolígrafo, pincel…).
   ToolType _pen = ToolType.pen;
@@ -406,6 +416,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
+                  if (!_fullscreen)
                   Material(
                     color: scheme.surface,
                     elevation: 1,
@@ -479,6 +490,20 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                             ),
                           ),
                         ),
+                        if (_fullscreen)
+                          Positioned(
+                            top: MediaQuery.paddingOf(context).top + 8,
+                            right: 8,
+                            child: Material(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              shape: const CircleBorder(),
+                              child: IconButton(
+                                tooltip: 'Salir de pantalla completa',
+                                icon: const Icon(Icons.fullscreen_exit, color: Colors.white),
+                                onPressed: () => _setFullscreen(false),
+                              ),
+                            ),
+                          ),
                         if (_panel != ToolPanel.none) ...[
                           // Tocar fuera cierra el panel.
                           Positioned.fill(
@@ -615,9 +640,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
         final drawing = c.mode == InputMode.draw;
         final penOn = drawing && penTools.contains(c.tool);
         final hlOn = drawing && c.tool == ToolType.highlighter;
+        final tapeOn = drawing && c.tool == ToolType.tape;
         final eraserOn =
             (drawing && c.tool == ToolType.eraser) || c.mode == InputMode.eraseStrokes;
-        final showColors = penOn || hlOn;
+        final showColors = penOn || hlOn || tapeOn;
         return SizedBox(
           height: 54,
           child: SingleChildScrollView(
@@ -644,6 +670,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                     _closePanel();
                   }
                 }, selected: hlOn),
+                _icon(Icons.linear_scale, 'Cinta washi', () {
+                  if (tapeOn) {
+                    _togglePanel(ToolPanel.tape);
+                  } else {
+                    c.selectTool(ToolType.tape);
+                    _closePanel();
+                  }
+                }, selected: tapeOn),
                 _icon(Icons.auto_fix_normal, 'Borrador', () {
                   if (eraserOn) {
                     _togglePanel(ToolPanel.eraser);
@@ -689,6 +723,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   Widget _panelFor(DrawingController ctl) => switch (_panel) {
         ToolPanel.pen => PenPanel(controller: ctl),
         ToolPanel.highlighter => HighlighterPanel(controller: ctl),
+        ToolPanel.tape => HighlighterPanel(controller: ctl, tool: ToolType.tape),
         ToolPanel.eraser => EraserPanel(controller: ctl),
         ToolPanel.shapes => ShapesPanel(controller: ctl, onInsert: _insertShape),
         ToolPanel.stickers => StickersPanel(
@@ -710,6 +745,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.fullscreen),
+              title: const Text('Pantalla completa'),
+              onTap: () => Navigator.pop(context, 'full'),
+            ),
             ListTile(
               leading: const Icon(Icons.menu_book_outlined),
               title: const Text('Hojear como cuaderno'),
@@ -760,6 +800,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
       ),
     );
     switch (action) {
+      case 'full':
+        _setFullscreen(true);
       case 'book':
         await ctl.flush();
         if (!mounted) return;

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/providers.dart';
 import '../../drawing/domain/drawing.dart';
+import '../../export/pdf_exporter.dart';
 import '../../drawing/presentation/drawing_block_view.dart';
 import '../domain/note_block.dart';
 
@@ -124,6 +125,11 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
             tooltip: 'Ver bloques (audios, textos, videos)',
             icon: const Icon(Icons.view_agenda_outlined),
             onPressed: () => context.push('/notes/${widget.noteId}'),
+          ),
+          IconButton(
+            tooltip: 'Exportar el cuaderno a PDF',
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: () => exportNoteToPdf(ref, widget.noteId),
           ),
           IconButton(tooltip: 'Editar esta página', icon: const Icon(Icons.edit_outlined), onPressed: _edit),
         ],

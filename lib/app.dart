@@ -45,6 +45,7 @@ class _AppNotasState extends ConsumerState<AppNotas> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
+      themeMode: ref.watch(themeModeProvider),
       routerConfig: appRouter,
     );
   }

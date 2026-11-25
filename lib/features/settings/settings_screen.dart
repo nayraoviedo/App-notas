@@ -1,10 +1,68 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../backup/backup_service.dart';
 import 'settings.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
+
+  Future<void> _backup(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('Preparando la copia…')));
+    try {
+      final path = await BackupService.create(ref.read(sharedPreferencesProvider));
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile(path)],
+        text: 'Copia de seguridad de App Notas',
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('No se pudo crear la copia: $e')));
+    }
+  }
+
+  Future<void> _restore(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Restaurar una copia?'),
+        content: const Text('Lo que tienes ahora se reemplaza por lo que trae la copia. '
+            'Si quieres, primero crea una copia de lo actual.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Elegir archivo')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final picked = await FilePicker.platform.pickFiles();
+    final path = picked?.files.single.path;
+    if (path == null || !context.mounted) return;
+    try {
+      final n = await BackupService.prepareRestore(path, ref.read(sharedPreferencesProvider));
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Copia lista ✓'),
+          content: Text('Se recuperaron $n archivos. Cierra la app por completo y vuelve a abrirla '
+              'para terminar.'),
+          actions: [
+            FilledButton(onPressed: () => SystemNavigator.pop(), child: const Text('Cerrar la app')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo restaurar: $e')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -15,6 +73,33 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Ajustes')),
       body: ListView(
         children: [
+          const _Header('Apariencia'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.brightness_auto), label: Text('Auto')),
+                ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode_outlined), label: Text('Claro')),
+                ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode_outlined), label: Text('Oscuro')),
+              ],
+              selected: {ref.watch(themeModeProvider)},
+              onSelectionChanged: (v) => setThemeMode(ref, v.first),
+            ),
+          ),
+          const _Header('Copia de seguridad'),
+          ListTile(
+            leading: const Icon(Icons.cloud_upload_outlined),
+            title: const Text('Crear copia y guardarla'),
+            subtitle: const Text('Un archivo con todo: cuadernos, audios, fotos y ajustes. '
+                'Guárdalo en Google Drive desde el menú de compartir.'),
+            onTap: () => _backup(context, ref),
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings_backup_restore),
+            title: const Text('Restaurar una copia'),
+            subtitle: const Text('Reemplaza lo que hay ahora por lo de la copia'),
+            onTap: () => _restore(context, ref),
+          ),
           const _Header('Inteligencia artificial (resúmenes)'),
           ListTile(
             title: const Text('Servicio'),

@@ -87,6 +87,14 @@ class _HomeViewState extends State<HomeView> {
   @override
   Widget build(BuildContext context) {
     final list = widget.notebooks;
+    // El inicio conserva su estilo crema de diario también en modo oscuro.
+    return Theme(
+      data: ThemeData(colorSchemeSeed: HomeColors.terracotta, useMaterial3: true),
+      child: _scaffold(list),
+    );
+  }
+
+  Widget _scaffold(List<Notebook>? list) {
     return Scaffold(
       backgroundColor: HomeColors.cream,
       body: Column(

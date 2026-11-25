@@ -6,10 +6,15 @@ import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'features/backup/backup_service.dart';
 import 'features/settings/settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Si se pidió restaurar una copia, se aplica antes de abrir la base.
+  try {
+    await BackupService.applyPendingRestore();
+  } catch (_) {}
   MediaKit.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   loadCatPrefs(prefs);
