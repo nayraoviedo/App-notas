@@ -46,6 +46,26 @@ jobs:
           channel: stable
           cache: true
 
+      # Portadas con obras de dominio público (Van Gogh, Monet, Hokusai,
+      # Morris). Si alguna no baja, la app simplemente no la muestra.
+      - name: Descargar portadas de dominio público
+        continue-on-error: true
+        run: |
+          cd assets/covers
+          ua="AppNotas/1.0 (https://github.com/nayraoviedo/App-notas)"
+          wiki=https://commons.wikimedia.org/wiki/Special:FilePath
+          get() { curl -fsSL -A "$ua" -o "$1" "$2" || echo "no se pudo bajar $1"; }
+          get almendro.jpg  "$wiki/Vincent_van_Gogh_-_Almond_blossom_-_Google_Art_Project.jpg?width=1000"
+          get ciruelos.jpg  "$wiki/Vincent_van_Gogh_-_Bloeiende_pruimenboomgaard-_naar_Hiroshige_-_Google_Art_Project.jpg?width=1000"
+          get huerto.jpg    "$wiki/Vincent_van_Gogh_-_Orchard_in_Blossom_(Plum_Trees)_-_Google_Art_Project.jpg?width=1000"
+          get nenufares.jpg "$wiki/Claude_Monet_-_Water_Lilies_-_1906,_Ryerson.jpg?width=1000"
+          get estanque.jpg  "$wiki/Claude_Monet_-_Pond_with_Water_Lilies_-_Google_Art_Project.jpg?width=1000"
+          get ola.jpg       "$wiki/Tsunami_by_hokusai_19th_century.jpg?width=1000"
+          get fresas.jpg    "https://openaccess-cdn.clevelandart.org/1937.696/1937.696_web.jpg"
+          # Quitar lo que no sea una imagen JPEG válida.
+          for f in *.jpg; do file "$f" | grep -q JPEG || rm -f "$f"; done
+          ls -la
+
       - name: Crear carpetas de Android
         run: |
           flutter create . --project-name app_notas --org com.appnotas --platforms android

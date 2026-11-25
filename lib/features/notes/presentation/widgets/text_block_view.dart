@@ -36,6 +36,14 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
     super.initState();
     _repo = ref.read(notesRepositoryProvider); // para usarlo también en dispose()
     _focus.addListener(() => setState(() {}));
+    // Guardar también los cambios automáticos (listas, casillas).
+    var lastSaved = widget.block.text;
+    _controller.addListener(() {
+      if (_controller.text != lastSaved) {
+        lastSaved = _controller.text;
+        _onChanged(lastSaved);
+      }
+    });
     _controller.onMarksChanged = () {
       _marksDebounce?.cancel();
       _marksDebounce = Timer(const Duration(milliseconds: 500),
@@ -63,6 +71,11 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
     _controller.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  void _list(String kind) {
+    _controller.toggleList(kind);
+    _onChanged(_controller.text);
   }
 
   Future<void> _setStyle({String? family, double? size, bool systemFont = false}) =>
@@ -162,6 +175,21 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
                           final c = await pickColor(context, current: b.textColor);
                           if (c != null) await _repo.updateTextColor(b.id, c);
                         },
+                      ),
+                      IconButton(
+                        tooltip: 'Lista con viñetas',
+                        icon: const Icon(Icons.format_list_bulleted),
+                        onPressed: () => _list('bullet'),
+                      ),
+                      IconButton(
+                        tooltip: 'Lista numerada',
+                        icon: const Icon(Icons.format_list_numbered),
+                        onPressed: () => _list('number'),
+                      ),
+                      IconButton(
+                        tooltip: 'Casillas ✓ (toca la casilla para marcarla)',
+                        icon: const Icon(Icons.checklist),
+                        onPressed: () => _list('check'),
                       ),
                       IconButton(
                         tooltip: 'Resaltador: selecciona texto y elige un color',

@@ -4,6 +4,7 @@ import '../features/recording/application/audio_tools.dart';
 import '../features/transcription/data/groq_transcription.dart';
 
 import '../features/camera/camera_service.dart';
+import '../features/expenses/data/expenses_repository.dart';
 import '../features/drawing/data/drawing_store.dart';
 import '../features/drawing/domain/drawing.dart';
 import '../features/importing/import_service.dart';
@@ -84,6 +85,9 @@ final notesListProvider = StreamProvider.family<List<Note>, String?>((ref, noteb
 /// Stickers propios (fotos o dibujos que la persona agregó).
 final customStickersProvider =
     FutureProvider<List<String>>((ref) => ref.watch(fileStorageProvider).listFolder('stickers'));
+
+final expensesRepositoryProvider =
+    Provider<ExpensesRepository>((ref) => ExpensesRepository(ref.watch(databaseProvider)));
 
 final allTagsProvider =
     StreamProvider<List<String>>((ref) => ref.watch(notesRepositoryProvider).watchAllTags());

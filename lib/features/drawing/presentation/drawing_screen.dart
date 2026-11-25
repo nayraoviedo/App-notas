@@ -50,6 +50,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   double _fitScale = 1;
 
   final _pointers = <int>{};
+
+  // Lazo
+  bool _lassoing = false;
+  bool _movingSel = false;
+  Offset? _moveLast;
   int? _drawingPointer;
 
   // Textos y fotos (collage).
@@ -221,6 +226,26 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     _pointers.add(e.pointer);
     if (ctl.mode == InputMode.text || ctl.mode == InputMode.select) {
       _tapStart = _pointers.length == 1 ? e.localPosition : null;
+      // Lazo: en "Seleccionar", tocar fuera de textos/fotos dibuja el lazo
+      // o, si se toca dentro de lo ya seleccionado, lo mueve.
+      if (ctl.mode == InputMode.select && !_pointerOnItem) {
+        if (_pointers.length > 1) {
+          ctl.cancelLasso();
+          _lassoing = false;
+          _movingSel = false;
+          return;
+        }
+        final b = ctl.selectionBounds;
+        if (b != null && b.inflate(24).contains(e.localPosition)) {
+          _movingSel = true;
+          _moveLast = e.localPosition;
+          ctl.beginItemChange();
+        } else {
+          _lassoing = true;
+          ctl.selectItem(null);
+          ctl.beginLasso(e.localPosition);
+        }
+      }
       return;
     }
     if (_pointers.length > 1) {
@@ -275,7 +300,16 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
   }
 
   void _onMove(PointerMoveEvent e) {
-    if (_ctl!.mode == InputMode.text || _ctl!.mode == InputMode.select) return;
+    if (_ctl!.mode == InputMode.select) {
+      if (_movingSel && _moveLast != null) {
+        _ctl!.moveSelection(e.localPosition - _moveLast!);
+        _moveLast = e.localPosition;
+      } else if (_lassoing) {
+        _ctl!.extendLasso(e.localPosition);
+      }
+      return;
+    }
+    if (_ctl!.mode == InputMode.text) return;
     if (e.pointer != _drawingPointer) return;
     final ctl = _ctl!;
     if (ctl.mode == InputMode.eraseStrokes) {
@@ -290,6 +324,19 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     _pointers.remove(e.pointer);
     _disarmHold();
     final ctl = _ctl!;
+    if (ctl.mode == InputMode.select && (_lassoing || _movingSel)) {
+      final start = _tapStart;
+      final moved = start != null && (e.localPosition - start).distance > 12;
+      if (_lassoing) {
+        moved ? ctl.endLasso() : ctl.clearStrokeSelection();
+      }
+      _lassoing = false;
+      _movingSel = false;
+      _moveLast = null;
+      _tapStart = null;
+      _pointerOnItem = false;
+      return;
+    }
     if (ctl.mode == InputMode.text || ctl.mode == InputMode.select) {
       final start = _tapStart;
       final onItem = _pointerOnItem;
@@ -465,7 +512,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                   else
                   ListenableBuilder(
                     listenable: ctl,
-                    builder: (context, _) => ctl.selectedItem != null
+                    builder: (context, _) => ctl.hasStrokeSelection
+                        ? _StrokeSelectionBar(controller: ctl)
+                        : ctl.selectedItem != null
                         ? _ItemBar(
                             controller: ctl,
                             onEditText: _editText,
@@ -603,7 +652,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                     _closePanel();
                   }
                 }, selected: eraserOn),
-                _icon(Icons.highlight_alt, 'Seleccionar y mover', () {
+                _icon(Icons.highlight_alt, 'Lazo: rodea trazos para moverlos; toca textos y fotos para editarlos', () {
                   c.selectMode(InputMode.select);
                   _closePanel();
                 }, selected: c.mode == InputMode.select),
@@ -1002,6 +1051,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                               ),
                             ),
                         ],
+                      if (ctl.lasso != null || ctl.hasStrokeSelection)
+                        IgnorePointer(child: CustomPaint(painter: _LassoPainter(ctl.lasso, ctl.selectionBounds))),
                       if (_editing != null) _editingField(_editing!),
                     ],
                   ),
@@ -1456,6 +1507,105 @@ class _RecordingPill extends StatelessWidget {
                     style: const TextStyle(color: pink, fontSize: 16, fontWeight: FontWeight.w500)),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dibuja el lazo y el recuadro de lo seleccionado.
+class _LassoPainter extends CustomPainter {
+  _LassoPainter(this.lasso, this.bounds);
+  final List<Offset>? lasso;
+  final Rect? bounds;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final dash = Paint()
+      ..color = const Color(0xFF1E8CB4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    void dashed(Path path) {
+      for (final m in path.computeMetrics()) {
+        for (var d = 0.0; d < m.length; d += 16) {
+          canvas.drawPath(m.extractPath(d, d + 9), dash);
+        }
+      }
+    }
+
+    final l = lasso;
+    if (l != null && l.length > 1) {
+      canvas.drawPath(Path()..addPolygon(l, true), Paint()..color = const Color(0x141E8CB4));
+      dashed(Path()..addPolygon(l, false));
+    }
+    final b = bounds;
+    if (b != null) {
+      final r = b.inflate(10);
+      canvas.drawRect(r, Paint()..color = const Color(0x0F1E8CB4));
+      dashed(Path()..addRect(r));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LassoPainter old) => true;
+}
+
+/// Acciones para los trazos elegidos con el lazo.
+class _StrokeSelectionBar extends StatelessWidget {
+  const _StrokeSelectionBar({required this.controller});
+  final DrawingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget action(IconData icon, String label, VoidCallback onTap) => InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [Icon(icon), Text(label, style: const TextStyle(fontSize: 11))],
+            ),
+          ),
+        );
+    return Material(
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            children: [
+              Text('${controller.selectedStrokes.length} trazo(s)  ',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              for (final c in fullPalette.take(8))
+                GestureDetector(
+                  onTap: () => controller.recolorSelection(c),
+                  child: Container(
+                    width: 26,
+                    height: 26,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      color: Color(c),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.black26),
+                    ),
+                  ),
+                ),
+              IconButton(
+                tooltip: 'Más colores',
+                icon: const Icon(Icons.palette_outlined),
+                onPressed: () async {
+                  final c = await pickColor(context);
+                  if (c != null) controller.recolorSelection(c);
+                },
+              ),
+              action(Icons.copy_outlined, 'Duplicar', controller.duplicateSelection),
+              action(Icons.delete_outline, 'Borrar', controller.deleteSelection),
+              action(Icons.check, 'Listo', controller.clearStrokeSelection),
+            ],
           ),
         ),
       ),

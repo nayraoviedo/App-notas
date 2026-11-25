@@ -8,6 +8,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/fonts.dart';
 import '../../domain/drawing.dart';
 import '../../domain/practice.dart';
+import '../../../notebooks/domain/notebook.dart' show CoverPattern;
+import '../../../notebooks/presentation/cover_designs.dart';
 
 /// Dibuja el fondo de la hoja según la plantilla.
 class PaperPainter extends CustomPainter {
@@ -421,8 +423,15 @@ class PaperPainter extends CustomPainter {
   }
 
   /// Tapa de cuaderno: franjas de color, banda clara al centro con una
-  /// estrellita y un elástico.
+  /// estrellita y un elástico. Con [PaperStyle.design] u obra de arte, la
+  /// tapa ilustrada con su placa central.
   void _cover(Canvas canvas, Size size) {
+    final design = CoverPattern.values.where((p) => p.name == paper.design).firstOrNull;
+    if (design != null || paper.imagePath != null) {
+      if (design != null) paintIllustratedCover(canvas, size, design, Color(paper.background));
+      paintPlateBox(canvas, size, design != null ? Color(paper.background) : const Color(0xFFB9C6B0));
+      return;
+    }
     final base = Color(paper.background);
     final hsl = HSLColor.fromColor(base);
     final dark = hsl.withLightness((hsl.lightness - 0.18).clamp(0.0, 1.0)).toColor();
@@ -555,7 +564,8 @@ class PaperPainter extends CustomPainter {
       old.paper.template != paper.template ||
       old.paper.background != paper.background ||
       old.paper.spacing != paper.spacing ||
-      old.paper.imagePath != paper.imagePath;
+      old.paper.imagePath != paper.imagePath ||
+      old.paper.design != paper.design;
 }
 
 /// Fondo completo de la hoja: imagen personalizada (si hay) + plantilla.
@@ -601,12 +611,18 @@ class _PaperViewState extends State<PaperView> {
     final painter = CustomPaint(
       painter: PaperPainter(paper, fontsGeneration: _fontsGeneration),
     );
-    if (paper.imagePath == null) return painter;
+    final img = paper.imagePath;
+    if (img == null) return painter;
+    // Las obras de arte de las tapas vienen dentro de la app (assets/).
+    final isAsset = img.startsWith('assets/');
     return Stack(
       fit: StackFit.expand,
       children: [
         ColoredBox(color: Color(paper.background)),
-        Image.file(File(paper.imagePath!), fit: BoxFit.fill),
+        if (isAsset)
+          Image.asset(img, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink())
+        else
+          Image.file(File(img), fit: BoxFit.fill),
         painter,
       ],
     );

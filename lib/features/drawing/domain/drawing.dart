@@ -208,9 +208,13 @@ class PaperStyle {
     this.spacing = 40,
     this.imagePath,
     this.practice,
+    this.design,
   });
 
   final PaperTemplate template;
+
+  /// Tapa ilustrada (nombre del dibujo, por ejemplo "sageFlowers").
+  final String? design;
 
   /// Hoja de práctica de caligrafía china (caracteres modelo para calcar).
   final PracticeSheet? practice;
@@ -232,8 +236,11 @@ class PaperStyle {
     bool clearImage = false,
     PracticeSheet? practice,
     bool clearPractice = false,
+    String? design,
+    bool clearDesign = false,
   }) =>
       PaperStyle(
+        design: clearDesign ? null : (design ?? this.design),
         template: template ?? this.template,
         background: background ?? this.background,
         spacing: spacing ?? this.spacing,
@@ -247,6 +254,7 @@ class PaperStyle {
         'spacing': spacing,
         if (imagePath != null) 'image': imagePath,
         if (practice != null) 'practice': practice!.toJson(),
+        if (design != null) 'design': design,
       };
 
   factory PaperStyle.fromJson(Map<String, Object?> j) => PaperStyle(
@@ -255,6 +263,7 @@ class PaperStyle {
         background: j['background'] as int? ?? 0xFFFFFFFF,
         spacing: (j['spacing'] as num?)?.toDouble() ?? 40,
         imagePath: j['image'] as String?,
+        design: j['design'] as String?,
         practice: j['practice'] == null
             ? null
             : PracticeSheet.fromJson((j['practice'] as Map).cast<String, Object?>()),

@@ -1,0 +1,10 @@
+Portadas con obras de DOMINIO PÚBLICO (los artistas murieron hace más de 100 años).
+Las imágenes se descargan al compilar (ver .github/workflows/build-apk.yml):
+
+- almendro.jpg    Vincent van Gogh, "Almendro en flor" (1890). Wikimedia Commons, PD-Art.
+- ciruelos.jpg    Vincent van Gogh, "Ciruelos en flor (según Hiroshige)" (1887). Wikimedia Commons, PD-Art.
+- huerto.jpg      Vincent van Gogh, "Huerto en flor" (1888). Wikimedia Commons, PD-Art.
+- nenufares.jpg   Claude Monet, "Nenúfares" (1906). Art Institute of Chicago, CC0.
+- estanque.jpg    Claude Monet, "Estanque con nenúfares". Wikimedia Commons, PD-Art.
+- ola.jpg         Katsushika Hokusai, "La gran ola de Kanagawa" (1831). Wikimedia Commons, PD.
+- fresas.jpg      William Morris, "Ladrón de fresas" (1883). Cleveland Museum of Art, CC0.

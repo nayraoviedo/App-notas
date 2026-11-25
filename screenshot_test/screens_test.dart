@@ -11,6 +11,10 @@ import 'package:app_notas/core/fonts.dart';
 import 'package:app_notas/core/providers.dart';
 import 'package:app_notas/features/drawing/data/drawing_store.dart';
 import 'package:app_notas/features/drawing/domain/drawing.dart';
+import 'package:app_notas/features/expenses/data/expenses_repository.dart';
+import 'package:app_notas/features/expenses/domain/expense.dart';
+import 'package:app_notas/features/expenses/presentation/expenses_screen.dart';
+import 'package:app_notas/features/notebooks/presentation/notebook_form.dart';
 import 'package:app_notas/features/notebooks/domain/notebook.dart';
 import 'package:app_notas/features/notebooks/presentation/library_screen.dart';
 import 'package:app_notas/features/notes/domain/note.dart';
@@ -171,6 +175,7 @@ void main() {
       onSearch: () {},
       onSettings: () {},
       onAdd: () {},
+      onExpenses: () {},
     )));
     await _shot(tester, '01_inicio');
   });
@@ -312,4 +317,62 @@ void main() {
     await g.up();
     await tester.pump(const Duration(seconds: 1));
   });
+
+  testWidgets('gastos', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    await tester.pumpWidget(_app(
+      const ExpensesScreen(),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        expensesRepositoryProvider.overrideWithValue(_FakeExpenses()),
+      ],
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+    await _shot(tester, '16_gastos');
+  });
+
+  testWidgets('portadas nuevas', (tester) async {
+    await _phoneSize(tester);
+    await tester.pumpWidget(_app(Scaffold(
+      body: Center(
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final p in [CoverPattern.sageFlowers, CoverPattern.blueTrellis, CoverPattern.tulipChecker, CoverPattern.starryCat])
+              NotebookCover(
+                name: 'Notebook',
+                color: p.preferredColor!,
+                style: CoverStyle(pattern: p, sticker: ''),
+                width: 170,
+              ),
+          ],
+        ),
+      ),
+    )));
+    await _shot(tester, '17_portadas');
+  });
+}
+
+class _FakeExpenses implements ExpensesRepository {
+  @override
+  Stream<List<Expense>> watchRange(DateTime from, DateTime to) {
+    final mon = from;
+    Expense e(int d, String c, double a, String t) =>
+        Expense(id: '$d$c$t', day: mon.add(Duration(days: d)), category: c, amount: a, description: t);
+    return Stream.value([
+      e(0, 'Verduras', 12, 'Tomate y cebolla'),
+      e(0, 'Carne', 45, 'Pollo'),
+      e(1, 'Frutas', 18.5, 'Plátanos y manzanas'),
+      e(2, 'Lácteos', 14, 'Leche y queso'),
+      e(3, 'Verduras', 9, 'Lechuga'),
+      e(4, 'Carne', 60, 'Carne molida'),
+      e(5, 'Pan', 6, 'Marraquetas'),
+    ].where((x) => !x.day.isBefore(from) && x.day.isBefore(to)).toList());
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

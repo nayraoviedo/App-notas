@@ -82,11 +82,17 @@ class DrawingController extends ChangeNotifier {
     tool = t;
     mode = InputMode.draw;
     selectedItemId = null;
+    selectedStrokes = {};
+    lasso = null;
     notifyListeners();
   }
 
   void selectMode(InputMode m) {
     mode = m;
+    if (m != InputMode.select) {
+      selectedStrokes = {};
+      lasso = null;
+    }
     if (m != InputMode.select && m != InputMode.text) selectedItemId = null;
     notifyListeners();
   }
@@ -150,6 +156,7 @@ class DrawingController extends ChangeNotifier {
 
   void setActiveLayer(int i) {
     _active = i;
+    selectedStrokes = {};
     notifyListeners();
   }
 
@@ -439,6 +446,144 @@ class DrawingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ----------------------------------------------- Lazo (seleccionar trazos)
+
+  /// Línea del lazo mientras se dibuja (null = no hay).
+  List<Offset>? lasso;
+
+  /// Trazos seleccionados (índices en la capa activa).
+  Set<int> selectedStrokes = {};
+
+  bool get hasStrokeSelection => selectedStrokes.isNotEmpty;
+
+  Rect? get selectionBounds {
+    if (selectedStrokes.isEmpty) return null;
+    final strokes = activeLayer.strokes;
+    Rect? r;
+    for (final i in selectedStrokes) {
+      if (i >= strokes.length) continue;
+      final b = strokes[i].bounds;
+      r = r == null ? b : r.expandToInclude(b);
+    }
+    return r;
+  }
+
+  void beginLasso(Offset at) {
+    lasso = [at];
+    selectedStrokes = {};
+    notifyListeners();
+  }
+
+  void extendLasso(Offset at) {
+    final l = lasso;
+    if (l == null) return;
+    if ((l.last - at).distanceSquared < 9) return;
+    l.add(at);
+    notifyListeners();
+  }
+
+  void cancelLasso() {
+    lasso = null;
+    notifyListeners();
+  }
+
+  /// Selecciona los trazos de la capa activa que quedan dentro del lazo
+  /// (al menos el 60 % de sus puntos).
+  void endLasso() {
+    final l = lasso;
+    lasso = null;
+    if (l == null || l.length < 3) {
+      notifyListeners();
+      return;
+    }
+    final poly = Path()..addPolygon(l, true);
+    final sel = <int>{};
+    final strokes = activeLayer.strokes;
+    for (var i = 0; i < strokes.length; i++) {
+      final pts = strokes[i].points;
+      if (pts.isEmpty) continue;
+      final inside = pts.where((p) => poly.contains(Offset(p.x, p.y))).length;
+      if (inside >= pts.length * 0.6) sel.add(i);
+    }
+    selectedStrokes = sel;
+    notifyListeners();
+  }
+
+  void clearStrokeSelection() {
+    if (selectedStrokes.isEmpty && lasso == null) return;
+    selectedStrokes = {};
+    lasso = null;
+    notifyListeners();
+  }
+
+  Stroke _copyStroke(Stroke s, {Offset delta = Offset.zero, int? color}) => Stroke(
+        tool: s.tool,
+        color: color ?? s.color,
+        size: s.size,
+        thinning: s.thinning,
+        streamline: s.streamline,
+        points: [for (final p in s.points) StrokePoint(p.x + delta.dx, p.y + delta.dy, p.p)],
+      );
+
+  void _changeSelected(Stroke Function(Stroke) f, {bool undoable = true}) {
+    if (selectedStrokes.isEmpty) return;
+    void apply() {
+      final i = activeLayerIndex;
+      final layers = [..._drawing.layers];
+      final strokes = [...layers[i].strokes];
+      for (final k in selectedStrokes) {
+        if (k < strokes.length) strokes[k] = f(strokes[k]);
+      }
+      layers[i] = layers[i].copyWith(strokes: strokes);
+      _drawing = _drawing.copyWith(layers: layers);
+    }
+
+    if (undoable) {
+      _commit(apply);
+    } else {
+      apply();
+      _changed();
+    }
+  }
+
+  /// Mover los trazos seleccionados (llamar antes a [beginItemChange]).
+  void moveSelection(Offset delta) => _changeSelected((s) => _copyStroke(s, delta: delta), undoable: false);
+
+  void recolorSelection(int color) => _changeSelected((s) => _copyStroke(s, color: color));
+
+  void deleteSelection() {
+    if (selectedStrokes.isEmpty) return;
+    _commit(() {
+      final i = activeLayerIndex;
+      final layers = [..._drawing.layers];
+      final keep = <Stroke>[
+        for (var k = 0; k < layers[i].strokes.length; k++)
+          if (!selectedStrokes.contains(k)) layers[i].strokes[k],
+      ];
+      layers[i] = layers[i].copyWith(strokes: keep);
+      _drawing = _drawing.copyWith(layers: layers);
+      selectedStrokes = {};
+    });
+  }
+
+  void duplicateSelection() {
+    if (selectedStrokes.isEmpty) return;
+    _commit(() {
+      final i = activeLayerIndex;
+      final layers = [..._drawing.layers];
+      final strokes = [...layers[i].strokes];
+      final copies = [
+        for (final k in selectedStrokes)
+          if (k < strokes.length) _copyStroke(strokes[k], delta: const Offset(30, 30)),
+      ];
+      final start = strokes.length;
+      strokes.addAll(copies);
+      layers[i] = layers[i].copyWith(strokes: strokes);
+      _drawing = _drawing.copyWith(layers: layers);
+      selectedStrokes = {for (var k = 0; k < copies.length; k++) start + k};
+    });
+  }
+
   // ------------------------------------------------- Borrar trazos completos
 
   bool _erasingGesture = false;
@@ -513,6 +658,7 @@ class DrawingController extends ChangeNotifier {
     if (!canUndo) return;
     _redo.add(_drawing);
     _drawing = _undo.removeLast();
+    selectedStrokes = {};
     if (findItem(selectedItemId) == null) selectedItemId = null;
     _changed();
   }
@@ -521,6 +667,7 @@ class DrawingController extends ChangeNotifier {
     if (!canRedo) return;
     _undo.add(_drawing);
     _drawing = _redo.removeLast();
+    selectedStrokes = {};
     if (findItem(selectedItemId) == null) selectedItemId = null;
     _changed();
   }

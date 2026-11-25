@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/fonts.dart';
@@ -22,8 +23,12 @@ Future<Uint8List> rasterizeDrawing(Drawing d, {double pixelWidth = 1240}) async 
 
   canvas.drawRect(Offset.zero & size, Paint()..color = Color(d.paper.background));
   final imagePath = d.paper.imagePath;
-  if (imagePath != null && File(imagePath).existsSync()) {
-    final codec = await ui.instantiateImageCodec(await File(imagePath).readAsBytes());
+  final isAsset = imagePath != null && imagePath.startsWith('assets/');
+  if (imagePath != null && (isAsset || File(imagePath).existsSync())) {
+    final bytes = isAsset
+        ? (await rootBundle.load(imagePath)).buffer.asUint8List()
+        : await File(imagePath).readAsBytes();
+    final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
     final img = frame.image;
     canvas.drawImageRect(

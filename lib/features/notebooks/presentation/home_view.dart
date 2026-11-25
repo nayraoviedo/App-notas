@@ -35,7 +35,11 @@ class HomeView extends StatefulWidget {
     required this.onSettings,
     required this.onAdd,
     this.onCatOptions,
+    this.onExpenses,
   });
+
+  /// Abrir el cuaderno fijo "Gastos".
+  final VoidCallback? onExpenses;
 
   /// Mantener presionado un gatito: cambiar su foto o su nombre.
   final void Function(CatKind kind)? onCatOptions;
@@ -264,10 +268,25 @@ class _HomeViewState extends State<HomeView> {
           crossAxisSpacing: 18,
           childAspectRatio: 0.62,
         ),
-        itemCount: list.length + 1,
-        itemBuilder: (context, i) => LayoutBuilder(
+        itemCount: list.length + 1 + (widget.onExpenses == null ? 0 : 1),
+        itemBuilder: (context, index) => LayoutBuilder(
           builder: (context, c) {
             final w = c.maxWidth;
+            if (widget.onExpenses != null && index == 0) {
+              return GestureDetector(
+                onTap: widget.onExpenses,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    BookCover(notebook: _expensesBook, width: w),
+                    const SizedBox(height: 8),
+                    const Text('Gastos', style: TextStyle(fontSize: 14, color: HomeColors.ink)),
+                    const Text('Compras por categoría', style: TextStyle(fontSize: 11.5, color: Colors.black45)),
+                  ],
+                ),
+              );
+            }
+            final i = index - (widget.onExpenses == null ? 0 : 1);
             if (i == list.length) {
               return _AddCard(width: w, height: w * 1.3, onTap: widget.onNewNotebook, small: true);
             }
@@ -295,10 +314,29 @@ class _HomeViewState extends State<HomeView> {
   Widget _carouselView(List<Notebook> list) => LayoutBuilder(
         builder: (context, c) {
           final w = math.min(c.maxWidth * 0.62, (c.maxHeight - 120) / 1.32);
+          final extra = widget.onExpenses == null ? 0 : 1;
           return PageView.builder(
             controller: _page,
-            itemCount: list.length + 1,
-            itemBuilder: (context, i) => Padding(
+            itemCount: list.length + 1 + extra,
+            itemBuilder: (context, index) => index < extra
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 26),
+                    child: Column(
+                      children: [
+                        GestureDetector(
+                          onTap: widget.onExpenses,
+                          child: BookCover(notebook: _expensesBook, width: w, big: true),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text('Gastos',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: HomeColors.ink)),
+                        const Text('Compras por categoría', style: TextStyle(fontSize: 12.5, color: Colors.black45)),
+                      ],
+                    ),
+                  )
+                : Builder(builder: (context) {
+                    final i = index - extra;
+                    return Padding(
               padding: const EdgeInsets.only(top: 26),
               child: Column(
                 children: [
@@ -318,7 +356,8 @@ class _HomeViewState extends State<HomeView> {
                   ],
                 ],
               ),
-            ),
+            );
+                  }),
           );
         },
       );
@@ -377,6 +416,14 @@ class _HomeViewState extends State<HomeView> {
   }
 }
 
+/// Tapa del cuaderno fijo "Gastos".
+const _expensesBook = Notebook(
+  id: '__gastos',
+  name: 'Gastos',
+  color: 0xFFCDE5C0,
+  style: CoverStyle(pattern: CoverPattern.gingham, sticker: '🧾', plate: 'GASTOS'),
+);
+
 /// Tapa de cuaderno tipo libro: lomo de color, dibujo, sticker y la etiqueta
 /// "Pertenece a".
 class BookCover extends StatelessWidget {
@@ -409,7 +456,7 @@ class BookCover extends StatelessWidget {
               coverPath: notebook.coverPath,
               style: notebook.style,
               width: width,
-              showLabel: false,
+              showLabel: notebook.style.hasPlate,
             ),
             // Lomo
             Positioned(left: 0, top: 0, bottom: 0, width: width * 0.075, child: ColoredBox(color: spine)),
@@ -420,7 +467,8 @@ class BookCover extends StatelessWidget {
               width: 2,
               child: ColoredBox(color: Colors.black.withValues(alpha: 0.12)),
             ),
-            // Etiqueta "Pertenece a"
+            // Etiqueta "Pertenece a" (las portadas con placa ya llevan título)
+            if (!(notebook.style.hasPlate && notebook.coverPath == null))
             Positioned(
               left: width * 0.2,
               right: width * 0.1,

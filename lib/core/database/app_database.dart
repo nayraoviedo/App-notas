@@ -18,6 +18,7 @@ part 'app_database.g.dart';
     TranscriptSegments,
     Markers,
     Summaries,
+    Expenses,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -25,7 +26,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: 'app_notas'));
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -49,6 +50,9 @@ class AppDatabase extends _$AppDatabase {
           if (from < 6) {
             await m.addColumn(blocks, blocks.marks);
             await m.addColumn(blocks, blocks.textColor);
+          }
+          if (from < 7) {
+            await m.createTable(expenses);
           }
         },
         beforeOpen: (details) async {

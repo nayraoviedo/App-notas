@@ -69,3 +69,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # Obras de dominio público para las portadas (se bajan al compilar).
+    - assets/covers/

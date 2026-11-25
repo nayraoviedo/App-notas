@@ -144,3 +144,17 @@ class Markers extends Table {
   IntColumn get atMs => integer()();
   TextColumn get label => text().nullable()();
 }
+
+/// Gastos (cuaderno "Gastos"): una compra con su categoría y monto. Desde v7.
+@DataClassName('ExpenseRow')
+class Expenses extends Table {
+  TextColumn get id => text()();
+  DateTimeColumn get day => dateTime()();
+  TextColumn get category => text()();
+  TextColumn get description => text().withDefault(const Constant(''))();
+  RealColumn get amount => real()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}

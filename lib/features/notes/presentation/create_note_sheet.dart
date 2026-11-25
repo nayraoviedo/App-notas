@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../drawing/domain/drawing.dart';
 import '../../drawing/presentation/painters/paper_painter.dart';
+import '../../notebooks/domain/notebook.dart' show CoverPattern, coverArts;
 import 'note_tags_dialog.dart';
 
 /// Lo que se eligió al crear una nota.
@@ -13,8 +14,14 @@ class NewNoteOptions {
     required this.landscape,
     this.withCover = true,
     this.coverColor = 0xFFC5CDD6,
+    this.coverDesign,
+    this.coverArt,
     this.tags = const [],
   });
+
+  /// Tapa ilustrada (nombre del dibujo) u obra de arte (ruta del asset).
+  final String? coverDesign;
+  final String? coverArt;
 
   final String title;
 
@@ -40,16 +47,38 @@ class NewNoteOptions {
       );
 
   /// La tapa: franjas de color, banda clara y el título escrito en ella.
+  bool get _plated => coverDesign != null || coverArt != null;
+
   Drawing coverPage() => Drawing(
         width: _w,
         height: _h,
-        paper: PaperStyle(template: PaperTemplate.cover, background: coverColor),
+        paper: PaperStyle(
+          template: PaperTemplate.cover,
+          background: coverColor,
+          design: coverDesign,
+          imagePath: coverArt,
+        ),
         layers: [
           DrawingLayer(
             id: 'l1',
             name: 'Capa 1',
             items: [
-              if (title.trim().isNotEmpty)
+              // En las tapas con placa, el título va en la placa ("NOTEBOOK"
+              // si no hay título) y se puede editar tocándolo.
+              if (_plated)
+                TextItem(
+                  id: 'cover-title',
+                  x: _w / 2,
+                  y: _h * 0.235,
+                  text: title.trim().isEmpty ? 'NOTEBOOK' : title.trim().toUpperCase(),
+                  font: 'Playfair Display',
+                  size: 50,
+                  bold: true,
+                  color: 0xFF5D6B5A,
+                  align: TextItemAlign.center,
+                  width: _w * 0.4,
+                )
+              else if (title.trim().isNotEmpty)
                 TextItem(
                   id: 'cover-title',
                   x: _w / 2,
@@ -101,6 +130,15 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
   bool _withCover = true;
   bool _editingCover = false;
   int _coverColor = Paper.coverColors.first;
+  String? _coverDesign;
+  String? _coverArt;
+
+  PaperStyle get _coverPaper => PaperStyle(
+        template: PaperTemplate.cover,
+        background: _coverColor,
+        design: _coverDesign,
+        imagePath: _coverArt,
+      );
   PaperStyle _paper = const PaperStyle(template: PaperTemplate.blank);
   bool _landscape = false;
   List<String> _tags = const [];
@@ -196,6 +234,8 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
                       landscape: _landscape,
                       withCover: _withSheet && _withCover,
                       coverColor: _coverColor,
+                      coverDesign: _coverDesign,
+                      coverArt: _coverArt,
                       tags: _tags,
                     ),
                   ),
@@ -223,7 +263,7 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
                     }),
                     child: Opacity(
                       opacity: _withCover ? 1 : 0.35,
-                      child: _page(PaperStyle(template: PaperTemplate.cover, background: _coverColor)),
+                      child: _page(_coverPaper),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -360,43 +400,67 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
         ),
       );
 
-  Widget _coverPicker(Color accent) => GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 110,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-          childAspectRatio: 0.7,
-        ),
-        itemCount: Paper.coverColors.length,
-        itemBuilder: (context, i) {
-          final c = Paper.coverColors[i];
-          final selected = c == _coverColor;
-          return GestureDetector(
-            onTap: () => setState(() => _coverColor = c),
-            child: Stack(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: selected ? accent : Colors.black12, width: selected ? 2.5 : 1),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: _pageW,
-                      height: _pageH,
-                      child: PaperView(paper: PaperStyle(template: PaperTemplate.cover, background: c)),
+  Widget _coverPicker(Color accent) {
+    // Colores lisos, tapas ilustradas y obras de arte de dominio público.
+    final options = <(int, String?, String?, String?)>[
+      for (final c in Paper.coverColors) (c, null, null, null),
+      for (final p in CoverPattern.values.where((p) => p.isIllustrated)) (p.preferredColor!, p.name, null, p.label),
+      for (final a in coverArts) (0xFFB9C6B0, null, a.asset, a.artist),
+    ];
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 110,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        childAspectRatio: 0.62,
+      ),
+      itemCount: options.length,
+      itemBuilder: (context, i) {
+        final (color, design, art, label) = options[i];
+        final selected = color == _coverColor && design == _coverDesign && art == _coverArt;
+        final paper = PaperStyle(template: PaperTemplate.cover, background: color, design: design, imagePath: art);
+        return GestureDetector(
+          onTap: () => setState(() {
+            _coverColor = color;
+            _coverDesign = design;
+            _coverArt = art;
+          }),
+          child: Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: selected ? accent : Colors.black12, width: selected ? 2.5 : 1),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(width: _pageW, height: _pageH, child: PaperView(paper: paper)),
+                      ),
                     ),
-                  ),
+                    if (selected) _check(accent),
+                  ],
                 ),
-                if (selected) _check(accent),
-              ],
-            ),
-          );
-        },
-      );
+              ),
+              if (label != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 10.5, color: Colors.black54)),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   Widget _check(Color accent) => Positioned(
         bottom: 8,

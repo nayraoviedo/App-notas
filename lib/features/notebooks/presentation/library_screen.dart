@@ -38,6 +38,7 @@ class LibraryScreen extends ConsumerWidget {
       onSettings: () => context.push('/settings'),
       onAdd: () => _addMenu(context, ref),
       onCatOptions: (k) => _catOptions(context, ref, k),
+      onExpenses: () => context.push('/expenses'),
     );
   }
 

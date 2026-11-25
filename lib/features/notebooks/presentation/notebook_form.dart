@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/widgets/cat_mascot.dart';
+import 'cover_designs.dart';
 
 import '../domain/notebook.dart';
 
@@ -49,9 +50,11 @@ class _NotebookFormState extends State<_NotebookForm> {
   late int _color = widget.initial?.color ?? notebookColors.first;
   late String? _cover = widget.initial?.coverPath;
   late CoverStyle _style = widget.initial?.style ?? const CoverStyle();
+  late final _plate = TextEditingController(text: widget.initial?.style.plate ?? '');
 
   @override
   void dispose() {
+    _plate.dispose();
     _name.dispose();
     super.dispose();
   }
@@ -154,7 +157,10 @@ class _NotebookFormState extends State<_NotebookForm> {
                       final p = CoverPattern.values[i];
                       final selected = p == _style.pattern;
                       return GestureDetector(
-                        onTap: () => setState(() => _style = _style.copyWith(pattern: p)),
+                        onTap: () => setState(() {
+                          _style = _style.copyWith(pattern: p, clearArt: true);
+                          if (p.preferredColor != null) _color = p.preferredColor!;
+                        }),
                         child: Column(
                           children: [
                             Container(
@@ -167,8 +173,8 @@ class _NotebookFormState extends State<_NotebookForm> {
                               ),
                               child: NotebookCover(
                                 name: '',
-                                color: _color,
-                                style: CoverStyle(pattern: p, sticker: ''),
+                                color: p.preferredColor ?? _color,
+                                style: CoverStyle(pattern: p, sticker: '', plate: ' '),
                                 width: 56,
                                 showLabel: false,
                               ),
@@ -180,6 +186,75 @@ class _NotebookFormState extends State<_NotebookForm> {
                       );
                     },
                   ),
+                ),
+                const SizedBox(height: 16),
+                Text('Obras de arte (dominio público)', style: text.titleSmall),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 132,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: coverArts.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, i) {
+                      final a = coverArts[i];
+                      final selected = _style.art == a.asset;
+                      return GestureDetector(
+                        onTap: () => setState(() => _style = _style.copyWith(art: a.asset)),
+                        child: SizedBox(
+                          width: 64,
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 60,
+                                height: 81,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    width: selected ? 3 : 1,
+                                    color: selected ? scheme.primary : Colors.black12,
+                                  ),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: Image.asset(
+                                  a.asset,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      const Center(child: Icon(Icons.image_not_supported_outlined, size: 18)),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(a.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 10)),
+                              Text(a.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 9, color: Colors.black54)),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (_style.art != null)
+                  TextButton(
+                    onPressed: () => setState(() => _style = _style.copyWith(clearArt: true)),
+                    child: const Text('Quitar la obra de arte'),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _plate,
+                  decoration: const InputDecoration(
+                    labelText: 'Texto de la placa (ej. NOTEBOOK, Diario 2026)',
+                    helperText: 'Vacío = se usa el nombre del cuaderno',
+                  ),
+                  onChanged: (v) => setState(() => _style = v.trim().isEmpty
+                      ? _style.copyWith(clearPlate: true)
+                      : _style.copyWith(plate: v.trim())),
                 ),
                 const SizedBox(height: 16),
                 Text('Sticker', style: text.titleSmall),
@@ -260,8 +335,28 @@ class NotebookCover extends StatelessWidget {
           children: [
             if (coverPath != null)
               Image.file(File(coverPath!), fit: BoxFit.cover)
+            else if (style.art != null)
+              Image.asset(
+                style.art!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => CustomPaint(painter: _CoverPatternPainter(c, style.pattern)),
+              )
             else
               CustomPaint(painter: _CoverPatternPainter(c, style.pattern)),
+            // Placa central "NOTEBOOK" (texto editable).
+            if (style.hasPlate && coverPath == null)
+              Positioned(
+                top: height * 0.16,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: CoverPlate(
+                    title: style.plate ?? name,
+                    width: width,
+                    tint: style.art != null ? const Color(0xFFB9C6B0) : c,
+                  ),
+                ),
+              ),
             // Lomo con anillos de espiral.
             Positioned(
               left: 0,
@@ -287,7 +382,7 @@ class NotebookCover extends StatelessWidget {
                 top: width * 0.1,
                 child: Text(style.sticker, style: TextStyle(fontSize: width * 0.24)),
               ),
-            if (showLabel)
+            if (showLabel && !(style.hasPlate && coverPath == null))
               Positioned(
                 left: width * 0.18,
                 right: width * 0.08,
@@ -326,6 +421,10 @@ class _CoverPatternPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (pattern.isIllustrated) {
+      paintIllustratedCover(canvas, size, pattern, color);
+      return;
+    }
     canvas.drawRect(Offset.zero & size, Paint()..color = color);
     final light = color.computeLuminance() > 0.5;
     final ink = Paint()
