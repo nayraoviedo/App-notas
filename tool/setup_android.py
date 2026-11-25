@@ -28,6 +28,23 @@ PERMISSIONS = """
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+"""
+
+# Dentro de <application>: avisos programados (también después de reiniciar)
+# y la descarga automática del modelo para quitar fondos.
+APP_EXTRAS = """
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="subject_segment" />
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
 """
 
 s = MANIFEST.read_text()
@@ -38,10 +55,27 @@ if "RECORD_AUDIO" not in s:
     i = s.index(">", s.index("<manifest")) + 1
     s = s[:i] + PERMISSIONS + s[i:]
 s = s.replace('android:label="app_notas"', 'android:label="Kumo"')
+if "ScheduledNotificationReceiver" not in s:
+    i = s.index(">", s.index("<application")) + 1
+    s = s[:i] + APP_EXTRAS + s[i:]
+if "POST_NOTIFICATIONS" not in s:
+    i = s.index(">", s.index("<manifest")) + 1
+    s = s[:i] + """
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+""" + s[i:]
 MANIFEST.write_text(s)
 
 g = GRADLE.read_text()
 g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = maxOf(24, flutter.minSdkVersion)")
+# flutter_local_notifications necesita "desugaring" de Java.
+if "isCoreLibraryDesugaringEnabled" not in g:
+    g = g.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true", 1)
+    g += """
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+"""
 GRADLE.write_text(g)
 
 FORCE_SDK.write_text(f"""// Generado por tool/setup_android.py

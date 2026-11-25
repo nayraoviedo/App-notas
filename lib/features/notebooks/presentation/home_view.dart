@@ -38,7 +38,15 @@ class HomeView extends StatefulWidget {
     this.onExpenses,
     this.onStudy,
     this.onJournal,
+    this.onPlanner,
+    this.greeting,
   });
+
+  /// Horario de clases y pendientes.
+  final VoidCallback? onPlanner;
+
+  /// Lo primero que dicen los gatitos al abrir (saludo, aviso de examen…).
+  final String? greeting;
 
   /// Tarjetas de repaso y "pregúntale a tus notas".
   final VoidCallback? onStudy;
@@ -76,6 +84,26 @@ class _HomeViewState extends State<HomeView> {
   final _page = PageController(viewportFraction: 0.7);
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.greeting != null) {
+      _greetingText = widget.greeting;
+      _talking = true;
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) setState(() => _talking = false);
+      });
+    }
+  }
+
+  /// Saludo inicial (se reemplaza por frases al tocar un gatito).
+  String? _greetingText;
+
+  bool get _night {
+    final h = DateTime.now().hour;
+    return h >= 23 || h < 5;
+  }
+
+  @override
   void dispose() {
     _page.dispose();
     super.dispose();
@@ -83,6 +111,7 @@ class _HomeViewState extends State<HomeView> {
 
   void _meow(CatKind who) {
     setState(() {
+      _greetingText = null;
       _speaker = who;
       _phrase++;
       _talking = true;
@@ -199,12 +228,21 @@ class _HomeViewState extends State<HomeView> {
                     zone(CatKind.gray, 0.2, 0.46),
                     zone(CatKind.orange, 0.53, 0.84),
                     Positioned(
-                      left: 8,
+                      left: 4,
                       top: 4,
-                      child: IconButton(
-                        tooltip: 'Buscar',
-                        icon: const Icon(Icons.search, color: HomeColors.ink),
-                        onPressed: widget.onSearch,
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Buscar',
+                            icon: const Icon(Icons.search, color: HomeColors.ink),
+                            onPressed: widget.onSearch,
+                          ),
+                          IconButton(
+                            tooltip: 'Ajustes',
+                            icon: const Icon(Icons.settings_outlined, color: HomeColors.ink),
+                            onPressed: widget.onSettings,
+                          ),
+                        ],
                       ),
                     ),
                     // Botón amarillo para cambiar de vista.
@@ -227,16 +265,24 @@ class _HomeViewState extends State<HomeView> {
                     ),
                     if (_talking)
                       Positioned(
-                        top: h * 0.2,
-                        left: _speaker == CatKind.gray ? w * 0.04 : null,
-                        right: _speaker == CatKind.orange ? w * 0.02 : null,
+                        top: _greetingText != null ? h * 0.06 : h * 0.2,
+                        left: _greetingText != null ? w * 0.18 : (_speaker == CatKind.gray ? w * 0.04 : null),
+                        right: _greetingText != null ? w * 0.18 : (_speaker == CatKind.orange ? w * 0.02 : null),
                         child: _Bubble(
-                          text: [
-                            if (catNames.value[_speaker] case final n?) '$n:',
-                            catPhrases[_phrase % catPhrases.length],
-                          ].join(' '),
+                          text: _greetingText ??
+                              [
+                                if (catNames.value[_speaker] case final n?) '$n:',
+                                _night
+                                    ? 'Zzz… 😴 (estoy durmiendo)'
+                                    : catPhrases[_phrase % catPhrases.length],
+                              ].join(' '),
                         ),
                       ),
+                    // De noche los gatitos duermen.
+                    if (_night) ...[
+                      Positioned(left: w * 0.36, top: h * 0.2, child: const _Zzz()),
+                      Positioned(left: w * 0.72, top: h * 0.18, child: const _Zzz()),
+                    ],
                   ],
                 ),
               );
@@ -415,9 +461,9 @@ class _HomeViewState extends State<HomeView> {
             children: [
               item(Icons.menu_book_rounded, 'Cuadernos', true, () {}),
               item(Icons.sticky_note_2_outlined, 'Notas·${widget.notesCount}', false, widget.onAllNotes),
+              item(Icons.calendar_month_outlined, 'Semana', false, () => widget.onPlanner?.call()),
               item(Icons.school_outlined, 'Estudio', false, () => widget.onStudy?.call()),
               item(Icons.favorite_border, 'Diario', false, () => widget.onJournal?.call()),
-              item(Icons.settings_outlined, 'Ajustes', false, widget.onSettings),
             ],
           ),
         ),
@@ -607,3 +653,34 @@ class _Bubble extends StatelessWidget {
       );
 }
 
+
+/// "z z Z" que sube y se desvanece sobre un gatito dormido.
+class _Zzz extends StatefulWidget {
+  const _Zzz();
+
+  @override
+  State<_Zzz> createState() => _ZzzState();
+}
+
+class _ZzzState extends State<_Zzz> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) => Opacity(
+          opacity: 1 - _c.value,
+          child: Transform.translate(
+            offset: Offset(6 * _c.value, -14 * _c.value),
+            child: const Text('z Z',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF6B5B95))),
+          ),
+        ),
+      );
+}

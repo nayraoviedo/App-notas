@@ -84,6 +84,18 @@ class StudyScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Estudio'),
+          actions: [
+            IconButton(
+              tooltip: 'Modo examen',
+              icon: const Icon(Icons.quiz_outlined),
+              onPressed: () => context.push('/exam'),
+            ),
+            IconButton(
+              tooltip: 'Horario y pendientes',
+              icon: const Icon(Icons.calendar_month_outlined),
+              onPressed: () => context.push('/planner'),
+            ),
+          ],
           bottom: TabBar(tabs: [
             Tab(text: 'Repasar (${due.length})'),
             Tab(text: 'Tarjetas (${cards.length})'),

@@ -398,7 +398,15 @@ class _HabitTrackerState extends ConsumerState<HabitTracker> {
                             child: _HabitDot(
                               done: st.isDone(h.id, d),
                               future: d.isAfter(today),
-                              onTap: () => ref.read(journalProvider.notifier).toggle(h.id, d),
+                              onTap: () {
+                                ref.read(journalProvider.notifier).toggle(h.id, d);
+                                final after = ref.read(journalProvider);
+                                if (dayKey(d) == dayKey(today) &&
+                                    after.isDone(h.id, d) &&
+                                    after.habits.every((x) => after.isDone(x.id, d))) {
+                                  _celebrate(context);
+                                }
+                              },
                             ),
                           ),
                         ),
@@ -408,6 +416,26 @@ class _HabitTrackerState extends ConsumerState<HabitTracker> {
               ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Todos los hábitos de hoy hechos: ¡los gatitos celebran!
+  void _celebrate(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset('assets/stickers/cat_05.png', width: 150, height: 150),
+            const SizedBox(height: 8),
+            Text('¡Todos tus hábitos de hoy! 🎉',
+                textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
+            const Text('Los gatitos están orgullosos de ti.', textAlign: TextAlign.center),
+          ],
+        ),
+        actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('¡Miau!'))],
       ),
     );
   }

@@ -73,6 +73,36 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Ajustes')),
       body: ListView(
         children: [
+          const _Header('Tú'),
+          ListTile(
+            leading: const Icon(Icons.badge_outlined),
+            title: const Text('Tu nombre'),
+            subtitle: Text(ref.read(sharedPreferencesProvider).getString('user.name')?.isNotEmpty == true
+                ? 'Los gatitos te saludan como "${ref.read(sharedPreferencesProvider).getString('user.name')}"'
+                : 'Para que los gatitos te saluden'),
+            onTap: () async {
+              final prefs = ref.read(sharedPreferencesProvider);
+              final c = TextEditingController(text: prefs.getString('user.name') ?? '');
+              final name = await showDialog<String>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('¿Cómo te llamas?'),
+                  content: TextField(
+                    controller: c,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+                    FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('Guardar')),
+                  ],
+                ),
+              );
+              if (name == null) return;
+              await prefs.setString('user.name', name);
+              ref.invalidate(settingsProvider); // refrescar el subtítulo
+            },
+          ),
           const _Header('Apariencia'),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

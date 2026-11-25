@@ -1,3 +1,4 @@
+import 'cat_greeting.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -41,6 +42,8 @@ class LibraryScreen extends ConsumerWidget {
       onExpenses: () => context.push('/expenses'),
       onStudy: () => context.push('/study'),
       onJournal: () => context.push('/journal'),
+      onPlanner: () => context.push('/planner'),
+      greeting: catGreeting(ref),
     );
   }
 

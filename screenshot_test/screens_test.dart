@@ -27,6 +27,9 @@ import 'package:app_notas/features/journal/domain/journal.dart';
 import 'package:app_notas/features/journal/presentation/journal_screen.dart';
 import 'package:app_notas/features/study/domain/flashcard.dart';
 import 'package:app_notas/features/study/presentation/study_screen.dart';
+import 'package:app_notas/features/study/presentation/exam_screen.dart';
+import 'package:app_notas/features/planner/domain/planner.dart';
+import 'package:app_notas/features/planner/presentation/planner_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -411,6 +414,67 @@ void main() {
     await tester.tap(find.text('¿Qué es la mitosis?'));
     await tester.pump();
     await _shot(tester, '21_estudio');
+  });
+
+  Future<void> openPlanner(WidgetTester tester, Widget screen) async {
+    final now = DateTime.now();
+    final st = PlannerState(
+      classes: const [
+        ClassSlot(id: '1', subject: 'Biología', weekday: 1, start: 8 * 60, end: 10 * 60, room: 'A-12', color: 0xFFB8E0D2),
+        ClassSlot(id: '2', subject: 'Química', weekday: 2, start: 10 * 60, end: 12 * 60, color: 0xFFF9D5A7),
+        ClassSlot(id: '3', subject: 'Cálculo', weekday: 3, start: 8 * 60, end: 9 * 60 + 30, color: 0xFFA7C7E7),
+        ClassSlot(id: '4', subject: 'Inglés', weekday: 4, start: 14 * 60, end: 16 * 60, color: 0xFFD5B8F0),
+        ClassSlot(id: '5', subject: 'Biología', weekday: 5, start: 8 * 60, end: 10 * 60, room: 'Lab 3', color: 0xFFB8E0D2),
+        ClassSlot(id: '6', subject: 'Historia', weekday: 3, start: 15 * 60, end: 17 * 60, color: 0xFFF4A7B9),
+      ],
+      reminders: [
+        Reminder(id: 'a', title: 'Parcial de Biología', subject: 'Biología', due: now.add(const Duration(days: 1, hours: 2))),
+        Reminder(id: 'b', title: 'Informe de laboratorio', kind: ReminderKind.homework, subject: 'Química', due: now.add(const Duration(days: 5))),
+        Reminder(id: 'c', title: 'Exposición', kind: ReminderKind.homework, subject: 'Historia', due: now.add(const Duration(days: 16))),
+        Reminder(id: 'd', title: 'Práctica 2', kind: ReminderKind.homework, due: now.subtract(const Duration(days: 2)), done: true),
+      ],
+    );
+    SharedPreferences.setMockInitialValues({'planner.data': st.encode()});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    await tester.pumpWidget(_app(screen, overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      notebooksProvider.overrideWith((ref) => Stream.value(const [])),
+    ]));
+    await tester.pump();
+  }
+
+  testWidgets('horario', (tester) async {
+    await openPlanner(tester, const PlannerScreen());
+    await _shot(tester, '22_horario');
+  });
+
+  testWidgets('pendientes', (tester) async {
+    await openPlanner(tester, const PlannerScreen(initialTab: 1));
+    await _shot(tester, '23_pendientes');
+  });
+
+  testWidgets('modo examen', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    final now = DateTime.now();
+    await tester.pumpWidget(_app(
+      const ExamScreen(seed: 3),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        flashcardsProvider.overrideWith((ref) => Stream.value([
+              Flashcard(id: '1', front: '¿Qué orgánulo produce energía en la célula?', back: 'La mitocondria', due: now),
+              Flashcard(id: '2', front: 'Capital de Bolivia', back: 'Sucre', due: now),
+              Flashcard(id: '3', front: '¿Qué es la mitosis?', back: 'División celular en dos células iguales', due: now),
+              Flashcard(id: '4', front: 'Fórmula del agua', back: 'H₂O', due: now),
+              Flashcard(id: '5', front: 'Autor de "Raza de bronce"', back: 'Alcides Arguedas', due: now),
+            ])),
+      ],
+    ));
+    await tester.pump();
+    await tester.pump();
+    await _shot(tester, '24_examen');
   });
 
   testWidgets('portadas nuevas', (tester) async {

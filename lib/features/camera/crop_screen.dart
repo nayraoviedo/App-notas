@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'background_remover.dart';
 import 'in_app_camera_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -119,6 +120,28 @@ class _CropScreenState extends ConsumerState<CropScreen> {
     _crop = Rect.fromCenter(center: s.center(Offset.zero), width: w, height: h);
   }
 
+  bool _removing = false;
+
+  Future<void> _removeBackground() async {
+    final img = _image!;
+    setState(() => _removing = true);
+    try {
+      final out = await removeBackground(img);
+      if (!mounted) return;
+      img.dispose();
+      setState(() {
+        _image = out;
+        _changed = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fondo quitado ✓ (se guarda como PNG transparente)')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _removing = false);
+    }
+  }
+
   Future<void> _save() async {
     final img = _image!;
     final full = Offset.zero & _imgSize;
@@ -155,6 +178,11 @@ class _CropScreenState extends ConsumerState<CropScreen> {
         title: const Text('Recortar'),
         actions: [
           IconButton(
+            tooltip: 'Quitar fondo',
+            icon: const Icon(Icons.auto_fix_high_outlined),
+            onPressed: img == null || _removing ? null : _removeBackground,
+          ),
+          IconButton(
             tooltip: 'Girar',
             icon: const Icon(Icons.rotate_90_degrees_cw_outlined),
             onPressed: img == null ? null : _rotate,
@@ -165,7 +193,7 @@ class _CropScreenState extends ConsumerState<CropScreen> {
           ),
         ],
       ),
-      body: img == null || _saving
+      body: img == null || _saving || _removing
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
@@ -329,6 +357,15 @@ class _CropPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final full = Offset.zero & size;
+    // Cuadriculado gris/blanco: así se nota lo transparente (sin fondo).
+    canvas.drawRect(full, Paint()..color = Colors.white);
+    final gray = Paint()..color = const Color(0xFFDDDDDD);
+    const k = 12.0;
+    for (var y = 0.0; y < size.height; y += k) {
+      for (var x = ((y / k).round().isEven ? 0.0 : k); x < size.width; x += 2 * k) {
+        canvas.drawRect(Rect.fromLTWH(x, y, k, k), gray);
+      }
+    }
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),

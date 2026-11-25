@@ -6,6 +6,7 @@ import 'core/providers.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 import 'features/drawing/presentation/painters/stroke_renderer.dart';
+import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
 
 class AppNotas extends ConsumerStatefulWidget {
@@ -47,6 +48,18 @@ class _AppNotasState extends ConsumerState<AppNotas> {
         appRouter.push('/journal');
       case 'nota' || 'grabar':
         final now = DateTime.now();
+        // Si hay una clase ahora (o empieza pronto), se graba en su cuaderno.
+        final cls = type == 'grabar' ? ref.read(plannerProvider).currentOrNext(now) : null;
+        if (cls != null && cls.start - (now.hour * 60 + now.minute) <= 15) {
+          final id = await ref.read(notesRepositoryProvider).createNote(
+                title: '${cls.subject} ${now.day}/${now.month}',
+                notebookId: cls.notebookId,
+                tags: [cls.subject],
+              );
+          appRouter.push('/notes/$id');
+          appRouter.push('/notes/$id/record');
+          return;
+        }
         final id = await ref.read(notesRepositoryProvider).createNote(
               title: type == 'grabar'
                   ? 'Clase ${now.day}/${now.month}'
