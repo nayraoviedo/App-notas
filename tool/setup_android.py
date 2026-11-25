@@ -4,6 +4,9 @@
 - Agrega los permisos que usa la app (internet, micrófono, cámara).
 - Pone el nombre visible "App Notas".
 - Sube el minSdk a 24 (lo piden las librerías de voz y transcripción).
+- Obliga a todos los plugins a compilar con compileSdk 36: algunos (por
+  ejemplo file_picker) traen 34 y la compilación falla con las librerías
+  nuevas de AndroidX.
 
 Es seguro correrlo varias veces. Uso (desde la carpeta del proyecto):
     python3 tool/setup_android.py
@@ -13,6 +16,9 @@ from pathlib import Path
 
 MANIFEST = Path("android/app/src/main/AndroidManifest.xml")
 GRADLE = Path("android/app/build.gradle.kts")
+ROOT_GRADLE = Path("android/build.gradle.kts")
+FORCE_SDK = Path("android/force_compile_sdk.gradle")
+COMPILE_SDK = 36
 
 PERMISSIONS = """
     <uses-permission android:name="android.permission.INTERNET" />
@@ -33,4 +39,19 @@ g = GRADLE.read_text()
 g = g.replace("minSdk = flutter.minSdkVersion", "minSdk = maxOf(24, flutter.minSdkVersion)")
 GRADLE.write_text(g)
 
-print("Android listo: permisos, nombre y minSdk")
+FORCE_SDK.write_text(f"""// Generado por tool/setup_android.py
+// Fuerza compileSdk {COMPILE_SDK} en todos los plugins de Flutter.
+subprojects {{ p ->
+    p.afterEvaluate {{
+        if (p.hasProperty('android')) {{
+            p.android.compileSdkVersion {COMPILE_SDK}
+        }}
+    }}
+}}
+""")
+root = ROOT_GRADLE.read_text()
+line = 'apply(from = "force_compile_sdk.gradle")'
+if line not in root:
+    ROOT_GRADLE.write_text(line + "\n\n" + root)
+
+print("Android listo: permisos, nombre, minSdk y compileSdk")
