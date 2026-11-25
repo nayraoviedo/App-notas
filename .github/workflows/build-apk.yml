@@ -90,6 +90,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # También en la rama "capturas" para verlas directo en GitHub.
+      - name: Publicar capturas en la rama "capturas"
+        continue-on-error: true
+        run: |
+          [ -d screenshot_test/out ] || exit 0
+          cd screenshot_test/out
+          git init -q -b capturas
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add *.png
+          git commit -qm "Capturas de ${GITHUB_SHA::7}"
+          git push -f -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" capturas
+
       # Algunas librerías (whisper_ggml) piden otra versión del NDK; Gradle la
       # instala sola, pero solo si las licencias están aceptadas.
       - name: Aceptar licencias del SDK de Android
