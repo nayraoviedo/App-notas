@@ -1,0 +1,71 @@
+/// Ancla un bloque a un momento de un audio o de un video.
+class MediaAnchor {
+  const MediaAnchor.audio({required String this.audioBlockId, required this.atMs})
+      : videoPath = null;
+
+  const MediaAnchor.video({required String this.videoPath, required this.atMs})
+      : audioBlockId = null;
+
+  final String? audioBlockId;
+  final String? videoPath;
+  final int atMs;
+
+  bool get isAudio => audioBlockId != null;
+  bool get isVideo => videoPath != null;
+}
+
+/// Una nota está hecha de bloques. Así una misma nota mezcla texto,
+/// grabaciones con transcripción, fotos y referencias a videos.
+sealed class NoteBlock {
+  const NoteBlock({required this.id, required this.position});
+
+  final String id;
+  final int position;
+}
+
+class TextBlock extends NoteBlock {
+  const TextBlock({required super.id, required super.position, required this.text});
+
+  final String text;
+}
+
+class AudioBlock extends NoteBlock {
+  const AudioBlock({
+    required super.id,
+    required super.position,
+    required this.path,
+    required this.durationMs,
+  });
+
+  final String path;
+  final int durationMs;
+}
+
+class ImageBlock extends NoteBlock {
+  const ImageBlock({
+    required super.id,
+    required super.position,
+    required this.path,
+    this.anchor,
+  });
+
+  final String path;
+
+  /// Si la foto se tomó durante una grabación o es una captura de video.
+  final MediaAnchor? anchor;
+}
+
+/// Una nota escrita mientras se veía un video, con el minuto exacto.
+class VideoRefBlock extends NoteBlock {
+  const VideoRefBlock({
+    required super.id,
+    required super.position,
+    required this.videoPath,
+    required this.atMs,
+    required this.text,
+  });
+
+  final String videoPath;
+  final int atMs;
+  final String text;
+}
