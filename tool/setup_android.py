@@ -13,6 +13,7 @@ Es seguro correrlo varias veces. Uso (desde la carpeta del proyecto):
     python3 tool/setup_android.py
 """
 
+import shutil
 from pathlib import Path
 
 MANIFEST = Path("android/app/src/main/AndroidManifest.xml")
@@ -64,3 +65,9 @@ if line not in root:
     ROOT_GRADLE.write_text(line + "\n\n" + root)
 
 print("Android listo: permisos, nombre, minSdk y compileSdk")
+
+# Ícono de la app: el gatito leyendo (tool/android_icon/res), también como
+# ícono adaptable para Android 8+ (fondo crema + gatito al centro).
+ICON_RES = Path(__file__).parent / "android_icon" / "res"
+if ICON_RES.exists():
+    shutil.copytree(ICON_RES, Path("android/app/src/main/res"), dirs_exist_ok=True)

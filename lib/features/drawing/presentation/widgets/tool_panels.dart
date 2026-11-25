@@ -162,12 +162,22 @@ class QuickColorRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         // Más colores: reemplaza el color elegido por uno de la paleta.
+        // Más colores o una paleta completa ("mesa de colores").
         GestureDetector(
           onTap: () async {
-            final c = await pickColor(context, current: selected);
-            if (c == null) return;
-            final slot = colors.indexOf(selected);
-            onReplace(slot < 0 ? 0 : slot, c);
+            final r = await pickPalette(context, current: colors);
+            if (r == null || !context.mounted) return;
+            if (r.isEmpty) {
+              final c = await pickColor(context, current: selected);
+              if (c == null) return;
+              final slot = colors.indexOf(selected);
+              onReplace(slot < 0 ? 0 : slot, c);
+            } else {
+              for (var i = 0; i < colors.length; i++) {
+                onReplace(i, r[i % r.length]);
+              }
+              onPick(r.first);
+            }
           },
           child: Container(
             width: size,
@@ -222,6 +232,114 @@ class QuickColorRow extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Paletas listas para usar en un toque.
+const builtInPalettes = <String, List<int>>{
+  'Pastel': [0xFFF4A7B9, 0xFFF9D5A7, 0xFFB8E0D2, 0xFFA7C7E7, 0xFFD5B8F0],
+  'Otoño': [0xFF8A3B22, 0xFFC8553D, 0xFFE09F3E, 0xFF9C6644, 0xFF5F6F52],
+  'Océano': [0xFF03396C, 0xFF005B96, 0xFF6497B1, 0xFF2A9D8F, 0xFF264653],
+  'Bosque': [0xFF2D6A4F, 0xFF40916C, 0xFF74C69D, 0xFF8D6E63, 0xFF3E2723],
+  'Atardecer': [0xFFFF6B6B, 0xFFFF9F68, 0xFFFFD166, 0xFFB5179E, 0xFF7209B7],
+  'Gatitos': [0xFF3B2A22, 0xFFE59A4E, 0xFF8E8E93, 0xFFF4A7B9, 0xFF7CA65A],
+  'Clásico': [0xFF1F2328, 0xFFE5484D, 0xFF0B6BCB, 0xFF2F9E44, 0xFFF08C00],
+};
+
+/// Elegir una paleta. Devuelve sus colores, [] para "otro color" o null.
+Future<List<int>?> pickPalette(BuildContext context, {required List<int> current}) async {
+  final prefs = await SharedPreferences.getInstance();
+  Map<String, List<int>> mine() => {
+        for (final e in prefs.getStringList('colors.palettes') ?? const <String>[])
+          if (e.split('|') case [final name, final cs])
+            name: [for (final c in cs.split(',')) if (int.tryParse(c) case final v?) v],
+      };
+  Future<void> saveMine(Map<String, List<int>> m) => prefs.setStringList(
+      'colors.palettes', [for (final e in m.entries) '${e.key}|${e.value.join(',')}']);
+  if (!context.mounted) return null;
+  return showModalBottomSheet<List<int>>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setSheet) {
+        Widget row(String name, List<int> cs, {VoidCallback? onDelete}) => ListTile(
+              title: Text(name),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    for (final c in cs)
+                      Container(
+                        width: 26,
+                        height: 26,
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: Color(c),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.black12),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              trailing: onDelete == null
+                  ? null
+                  : IconButton(icon: const Icon(Icons.delete_outline), onPressed: onDelete),
+              onTap: () => Navigator.pop(context, cs),
+            );
+        final m = mine();
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.75),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.colorize),
+                  title: const Text('Otro color…'),
+                  onTap: () => Navigator.pop(context, const <int>[]),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.bookmark_add_outlined),
+                  title: const Text('Guardar mis colores actuales como paleta'),
+                  onTap: () async {
+                    final name = TextEditingController();
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Nombre de la paleta'),
+                        content: TextField(
+                          controller: name,
+                          autofocus: true,
+                          decoration: const InputDecoration(hintText: 'Mis apuntes'),
+                        ),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Guardar')),
+                        ],
+                      ),
+                    );
+                    final n = name.text.trim().replaceAll('|', ' ');
+                    if (ok == true && n.isNotEmpty) {
+                      await saveMine({...m, n: current});
+                      setSheet(() {});
+                    }
+                  },
+                ),
+                if (m.isNotEmpty) const ListTile(dense: true, title: Text('MIS PALETAS')),
+                for (final e in m.entries)
+                  row(e.key, e.value, onDelete: () async {
+                    await saveMine({...m}..remove(e.key));
+                    setSheet(() {});
+                  }),
+                const ListTile(dense: true, title: Text('PALETAS')),
+                for (final e in builtInPalettes.entries) row(e.key, e.value),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
 }
 
 Future<int?> pickColor(BuildContext context, {int? current}) => showDialog<int>(

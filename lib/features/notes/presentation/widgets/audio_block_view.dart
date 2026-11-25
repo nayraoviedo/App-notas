@@ -10,6 +10,7 @@ import '../../../speakers/domain/speaker.dart';
 import '../../../settings/settings.dart';
 import '../../../transcription/application/segment_merger.dart';
 import '../../../transcription/domain/transcript_segment.dart';
+import '../../../study/presentation/study_screen.dart' show showNewFlashcard;
 import '../../../transcription/domain/transcription_service.dart';
 import '../../domain/note_block.dart';
 
@@ -170,7 +171,7 @@ class TranscriptView extends ConsumerWidget {
                   isCurrent: pos >= s.startMs && pos < s.endMs,
                   isImportant: _important(s, markers),
                   onTap: () => _seek(s.startMs),
-                  onEdit: () => _editText(context, ref, s),
+                  onEdit: () => _segmentMenu(context, ref, s),
                   onSpeakerTap: () => _pickSpeaker(context, ref, s),
                   highlight: highlight,
                 ),
@@ -184,6 +185,34 @@ class TranscriptView extends ConsumerWidget {
         );
       },
     );
+  }
+
+  /// Mantener presionada una frase: editarla o volverla tarjeta de repaso.
+  Future<void> _segmentMenu(BuildContext context, WidgetRef ref, TranscriptSegment s) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Editar texto'),
+              onTap: () => Navigator.pop(context, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.style_outlined),
+              title: const Text('Crear tarjeta de repaso'),
+              subtitle: const Text('Esta frase será la respuesta'),
+              onTap: () => Navigator.pop(context, 'card'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    if (action == 'edit') await _editText(context, ref, s);
+    if (action == 'card') await showNewFlashcard(context, ref, back: '${s.text.trim()} (${formatMs(s.startMs)})');
   }
 
   Future<void> _editText(BuildContext context, WidgetRef ref, TranscriptSegment s) async {
