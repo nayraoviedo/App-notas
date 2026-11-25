@@ -124,7 +124,7 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
     }
   }
 
-  Widget _page(PaperStyle paper, {double width = 80}) => SizedBox(
+  Widget _page(PaperStyle paper, {double width = 62}) => SizedBox(
         width: width,
         height: width * _pageH / _pageW,
         child: FittedBox(
@@ -142,8 +142,8 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
         GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 104,
-            padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
+            width: 78,
+            padding: const EdgeInsets.fromLTRB(7, 10, 7, 6),
             decoration: BoxDecoration(
               color: selected ? accent.withValues(alpha: 0.08) : Colors.transparent,
               borderRadius: BorderRadius.circular(16),
@@ -204,10 +204,12 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
               ],
             ),
           ),
-          // Tapa · Papel · datos
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            child: Row(
+          // Tapa · Papel · datos (en pantallas angostas, los datos van abajo)
+          LayoutBuilder(builder: (context, c) {
+            final wide = c.maxWidth >= 560;
+            final info = _info(accent, row);
+            final covers = Row(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_withSheet) ...[
@@ -236,90 +238,29 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
                       child: _page(_paper),
                     ),
                   ),
-                  const SizedBox(width: 8),
                 ],
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
+              ],
+            );
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+              child: wide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [covers, const SizedBox(width: 8), Expanded(child: info)],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextField(
-                          controller: _title,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            hintText: 'Título de la nota',
-                            filled: true,
-                            fillColor: const Color(0xFFF3F4F6),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        row(
-                          'Etiqueta',
-                          _tags.isEmpty
-                              ? const Icon(Icons.add_circle_outline, color: Colors.black54)
-                              : Flexible(
-                                  child: Text(_tags.map((t) => '#$t').join(' '),
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: accent)),
-                                ),
-                          onTap: () async {
-                            final r = await showTagPicker(context, initial: _tags);
-                            if (r != null) setState(() => _tags = r);
-                          },
-                        ),
-                        if (_withSheet)
-                          row(
-                            'Tapa',
-                            Switch(
-                              value: _withCover,
-                              onChanged: (v) => setState(() {
-                                _withCover = v;
-                                if (!v) _editingCover = false;
-                              }),
-                            ),
-                          ),
-                        row(
-                          'Formato',
-                          DropdownButton<bool>(
-                            value: _landscape,
-                            underline: const SizedBox.shrink(),
-                            isDense: true,
-                            items: const [
-                              DropdownMenuItem(value: false, child: Text('Retrato, A4')),
-                              DropdownMenuItem(value: true, child: Text('Paisaje, A4')),
-                            ],
-                            onChanged: (v) => setState(() => _landscape = v ?? false),
-                          ),
-                        ),
-                        row(
-                          'Tipo',
-                          DropdownButton<bool>(
-                            value: _withSheet,
-                            underline: const SizedBox.shrink(),
-                            isDense: true,
-                            items: const [
-                              DropdownMenuItem(value: true, child: Text('Cuaderno')),
-                              DropdownMenuItem(value: false, child: Text('Nota libre')),
-                            ],
-                            onChanged: (v) => setState(() => _withSheet = v ?? true),
-                          ),
-                        ),
+                        if (_withSheet) ...[
+                          // Tapa y papel uno sobre otro a la izquierda, chicos.
+                          covers,
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(child: info),
                       ],
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+            );
+          }),
           if (!_withSheet)
             Expanded(
               child: Padding(
@@ -343,6 +284,81 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
       ),
     );
   }
+
+
+  Widget _info(Color accent, Widget Function(String, Widget, {VoidCallback? onTap}) row) => Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+        child: Column(
+                            children: [
+                              TextField(
+                                controller: _title,
+                                textCapitalization: TextCapitalization.sentences,
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  hintText: 'Título de la nota',
+                                  filled: true,
+                                  fillColor: const Color(0xFFF3F4F6),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              row(
+                                'Etiqueta',
+                                _tags.isEmpty
+                                    ? const Icon(Icons.add_circle_outline, color: Colors.black54)
+                                    : Flexible(
+                                        child: Text(_tags.map((t) => '#$t').join(' '),
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(color: accent)),
+                                      ),
+                                onTap: () async {
+                                  final r = await showTagPicker(context, initial: _tags);
+                                  if (r != null) setState(() => _tags = r);
+                                },
+                              ),
+                              if (_withSheet)
+                                row(
+                                  'Tapa',
+                                  Switch(
+                                    value: _withCover,
+                                    onChanged: (v) => setState(() {
+                                      _withCover = v;
+                                      if (!v) _editingCover = false;
+                                    }),
+                                  ),
+                                ),
+                              row(
+                                'Formato',
+                                DropdownButton<bool>(
+                                  value: _landscape,
+                                  underline: const SizedBox.shrink(),
+                                  isDense: true,
+                                  items: const [
+                                    DropdownMenuItem(value: false, child: Text('Vertical')),
+                                    DropdownMenuItem(value: true, child: Text('Horizontal')),
+                                  ],
+                                  onChanged: (v) => setState(() => _landscape = v ?? false),
+                                ),
+                              ),
+                              row(
+                                'Tipo',
+                                DropdownButton<bool>(
+                                  value: _withSheet,
+                                  underline: const SizedBox.shrink(),
+                                  isDense: true,
+                                  items: const [
+                                    DropdownMenuItem(value: true, child: Text('Cuaderno')),
+                                    DropdownMenuItem(value: false, child: Text('Nota libre')),
+                                  ],
+                                  onChanged: (v) => setState(() => _withSheet = v ?? true),
+                                ),
+                              ),
+                            ],,
+      );
 
   Widget _coverPicker(Color accent) => GridView.builder(
         padding: const EdgeInsets.all(16),

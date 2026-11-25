@@ -466,6 +466,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
       child: IconButton(
         tooltip: tooltip,
         visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+        padding: EdgeInsets.zero,
         style: IconButton.styleFrom(
           backgroundColor: selected ? scheme.primaryContainer.withValues(alpha: 0.6) : null,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -490,7 +492,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _icon(Icons.photo_camera_outlined, 'Tomar foto', () => _addImage(camera: true)),
+                  _icon(Icons.photo_camera_outlined, 'Poner una foto', () {
+                    _closePanel();
+                    _chooseImageSource();
+                  }),
                   if (rec.isActive || rec.status == RecordingStatus.processing)
                     _RecordingPill(state: rec, onStop: _stopRecording)
                   else
@@ -552,7 +557,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
               children: [
                 _icon(Icons.undo, 'Deshacer', c.canUndo ? c.undo : null),
                 _icon(Icons.redo, 'Rehacer', c.canRedo ? c.redo : null),
-                const SizedBox(height: 30, child: VerticalDivider(width: 14)),
+                const SizedBox(height: 30, child: VerticalDivider(width: 10)),
                 _icon(toolIcon(_pen), _pen.label, () {
                   if (penOn) {
                     _togglePanel(ToolPanel.pen);
@@ -581,10 +586,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                   c.selectMode(InputMode.select);
                   _closePanel();
                 }, selected: c.mode == InputMode.select),
-                _icon(Icons.image_outlined, 'Poner una foto', () {
-                  _closePanel();
-                  _chooseImageSource();
-                }),
                 _icon(Icons.text_fields, 'Texto: toca la hoja para escribir', () {
                   c.selectMode(InputMode.text);
                   _closePanel();
@@ -594,10 +595,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                 _icon(Icons.emoji_emotions_outlined, 'Stickers',
                     () => _togglePanel(ToolPanel.stickers),
                     selected: _panel == ToolPanel.stickers),
-                _icon(Icons.pan_tool_outlined, 'Mover la hoja', () {
-                  c.selectMode(InputMode.pan);
-                  _closePanel();
-                }, selected: c.mode == InputMode.pan),
                 if (showColors) ...[
                   const SizedBox(height: 30, child: VerticalDivider(width: 14)),
                   SizedBox(
@@ -655,6 +652,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
               onTap: () => Navigator.pop(context, 'rotate'),
             ),
             SwitchListTile(
+              secondary: const Icon(Icons.pan_tool_outlined),
+              title: const Text('Mover la hoja con un dedo'),
+              subtitle: const Text('Con dos dedos siempre se mueve y hace zoom'),
+              value: ctl.mode == InputMode.pan,
+              onChanged: (_) => Navigator.pop(context, 'pan'),
+            ),
+            SwitchListTile(
               secondary: const Icon(Icons.edit_note),
               title: const Text('Solo lápiz óptico'),
               value: ctl.stylusOnly,
@@ -678,6 +682,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
         ctl.setLandscape(!ctl.drawing.isLandscape);
       case 'stylus':
         ctl.toggleStylusOnly();
+      case 'pan':
+        ctl.mode == InputMode.pan ? ctl.selectTool(_pen) : ctl.selectMode(InputMode.pan);
       case 'delete':
         await _deletePage();
     }

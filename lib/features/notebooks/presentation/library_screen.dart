@@ -180,7 +180,7 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   bool _grid = false;
   int _phrase = 0;
-  final _page = PageController(viewportFraction: 0.64);
+  final _page = PageController(viewportFraction: 0.74);
 
   @override
   void dispose() {
@@ -281,7 +281,7 @@ class _HomeViewState extends State<HomeView> {
   Widget _carousel(List<Notebook> list) {
     return LayoutBuilder(
       builder: (context, c) {
-        final cardW = math.min(c.maxWidth * 0.58, (c.maxHeight - 20) / 1.4);
+        final cardW = math.min(c.maxWidth * 0.68, (c.maxHeight - 24) / 1.42);
         return PageView.builder(
           controller: _page,
           padEnds: false,

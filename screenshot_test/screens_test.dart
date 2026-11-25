@@ -233,6 +233,8 @@ void main() {
 
   testWidgets('panel de formas', (tester) async {
     await openDrawing(tester);
+    await tester.ensureVisible(find.byTooltip('Formas'));
+    await tester.pump();
     await tester.tap(find.byTooltip('Formas'));
     await _shot(tester, '08_formas');
   });
@@ -240,6 +242,8 @@ void main() {
   for (final (i, tab) in ['Básico', 'Memo', 'Texto', 'Natural'].indexed) {
     testWidgets('stickers $tab', (tester) async {
       await openDrawing(tester);
+      await tester.ensureVisible(find.byTooltip('Stickers'));
+      await tester.pump();
       await tester.tap(find.byTooltip('Stickers'));
       await tester.pump();
       await tester.tap(find.text(tab).last);
