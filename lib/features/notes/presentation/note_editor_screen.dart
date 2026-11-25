@@ -4,6 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/providers.dart';
 import '../../../core/router.dart';
+import '../../drawing/domain/drawing.dart';
+import '../../drawing/presentation/drawing_block_view.dart';
+import '../../importing/import_service.dart';
+import '../../notebooks/domain/notebook.dart';
 import '../domain/note_block.dart';
 import 'widgets/audio_block_view.dart';
 import 'widgets/image_block_view.dart';
@@ -31,6 +35,11 @@ class NoteEditorScreen extends ConsumerWidget {
             tooltip: 'Cambiar título',
             onPressed: () => _rename(context, ref, note?.title ?? ''),
           ),
+          IconButton(
+            icon: const Icon(Icons.drive_file_move_outline),
+            tooltip: 'Mover a cuaderno',
+            onPressed: () => _move(context, ref, note?.notebookId),
+          ),
         ],
       ),
       body: blocks.when(
@@ -39,15 +48,18 @@ class NoteEditorScreen extends ConsumerWidget {
         data: (list) {
           // Las fotos tomadas durante una grabación se muestran dentro de esa
           // grabación, en su minuto, no sueltas en la nota.
+          // (Si la grabación se borró, la foto vuelve a mostrarse suelta.)
+          final audioIds = {for (final b in list) if (b is AudioBlock) b.id};
+          bool inAudio(NoteBlock b) =>
+              b is ImageBlock && audioIds.contains(b.anchor?.audioBlockId);
           final audioPhotos = <String, List<ImageBlock>>{};
           for (final b in list) {
-            if (b is ImageBlock && b.anchor?.isAudio == true) {
-              audioPhotos.putIfAbsent(b.anchor!.audioBlockId!, () => []).add(b);
+            if (inAudio(b)) {
+              final img = b as ImageBlock;
+              audioPhotos.putIfAbsent(img.anchor!.audioBlockId!, () => []).add(img);
             }
           }
-          final visible = list
-              .where((b) => !(b is ImageBlock && b.anchor?.isAudio == true))
-              .toList();
+          final visible = list.where((b) => !inAudio(b)).toList();
 
           if (visible.isEmpty) {
             return const Center(
@@ -61,7 +73,7 @@ class NoteEditorScreen extends ConsumerWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, i) {
               final b = visible[i];
-              final child = switch (b) {
+              final Widget child = switch (b) {
                 TextBlock t => TextBlockView(key: ValueKey(t.id), block: t),
                 AudioBlock a => AudioBlockView(
                     key: ValueKey(a.id),
@@ -73,13 +85,24 @@ class NoteEditorScreen extends ConsumerWidget {
                     block: img,
                     onOpenVideo: (path, ms) => _openVideo(context, path, ms),
                   ),
+                DrawingBlock dr => DrawingBlockView(
+                    key: ValueKey(dr.id),
+                    block: dr,
+                    onOpen: () => context.push('/notes/$noteId/drawing', extra: dr.path),
+                  ),
                 VideoRefBlock v => VideoRefBlockView(
                     key: ValueKey(v.id),
                     block: v,
                     onOpen: () => _openVideo(context, v.videoPath, v.atMs),
                   ),
               };
-              return _Deletable(blockId: b.id, child: child);
+              final file = switch (b) {
+                AudioBlock a => a.path,
+                ImageBlock img => img.path,
+                DrawingBlock dr => dr.path,
+                _ => null,
+              };
+              return _Deletable(blockId: b.id, filePath: file, child: child);
             },
           );
         },
@@ -89,8 +112,41 @@ class NoteEditorScreen extends ConsumerWidget {
   }
 
   void _openVideo(BuildContext context, String path, int startMs) {
-    context.go('/notes/$noteId/video',
+    context.push('/notes/$noteId/video',
         extra: VideoArgs(videoPath: path, startMs: startMs));
+  }
+
+  Future<void> _move(BuildContext context, WidgetRef ref, String? current) async {
+    final List<Notebook> notebooks = await ref.read(notebooksProvider.future);
+    if (!context.mounted) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('Mover a…')),
+            for (final nb in notebooks)
+              ListTile(
+                leading: Icon(Icons.book, color: Color(nb.color)),
+                title: Text(nb.name),
+                trailing: nb.id == current ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, nb.id),
+              ),
+            ListTile(
+              leading: const Icon(Icons.notes),
+              title: const Text('Sin cuaderno'),
+              trailing: current == null ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.pop(context, ''),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    await ref
+        .read(notesRepositoryProvider)
+        .moveToNotebook(noteId, choice.isEmpty ? null : choice);
   }
 
   Future<void> _rename(BuildContext context, WidgetRef ref, String current) async {
@@ -116,9 +172,12 @@ class NoteEditorScreen extends ConsumerWidget {
 }
 
 class _Deletable extends ConsumerWidget {
-  const _Deletable({required this.blockId, required this.child});
+  const _Deletable({required this.blockId, required this.child, this.filePath});
   final String blockId;
   final Widget child;
+
+  /// Archivo del bloque, que se borra junto con él.
+  final String? filePath;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Dismissible(
@@ -145,7 +204,10 @@ class _Deletable extends ConsumerWidget {
               ),
             ) ??
             false,
-        onDismissed: (_) => ref.read(notesRepositoryProvider).deleteBlock(blockId),
+        onDismissed: (_) async {
+          await ref.read(notesRepositoryProvider).deleteBlock(blockId);
+          await ref.read(fileStorageProvider).deleteIfExists(filePath);
+        },
         child: child,
       );
 }
@@ -163,8 +225,9 @@ class _EditorToolbar extends ConsumerWidget {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
           children: [
             _ToolButton(
               icon: Icons.notes,
@@ -172,9 +235,21 @@ class _EditorToolbar extends ConsumerWidget {
               onTap: () => repo.addTextBlock(noteId),
             ),
             _ToolButton(
+              icon: Icons.draw_outlined,
+              label: 'Hoja',
+              onTap: () async {
+                final path = await ref.read(fileStorageProvider).newDrawingPath();
+                await ref.read(drawingStoreProvider).save(path, Drawing.blank());
+                await repo.addDrawingBlock(noteId, path);
+                if (context.mounted) {
+                  context.push('/notes/$noteId/drawing', extra: path);
+                }
+              },
+            ),
+            _ToolButton(
               icon: Icons.mic_none,
               label: 'Grabar',
-              onTap: () => context.go('/notes/$noteId/record'),
+              onTap: () => context.push('/notes/$noteId/record'),
             ),
             _ToolButton(
               icon: Icons.photo_camera_outlined,
@@ -200,10 +275,53 @@ class _EditorToolbar extends ConsumerWidget {
                 if (path != null && context.mounted) onOpenVideo(context, path, 0);
               },
             ),
+            _ToolButton(
+              icon: Icons.file_download_outlined,
+              label: 'Importar',
+              onTap: () => _import(context, ref, noteId),
+            ),
           ],
+        ),
         ),
       ),
     );
+  }
+}
+
+/// Importar PDF o fotos como hojas para escribir encima.
+Future<void> _import(BuildContext context, WidgetRef ref, String noteId) async {
+  final kind = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_outlined),
+            title: const Text('PDF'),
+            subtitle: const Text('Cada página se vuelve una hoja para escribir encima'),
+            onTap: () => Navigator.pop(context, 'pdf'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Fotos'),
+            subtitle: const Text('Apuntes, pizarras o páginas de libros'),
+            onTap: () => Navigator.pop(context, 'photos'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (kind == null || !context.mounted) return;
+  final service = ref.read(importServiceProvider);
+  if (kind == 'pdf') {
+    final pdf = await service.pickPdf();
+    if (pdf == null || !context.mounted) return;
+    await runWithProgress(context, 'Importando PDF',
+        (onProgress) => service.importPdf(noteId, pdf, onProgress: onProgress));
+  } else {
+    await runWithProgress(context, 'Importando fotos',
+        (onProgress) => service.importPhotos(noteId, onProgress: onProgress));
   }
 }
 

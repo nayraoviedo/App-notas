@@ -1,10 +1,32 @@
 import 'package:drift/drift.dart';
 
+/// Cuaderno: agrupa notas (por materia, proyecto…) y tiene portada.
+@DataClassName('NotebookRow')
+class Notebooks extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+
+  /// Color de la portada (ARGB).
+  IntColumn get color => integer().withDefault(const Constant(0xFF1677FF))();
+
+  /// Imagen de portada opcional.
+  TextColumn get coverPath => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 /// Una nota: contenedor de bloques ordenados.
 @DataClassName('NoteRow')
 class Notes extends Table {
   TextColumn get id => text()();
   TextColumn get title => text().withDefault(const Constant(''))();
+
+  /// Cuaderno al que pertenece (null = sin cuaderno). Desde el esquema v2.
+  TextColumn get notebookId => text()
+      .nullable()
+      .references(Notebooks, #id, onDelete: KeyAction.setNull)();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
@@ -28,7 +50,11 @@ class Blocks extends Table {
   /// Texto del bloque (texto libre o comentario en un videoRef).
   TextColumn get textContent => text().nullable()();
 
-  /// Archivo en disco (audio .wav, imagen, video).
+  /// Estilo del texto: fuente y tamaño (desde la versión 2 del esquema).
+  TextColumn get fontFamily => text().nullable()();
+  RealColumn get fontSize => real().nullable()();
+
+  /// Archivo en disco (audio .wav, imagen, video, hoja .json).
   TextColumn get filePath => text().nullable()();
   IntColumn get durationMs => integer().nullable()();
 

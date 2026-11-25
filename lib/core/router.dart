@@ -1,5 +1,7 @@
 import 'package:go_router/go_router.dart';
 
+import '../features/drawing/presentation/drawing_screen.dart';
+import '../features/notebooks/presentation/library_screen.dart';
 import '../features/notes/presentation/note_editor_screen.dart';
 import '../features/notes/presentation/notes_list_screen.dart';
 import '../features/recording/presentation/recording_screen.dart';
@@ -16,8 +18,15 @@ final appRouter = GoRouter(
   routes: [
     GoRoute(
       path: '/',
-      builder: (context, state) => const NotesListScreen(),
+      builder: (context, state) => const LibraryScreen(),
       routes: [
+        GoRoute(
+          path: 'notebooks/:nb',
+          builder: (context, state) {
+            final nb = state.pathParameters['nb']!;
+            return NotesListScreen(notebookId: nb == 'all' ? null : nb);
+          },
+        ),
         GoRoute(
           path: 'notes/:id',
           builder: (context, state) =>
@@ -27,6 +36,11 @@ final appRouter = GoRouter(
               path: 'record',
               builder: (context, state) =>
                   RecordingScreen(noteId: state.pathParameters['id']!),
+            ),
+            GoRoute(
+              path: 'drawing',
+              builder: (context, state) =>
+                  DrawingScreen(path: state.extra! as String),
             ),
             GoRoute(
               path: 'video',

@@ -35,6 +35,15 @@ dependencies:
   media_kit_video: ^1.2.5
   media_kit_libs_video: ^1.0.5
 
+  # Dibujo a mano, fuentes y modelo de voz
+  perfect_freehand: ^2.5.2
+  google_fonts: ^6.2.1
+  sherpa_onnx: ^2.0.0
+
+  # Importar PDF y archivos
+  pdfx: ^2.9.0
+  file_picker: ^8.1.4
+
   permission_handler: ^11.3.1
 
 dev_dependencies:

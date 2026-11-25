@@ -4,10 +4,12 @@ class Note {
     required this.title,
     required this.createdAt,
     required this.updatedAt,
+    this.notebookId,
   });
 
   final String id;
   final String title;
+  final String? notebookId;
   final DateTime createdAt;
   final DateTime updatedAt;
 

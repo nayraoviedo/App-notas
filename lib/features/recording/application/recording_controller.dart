@@ -8,6 +8,7 @@ import '../../../core/providers.dart';
 import '../../notes/domain/note_block.dart';
 import '../../speakers/application/speaker_tracker.dart';
 import '../../speakers/domain/speaker.dart';
+import '../../speakers/domain/voice_embedder.dart';
 import '../../transcription/application/segment_merger.dart';
 import '../../transcription/domain/transcript_segment.dart';
 import '../../transcription/domain/transcription_service.dart';
@@ -93,6 +94,9 @@ class RecordingController extends Notifier<RecordingState> {
   /// Términos que Whisper debe escribir bien (idea: vocabulario por materia).
   List<String> vocabulary = const [];
 
+  /// Sugerir "¿Habla otra persona?" automáticamente.
+  bool autoSpeakerDetection = true;
+
   @override
   RecordingState build() => const RecordingState();
 
@@ -115,9 +119,20 @@ class RecordingController extends Notifier<RecordingState> {
     _wav = WavWriter(path);
     await _wav!.open();
 
+    // La detección de voz se prepara en segundo plano: la primera vez descarga
+    // el modelo. Mientras tanto se graba normal y se puede marcar a mano.
+    final embedder = ref.read(voiceEmbedderProvider);
+    if (autoSpeakerDetection) {
+      unawaited(embedder.prepare().catchError((Object _) {
+        state = state.copyWith(
+            message: 'Detección de voz no disponible (sin internet para '
+                'descargar el modelo). Puedes marcar quién habla a mano.');
+      }));
+    }
+
     final known = await ref.read(speakersRepositoryProvider).getAll();
     _tracker = SpeakerTracker(
-      ref.read(voiceEmbedderProvider),
+      autoSpeakerDetection ? embedder : const NoopVoiceEmbedder(),
       knownSpeakers: {
         for (final s in known)
           if (s.embedding != null) s.id: s.embedding!,

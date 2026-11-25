@@ -46,7 +46,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
           ScaffoldMessenger.of(context)
               .showSnackBar(SnackBar(content: Text(next.message!)));
         }
-        context.go('/notes/${widget.noteId}');
+        context.pop();
       }
       if (prev?.liveText != next.liveText && _scroll.hasClients) {
         _scroll.animateTo(_scroll.position.maxScrollExtent,
@@ -65,7 +65,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         final discard = await _confirmDiscard();
         if (discard == true) {
           await controller.cancel();
-          if (mounted) context.go('/notes/${widget.noteId}');
+          if (mounted) context.pop();
         }
       },
       child: Scaffold(

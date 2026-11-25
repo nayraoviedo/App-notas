@@ -21,6 +21,9 @@ class FileStorage {
   Future<String> newAudioPath() async =>
       p.join((await _dir('audio')).path, '${_uuid.v4()}.wav');
 
+  Future<String> newDrawingPath() async =>
+      p.join((await _dir('drawings')).path, '${_uuid.v4()}.json');
+
   /// Copia un archivo externo (foto de la cámara, video de la galería)
   /// a la carpeta de la app para que no se pierda si el sistema limpia la caché.
   Future<String> importFile(String sourcePath, {required String folder}) async {

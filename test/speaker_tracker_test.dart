@@ -11,6 +11,8 @@ class _FakeEmbedder implements VoiceEmbedder {
   @override
   bool get isAvailable => true;
   @override
+  Future<void> prepare() async {}
+  @override
   int get windowSamples => 1600; // 0,1 s para que el test sea rápido
 
   @override

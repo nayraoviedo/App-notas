@@ -24,9 +24,19 @@ sealed class NoteBlock {
 }
 
 class TextBlock extends NoteBlock {
-  const TextBlock({required super.id, required super.position, required this.text});
+  const TextBlock({
+    required super.id,
+    required super.position,
+    required this.text,
+    this.fontFamily,
+    this.fontSize,
+  });
 
   final String text;
+
+  /// null = fuente del sistema.
+  final String? fontFamily;
+  final double? fontSize;
 }
 
 class AudioBlock extends NoteBlock {
@@ -53,6 +63,14 @@ class ImageBlock extends NoteBlock {
 
   /// Si la foto se tomó durante una grabación o es una captura de video.
   final MediaAnchor? anchor;
+}
+
+/// Hoja para escribir a mano o dibujar (con capas). Los trazos viven en un
+/// archivo JSON aparte.
+class DrawingBlock extends NoteBlock {
+  const DrawingBlock({required super.id, required super.position, required this.path});
+
+  final String path;
 }
 
 /// Una nota escrita mientras se veía un video, con el minuto exacto.

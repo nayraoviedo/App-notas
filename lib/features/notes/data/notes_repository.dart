@@ -14,9 +14,11 @@ class NotesRepository {
 
   // ---------------------------------------------------------------- Notas
 
-  Stream<List<Note>> watchNotes() {
+  /// Notas de un cuaderno, o todas si [notebookId] es null.
+  Stream<List<Note>> watchNotes({String? notebookId}) {
     final q = _db.select(_db.notes)
       ..orderBy([(n) => OrderingTerm.desc(n.updatedAt)]);
+    if (notebookId != null) q.where((n) => n.notebookId.equals(notebookId));
     return q.watch().map((rows) => rows.map(_toNote).toList());
   }
 
@@ -25,12 +27,13 @@ class NotesRepository {
     return q.watchSingleOrNull().map((r) => r == null ? null : _toNote(r));
   }
 
-  Future<String> createNote({String title = ''}) async {
+  Future<String> createNote({String title = '', String? notebookId}) async {
     final id = _uuid.v4();
     final now = DateTime.now();
     await _db.into(_db.notes).insert(NotesCompanion.insert(
           id: id,
           title: Value(title),
+          notebookId: Value(notebookId),
           createdAt: now,
           updatedAt: now,
         ));
@@ -41,6 +44,10 @@ class NotesRepository {
       (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
         NotesCompanion(title: Value(title), updatedAt: Value(DateTime.now())),
       );
+
+  Future<void> moveToNotebook(String noteId, String? notebookId) =>
+      (_db.update(_db.notes)..where((n) => n.id.equals(noteId)))
+          .write(NotesCompanion(notebookId: Value(notebookId)));
 
   Future<void> deleteNote(String id) =>
       (_db.delete(_db.notes)..where((n) => n.id.equals(id))).go();
@@ -90,6 +97,12 @@ class NotesRepository {
       (_db.update(_db.blocks)..where((b) => b.id.equals(blockId)))
           .write(BlocksCompanion(textContent: Value(text)));
 
+  Future<void> updateTextStyle(String blockId,
+          {required String? fontFamily, required double? fontSize}) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId))).write(
+        BlocksCompanion(fontFamily: Value(fontFamily), fontSize: Value(fontSize)),
+      );
+
   Future<String> addImageBlock(String noteId, String path,
           {MediaAnchor? anchor}) =>
       _insertBlock(
@@ -101,6 +114,11 @@ class NotesRepository {
           anchorVideoPath: Value(anchor?.videoPath),
           anchorMs: Value(anchor?.atMs),
         ),
+      );
+
+  Future<String> addDrawingBlock(String noteId, String path) => _insertBlock(
+        noteId,
+        BlocksCompanion(type: const Value('drawing'), filePath: Value(path)),
       );
 
   Future<String> addVideoRefBlock(
@@ -251,6 +269,7 @@ class NotesRepository {
   Note _toNote(NoteRow r) => Note(
         id: r.id,
         title: r.title,
+        notebookId: r.notebookId,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       );
@@ -258,7 +277,13 @@ class NotesRepository {
   NoteBlock? _toBlock(BlockRow r) {
     switch (r.type) {
       case 'text':
-        return TextBlock(id: r.id, position: r.position, text: r.textContent ?? '');
+        return TextBlock(
+          id: r.id,
+          position: r.position,
+          text: r.textContent ?? '',
+          fontFamily: r.fontFamily,
+          fontSize: r.fontSize,
+        );
       case 'audio':
         return AudioBlock(
           id: r.id,
@@ -277,6 +302,8 @@ class NotesRepository {
         }
         return ImageBlock(
             id: r.id, position: r.position, path: r.filePath!, anchor: anchor);
+      case 'drawing':
+        return DrawingBlock(id: r.id, position: r.position, path: r.filePath!);
       case 'videoRef':
         return VideoRefBlock(
           id: r.id,
