@@ -55,8 +55,11 @@ class NotebooksRepository {
       );
 
   /// Borra el cuaderno; sus notas quedan "sin cuaderno" (no se pierden).
-  Future<void> delete(String id) =>
-      (_db.delete(_db.notebooks)..where((n) => n.id.equals(id))).go();
+  Future<void> delete(String id) => _db.transaction(() async {
+        await (_db.update(_db.notes)..where((n) => n.notebookId.equals(id)))
+            .write(const NotesCompanion(notebookId: Value(null)));
+        await (_db.delete(_db.notebooks)..where((n) => n.id.equals(id))).go();
+      });
 
   Notebook _toNotebook(NotebookRow r) =>
       Notebook(id: r.id, name: r.name, color: r.color, coverPath: r.coverPath);

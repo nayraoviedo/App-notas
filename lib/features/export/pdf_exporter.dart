@@ -87,7 +87,7 @@ Future<void> exportNoteToPdf(WidgetRef ref, String noteId) async {
             for (final c in summary.chapters) {
               content
                 ..add(pw.Text(track('${formatMs(c.atMs)}  ${c.title}'),
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold)))
+                    style: const pw.TextStyle(fontWeight: pw.FontWeight.bold)))
                 ..add(pw.Paragraph(text: track(c.summary)));
             }
           }

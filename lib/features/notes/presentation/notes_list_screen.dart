@@ -87,7 +87,13 @@ class _NoteTile extends ConsumerWidget {
         padding: const EdgeInsets.only(right: 24),
         child: const Icon(Icons.delete_outline),
       ),
-      onDismissed: (_) => ref.read(notesRepositoryProvider).deleteNote(note.id),
+      onDismissed: (_) async {
+        final files = await ref.read(notesRepositoryProvider).deleteNote(note.id);
+        final storage = ref.read(fileStorageProvider);
+        for (final f in files) {
+          await storage.deleteIfExists(f);
+        }
+      },
       child: ListTile(
         title: Text(note.displayTitle),
         subtitle: Text(

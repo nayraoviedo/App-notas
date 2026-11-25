@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:app_notas/features/drawing/application/drawing_controller.dart';
 import 'package:app_notas/features/drawing/domain/drawing.dart';
 import 'package:flutter_test/flutter_test.dart';

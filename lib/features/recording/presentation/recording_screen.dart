@@ -65,7 +65,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         final discard = await _confirmDiscard();
         if (discard == true) {
           await controller.cancel();
-          if (mounted) context.pop();
+          if (context.mounted) context.pop();
         }
       },
       child: Scaffold(

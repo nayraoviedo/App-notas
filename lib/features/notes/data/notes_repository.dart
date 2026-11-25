@@ -49,8 +49,29 @@ class NotesRepository {
       (_db.update(_db.notes)..where((n) => n.id.equals(noteId)))
           .write(NotesCompanion(notebookId: Value(notebookId)));
 
-  Future<void> deleteNote(String id) =>
-      (_db.delete(_db.notes)..where((n) => n.id.equals(id))).go();
+  /// Borra la nota y todo lo que cuelga de ella. Devuelve las rutas de los
+  /// archivos (audios, fotos, hojas) para que se borren del disco.
+  ///
+  /// El borrado en cascada se hace a mano: con versiones muy nuevas de Dart,
+  /// drift_dev puede omitir las claves foráneas (REFERENCES) al generar código.
+  Future<List<String>> deleteNote(String id) {
+    return _db.transaction(() async {
+      final blocks =
+          await (_db.select(_db.blocks)..where((b) => b.noteId.equals(id))).get();
+      final ids = blocks.map((b) => b.id).toList();
+      await _deleteBlockChildren(ids);
+      await (_db.delete(_db.blocks)..where((b) => b.noteId.equals(id))).go();
+      await (_db.delete(_db.notes)..where((n) => n.id.equals(id))).go();
+      return [for (final b in blocks) if (b.filePath != null) b.filePath!];
+    });
+  }
+
+  Future<void> _deleteBlockChildren(List<String> blockIds) async {
+    if (blockIds.isEmpty) return;
+    await (_db.delete(_db.transcriptSegments)..where((s) => s.blockId.isIn(blockIds))).go();
+    await (_db.delete(_db.markers)..where((m) => m.blockId.isIn(blockIds))).go();
+    await (_db.delete(_db.summaries)..where((s) => s.blockId.isIn(blockIds))).go();
+  }
 
   Future<void> _touch(String noteId) =>
       (_db.update(_db.notes)..where((n) => n.id.equals(noteId)))
@@ -202,8 +223,10 @@ class NotesRepository {
     });
   }
 
-  Future<void> deleteBlock(String blockId) =>
-      (_db.delete(_db.blocks)..where((b) => b.id.equals(blockId))).go();
+  Future<void> deleteBlock(String blockId) => _db.transaction(() async {
+        await _deleteBlockChildren([blockId]);
+        await (_db.delete(_db.blocks)..where((b) => b.id.equals(blockId))).go();
+      });
 
   // ---------------------------------------------------- Transcripciones
 
