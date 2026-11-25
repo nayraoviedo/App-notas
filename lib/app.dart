@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:quick_actions/quick_actions.dart';
 
 import 'core/providers.dart';
 import 'core/router.dart';
@@ -19,6 +20,41 @@ class _AppNotasState extends ConsumerState<AppNotas> {
   void initState() {
     super.initState();
     _recoverLostPhoto();
+    _setupShortcuts();
+  }
+
+  /// Accesos rápidos al mantener presionado el ícono de la app.
+  Future<void> _setupShortcuts() async {
+    try {
+      const actions = QuickActions();
+      await actions.initialize(_onShortcut);
+      await actions.setShortcutItems(const [
+        ShortcutItem(type: 'nota', localizedTitle: 'Nota rápida'),
+        ShortcutItem(type: 'grabar', localizedTitle: 'Grabar clase'),
+        ShortcutItem(type: 'gasto', localizedTitle: 'Anotar gasto'),
+        ShortcutItem(type: 'diario', localizedTitle: 'Mi diario'),
+      ]);
+    } catch (_) {
+      // Sin accesos rápidos (por ejemplo en pruebas): no pasa nada.
+    }
+  }
+
+  Future<void> _onShortcut(String type) async {
+    switch (type) {
+      case 'gasto':
+        appRouter.push('/expenses');
+      case 'diario':
+        appRouter.push('/journal');
+      case 'nota' || 'grabar':
+        final now = DateTime.now();
+        final id = await ref.read(notesRepositoryProvider).createNote(
+              title: type == 'grabar'
+                  ? 'Clase ${now.day}/${now.month}'
+                  : 'Nota ${now.day}/${now.month}',
+            );
+        appRouter.push('/notes/$id');
+        if (type == 'grabar') appRouter.push('/notes/$id/record');
+    }
   }
 
   /// Si Android cerró la app mientras la cámara estaba abierta, agrega la

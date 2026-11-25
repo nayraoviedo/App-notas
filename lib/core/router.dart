@@ -2,6 +2,8 @@ import 'package:go_router/go_router.dart';
 
 import '../features/drawing/presentation/drawing_screen.dart';
 import '../features/expenses/presentation/expenses_screen.dart';
+import '../features/journal/presentation/journal_screen.dart';
+import '../features/study/presentation/study_screen.dart';
 import '../features/notebooks/presentation/library_screen.dart';
 import '../features/notes/presentation/book_view_screen.dart';
 import '../features/notes/presentation/note_editor_screen.dart';
@@ -27,6 +29,14 @@ final appRouter = GoRouter(
         GoRoute(
           path: 'expenses',
           builder: (context, state) => const ExpensesScreen(),
+        ),
+        GoRoute(
+          path: 'study',
+          builder: (context, state) => const StudyScreen(),
+        ),
+        GoRoute(
+          path: 'journal',
+          builder: (context, state) => const JournalScreen(),
         ),
         GoRoute(
           path: 'settings',

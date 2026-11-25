@@ -2,8 +2,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+/// Stickers de gatitos dibujados (imágenes en assets/stickers/).
+final catStickerAssets = [
+  for (var i = 1; i <= 27; i++) 'assets/stickers/cat_${i.toString().padLeft(2, '0')}.png',
+];
+
 /// Pestañas del panel de stickers.
 enum StickerCategory {
+  cats('Gatitos'),
   mine('Míos'),
   basic('Básico'),
   memo('Memo'),
@@ -657,6 +663,26 @@ const _scriptFonts = ['Pacifico', 'Dancing Script', 'Great Vibes', 'Satisfy', 'A
 const _textColors = [
   0xFFE2C044, 0xFF7CA65A, 0xFFE38B3C, 0xFF4E8C7A, 0xFFB5423E, 0xFF5E9CA8, 0xFF6E3B8F,
 ];
+
+/// Stickers con la fecha de hoy (se calculan al abrir el panel).
+List<TextSticker> dateStickers([DateTime? now]) {
+  final d = now ?? DateTime.now();
+  const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const mesesL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+      'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  final dd = d.day.toString().padLeft(2, '0'), mm = d.month.toString().padLeft(2, '0');
+  return [
+    TextSticker('Hoy · ${d.day} ${meses[d.month - 1]}', 'Pacifico', 0xFFFFFFFF,
+        group: 'Fecha', background: 0xFFE07B55),
+    TextSticker('${dias[d.weekday - 1]} ${d.day}', 'Dancing Script', 0xFF4E8C7A, group: 'Fecha'),
+    TextSticker('${d.day} de ${mesesL[d.month - 1]}', 'Satisfy', 0xFF6E3B8F, group: 'Fecha'),
+    TextSticker('$dd/$mm/${d.year}', 'Caveat', 0xFF3B2A22, group: 'Fecha', background: 0xFFFFF1B8),
+    TextSticker('$dd.$mm', 'Pacifico', 0xFFB5423E, group: 'Fecha'),
+    TextSticker('${mesesL[d.month - 1][0].toUpperCase()}${mesesL[d.month - 1].substring(1)} ${d.year}',
+        'Great Vibes', 0xFF5E9CA8, group: 'Fecha'),
+  ];
+}
 
 final textStickers = <TextSticker>[
   for (final (i, d) in ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].indexed)

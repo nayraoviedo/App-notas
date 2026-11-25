@@ -23,6 +23,10 @@ import 'package:app_notas/features/notes/presentation/book_view_screen.dart';
 import 'package:app_notas/features/notes/presentation/create_note_sheet.dart';
 import 'package:app_notas/features/drawing/presentation/drawing_screen.dart';
 import 'package:app_notas/features/settings/settings.dart';
+import 'package:app_notas/features/journal/domain/journal.dart';
+import 'package:app_notas/features/journal/presentation/journal_screen.dart';
+import 'package:app_notas/features/study/domain/flashcard.dart';
+import 'package:app_notas/features/study/presentation/study_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,6 +88,13 @@ ThemeData _theme() => ThemeData(
 
 Future<void> _shot(WidgetTester tester, String name) async {
   await tester.pump(const Duration(milliseconds: 400));
+  // Las imágenes (cabecera, stickers) se decodifican de verdad antes de la foto.
+  await tester.runAsync(() async {
+    for (final e in find.byType(Image).evaluate()) {
+      await precacheImage((e.widget as Image).image, e);
+    }
+  });
+  await tester.pump();
   await expectLater(find.byType(MaterialApp), matchesGoldenFile('out/$name.png'));
 }
 
@@ -331,6 +342,75 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 200));
     await _shot(tester, '16_gastos');
+  });
+
+  testWidgets('stickers gatitos', (tester) async {
+    await openDrawing(tester);
+    await tester.ensureVisible(find.byTooltip('Stickers'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Stickers'));
+    await tester.pump();
+    await tester.tap(find.text('Gatitos').last);
+    await _shot(tester, '18_stickers_gatitos');
+  });
+
+  Future<void> openJournal(WidgetTester tester) async {
+    final now = DateTime.now();
+    var st = const JournalState(habits: [
+      Habit(id: 'h1', name: 'Tomar agua', emoji: '💧'),
+      Habit(id: 'h2', name: 'Leer', emoji: '📚'),
+      Habit(id: 'h3', name: 'Repasar', emoji: '✍️'),
+    ]);
+    for (var i = 0; i < 14; i++) {
+      final d = DateTime(now.year, now.month, now.day - i);
+      if (d.month != now.month) break;
+      st = st.setDay(d, DayEntry(mood: Mood.values[i % 4], text: i == 0 ? 'Terminé el resumen de biología 🎉' : ''));
+      if (i % 3 != 2) st = st.toggle('h1', d);
+      if (i.isEven) st = st.toggle('h2', d);
+    }
+    SharedPreferences.setMockInitialValues({'journal.data': st.encode()});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    await tester.pumpWidget(_app(
+      const JournalScreen(),
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    ));
+    await tester.pump();
+  }
+
+  testWidgets('diario', (tester) async {
+    await openJournal(tester);
+    await _shot(tester, '19_diario');
+  });
+
+  testWidgets('hábitos', (tester) async {
+    await openJournal(tester);
+    await tester.tap(find.text('Hábitos'));
+    await tester.pumpAndSettle();
+    await _shot(tester, '20_habitos');
+  });
+
+  testWidgets('estudio', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    final now = DateTime.now();
+    await tester.pumpWidget(_app(
+      const StudyScreen(),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        flashcardsProvider.overrideWith((ref) => Stream.value([
+              Flashcard(id: '1', front: '¿Qué es la mitosis?', back: 'División celular que da dos células iguales.', due: now),
+              Flashcard(id: '2', front: 'Fases de la mitosis', back: 'Profase, metafase, anafase y telofase.', due: now),
+              Flashcard(id: '3', front: 'Capital de Bolivia', back: 'Sucre (sede de gobierno: La Paz)', due: now.add(const Duration(days: 3))),
+            ])),
+      ],
+    ));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('¿Qué es la mitosis?'));
+    await tester.pump();
+    await _shot(tester, '21_estudio');
   });
 
   testWidgets('portadas nuevas', (tester) async {

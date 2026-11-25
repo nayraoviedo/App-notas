@@ -1,8 +1,6 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:flutter/painting.dart' show Colors;
-
 import 'package:perfect_freehand/perfect_freehand.dart';
 
 import '../../domain/drawing.dart';
@@ -156,7 +154,7 @@ class StrokeRenderer {
     canvas.save();
     canvas.clipPath(path);
     final stripe = Paint()
-      ..color = Colors.white.withValues(alpha: 0.35)
+      ..color = const Color(0x59FFFFFF)
       ..strokeWidth = h * 0.12;
     for (var x = -h; x < len + h; x += h * 0.55) {
       canvas.drawLine(Offset(x, h / 2), Offset(x + h * 0.6, -h / 2), stripe);

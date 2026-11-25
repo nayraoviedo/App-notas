@@ -158,3 +158,23 @@ class Expenses extends Table {
   @override
   Set<Column> get primaryKey => {id};
 }
+
+/// Tarjetas de repaso (flashcards) con repaso espaciado. Desde v8.
+@DataClassName('FlashcardRow')
+class Flashcards extends Table {
+  TextColumn get id => text()();
+  TextColumn get front => text()();
+  TextColumn get back => text()();
+
+  /// Nota de donde salió (opcional).
+  TextColumn get noteId => text().nullable()();
+  TextColumn get deck => text().withDefault(const Constant('General'))();
+  DateTimeColumn get due => dateTime()();
+  IntColumn get intervalDays => integer().withDefault(const Constant(0))();
+  RealColumn get ease => real().withDefault(const Constant(2.5))();
+  IntColumn get reps => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}

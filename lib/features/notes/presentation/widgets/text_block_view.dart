@@ -8,6 +8,7 @@ import '../../../../core/providers.dart';
 import '../../data/notes_repository.dart';
 import '../../../drawing/presentation/widgets/tool_panels.dart' show pickColor;
 import '../../domain/note_block.dart';
+import '../../../study/presentation/study_screen.dart' show showNewFlashcard;
 import 'highlight_text_controller.dart';
 
 /// Bloque de texto con fuente y tamaño propios. Guarda solo, medio segundo
@@ -190,6 +191,17 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
                         tooltip: 'Casillas ✓ (toca la casilla para marcarla)',
                         icon: const Icon(Icons.checklist),
                         onPressed: () => _list('check'),
+                      ),
+                      IconButton(
+                        tooltip: 'Tarjeta de repaso con lo seleccionado',
+                        icon: const Icon(Icons.style_outlined),
+                        onPressed: () {
+                          final sel = _controller.selection;
+                          final picked = sel.isValid && !sel.isCollapsed
+                              ? sel.textInside(_controller.text).trim()
+                              : '';
+                          showNewFlashcard(context, ref, back: picked);
+                        },
                       ),
                       IconButton(
                         tooltip: 'Resaltador: selecciona texto y elige un color',

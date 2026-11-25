@@ -823,6 +823,7 @@ class StickersPanel extends StatefulWidget {
     this.onCustom,
     this.onAddCustom,
     this.onDeleteCustom,
+    this.onAsset,
   });
 
   /// Stickers propios (rutas de imágenes).
@@ -830,6 +831,9 @@ class StickersPanel extends StatefulWidget {
   final ValueChanged<String>? onCustom;
   final VoidCallback? onAddCustom;
   final ValueChanged<String>? onDeleteCustom;
+
+  /// Sticker de imagen incluido en la app (gatitos).
+  final ValueChanged<String>? onAsset;
 
   final ValueChanged<StickerDef> onSticker;
   final ValueChanged<TextSticker> onTextSticker;
@@ -840,7 +844,7 @@ class StickersPanel extends StatefulWidget {
 }
 
 class _StickersPanelState extends State<StickersPanel> {
-  static StickerCategory _tab = StickerCategory.memo;
+  static StickerCategory _tab = StickerCategory.cats;
   // Pestaña "Míos": mantener presionado un sticker para borrarlo.
   String _textGroup = 'Todos';
 
@@ -907,6 +911,25 @@ class _StickersPanelState extends State<StickersPanel> {
 
   Widget _content(ColorScheme scheme) {
     switch (_tab) {
+      case StickerCategory.cats:
+        return GridView.count(
+          crossAxisCount: 4,
+          padding: const EdgeInsets.all(12),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          shrinkWrap: true,
+          children: [
+            for (final a in catStickerAssets)
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => widget.onAsset?.call(a),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Image.asset(a, fit: BoxFit.contain),
+                ),
+              ),
+          ],
+        );
       case StickerCategory.mine:
         return GridView.count(
           crossAxisCount: 4,
@@ -934,8 +957,8 @@ class _StickersPanelState extends State<StickersPanel> {
           ],
         );
       case StickerCategory.text:
-        final groups = ['Todos', 'Día', 'Mes', 'Título'];
-        final list = textStickers.where((t) => _textGroup == 'Todos' || t.group == _textGroup).toList();
+        final groups = ['Todos', 'Fecha', 'Día', 'Mes', 'Título'];
+        final list = [...dateStickers(), ...textStickers].where((t) => _textGroup == 'Todos' || t.group == _textGroup).toList();
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -10,7 +10,7 @@ import 'notebook_form.dart';
 /// Colores del inicio (cálidos, tipo diario).
 class HomeColors {
   static const cream = Color(0xFFFFF9EE);
-  static const header = Color(0xFFFCEFE3);
+  static const header = Color(0xFFFCF0DF);
   static const panel = Colors.white;
   static const terracotta = Color(0xFFE07B55);
   static const terracottaDark = Color(0xFF8A3B22);
@@ -36,7 +36,15 @@ class HomeView extends StatefulWidget {
     required this.onAdd,
     this.onCatOptions,
     this.onExpenses,
+    this.onStudy,
+    this.onJournal,
   });
+
+  /// Tarjetas de repaso y "pregúntale a tus notas".
+  final VoidCallback? onStudy;
+
+  /// Calendario de ánimos y hábitos.
+  final VoidCallback? onJournal;
 
   /// Abrir el cuaderno fijo "Gastos".
   final VoidCallback? onExpenses;
@@ -147,90 +155,81 @@ class _HomeViewState extends State<HomeView> {
   // ------------------------------------------------------------ Encabezado
 
   Widget _header(BuildContext context) {
-    final title = fontStyle('Pacifico', size: 22).copyWith(color: HomeColors.ink);
-    Widget line(bool left) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!left) const Icon(Icons.arrow_left, size: 18, color: HomeColors.ink),
-            Container(width: 34, height: 1.4, color: HomeColors.ink),
-            if (left) const Icon(Icons.arrow_right, size: 18, color: HomeColors.ink),
-          ],
-        );
+    // Ilustración de los gatitos (assets/home/home_header.webp). Encima van
+    // zonas táctiles invisibles sobre cada gatito y los botones.
     return Container(
       color: HomeColors.header,
       child: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  const SizedBox(width: 40),
-                  Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        line(true),
-                        const SizedBox(width: 8),
-                        Text('Mis cuadernos', style: title),
-                        const SizedBox(width: 8),
-                        line(false),
-                      ],
-                    ),
-                  ),
-                  // Botón amarillo para cambiar de vista.
-                  Material(
-                    color: HomeColors.yellow,
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: () => setState(() => _carousel = !_carousel),
-                      child: const SizedBox(
-                        width: 34,
-                        height: 34,
-                        child: Icon(Icons.swap_vert, size: 20, color: HomeColors.ink),
+        child: Column(
+          children: [
+            LayoutBuilder(builder: (context, c) {
+              final w = c.maxWidth;
+              final h = w * 420 / 1062;
+              Widget zone(CatKind kind, double l, double r) => Positioned(
+                    left: w * l,
+                    width: w * (r - l),
+                    top: h * 0.24,
+                    height: h * 0.55,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _meow(kind),
+                      onLongPress: () => widget.onCatOptions?.call(kind),
+                      child: ValueListenableBuilder(
+                        valueListenable: catPhotos,
+                        builder: (context, photos, _) => photos[kind] == null
+                            ? const SizedBox.expand()
+                            // Si pusiste la foto real, aparece en un marquito.
+                            : Align(
+                                alignment: Alignment.topRight,
+                                child: CatMascot(kind: kind, size: h * 0.26),
+                              ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              // Letrero con los gatitos encima.
-              SizedBox(
-                height: 112,
+                  );
+              return SizedBox(
+                width: w,
+                height: h,
                 child: Stack(
-                  alignment: Alignment.bottomCenter,
                   clipBehavior: Clip.none,
                   children: [
-                    const SizedBox(width: 220, height: 64, child: CustomPaint(painter: _SignPainter())),
+                    Positioned.fill(
+                      child: Image.asset('assets/home/home_header.webp', fit: BoxFit.cover),
+                    ),
+                    zone(CatKind.gray, 0.2, 0.46),
+                    zone(CatKind.orange, 0.53, 0.84),
                     Positioned(
-                      bottom: 40,
-                      left: 0,
-                      right: 0,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          AnimatedCatMascot(
-                            kind: CatKind.gray,
-                            size: 58,
-                            onTap: () => _meow(CatKind.gray),
-                            onLongPress: () => widget.onCatOptions?.call(CatKind.gray),
+                      left: 8,
+                      top: 4,
+                      child: IconButton(
+                        tooltip: 'Buscar',
+                        icon: const Icon(Icons.search, color: HomeColors.ink),
+                        onPressed: widget.onSearch,
+                      ),
+                    ),
+                    // Botón amarillo para cambiar de vista.
+                    Positioned(
+                      right: 12,
+                      top: 10,
+                      child: Material(
+                        color: HomeColors.yellow,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () => setState(() => _carousel = !_carousel),
+                          child: const SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: Icon(Icons.swap_vert, size: 20, color: HomeColors.ink),
                           ),
-                          const SizedBox(width: 60),
-                          AnimatedCatMascot(
-                            kind: CatKind.orange,
-                            size: 66,
-                            onTap: () => _meow(CatKind.orange),
-                            onLongPress: () => widget.onCatOptions?.call(CatKind.orange),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                     if (_talking)
                       Positioned(
-                        top: -4,
+                        top: h * 0.2,
+                        left: _speaker == CatKind.gray ? w * 0.04 : null,
+                        right: _speaker == CatKind.orange ? w * 0.02 : null,
                         child: _Bubble(
                           text: [
                             if (catNames.value[_speaker] case final n?) '$n:',
@@ -240,10 +239,12 @@ class _HomeViewState extends State<HomeView> {
                       ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 8),
+              );
+            }),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 10),
               // Indicador de vista: carrusel · cuadrícula.
-              Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _ViewDot(
@@ -259,8 +260,8 @@ class _HomeViewState extends State<HomeView> {
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -414,7 +415,8 @@ class _HomeViewState extends State<HomeView> {
             children: [
               item(Icons.menu_book_rounded, 'Cuadernos', true, () {}),
               item(Icons.sticky_note_2_outlined, 'Notas·${widget.notesCount}', false, widget.onAllNotes),
-              item(Icons.search, 'Buscar', false, widget.onSearch),
+              item(Icons.school_outlined, 'Estudio', false, () => widget.onStudy?.call()),
+              item(Icons.favorite_border, 'Diario', false, () => widget.onJournal?.call()),
               item(Icons.settings_outlined, 'Ajustes', false, widget.onSettings),
             ],
           ),
@@ -605,58 +607,3 @@ class _Bubble extends StatelessWidget {
       );
 }
 
-/// Letrero en arco color terracota con libritos (los gatitos se sientan
-/// encima).
-class _SignPainter extends CustomPainter {
-  const _SignPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final outline = Paint()
-      ..color = HomeColors.terracottaDark
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeJoin = StrokeJoin.round;
-    // Arco superior + cuerpo.
-    final sign = Path()
-      ..moveTo(0, h * 0.42)
-      ..lineTo(w * 0.18, h * 0.42)
-      ..quadraticBezierTo(w * 0.2, 0, w * 0.5, 0)
-      ..quadraticBezierTo(w * 0.8, 0, w * 0.82, h * 0.42)
-      ..lineTo(w, h * 0.42)
-      ..lineTo(w, h)
-      ..lineTo(0, h)
-      ..close();
-    canvas.drawPath(sign, Paint()..color = HomeColors.terracotta);
-    canvas.drawPath(sign, outline);
-    // Ventana crema con libros.
-    final win = RRect.fromLTRBR(w * 0.08, h * 0.5, w * 0.92, h * 0.9, const Radius.circular(4));
-    canvas.drawRRect(win, Paint()..color = const Color(0xFFFCEBD8));
-    canvas.drawRRect(win, outline..strokeWidth = 1.8);
-    const books = [
-      Color(0xFF6B3A1E), Color(0xFFF6C744), Color(0xFF8EB8A8), Color(0xFFE07B55), Color(0xFF3B5B78),
-      Color(0xFFF2A0A8), Color(0xFF6B3A1E), Color(0xFFA5CF8E), Color(0xFFF6C744),
-    ];
-    var x = w * 0.12;
-    for (var i = 0; i < books.length && x < w * 0.86; i++) {
-      final bw = 9.0 + (i % 3) * 3;
-      final bh = h * (0.28 + (i % 2) * 0.06);
-      canvas.drawRect(Rect.fromLTWH(x, h * 0.86 - bh, bw, bh), Paint()..color = books[i]);
-      x += bw + 2;
-    }
-    // Estrellita en el arco.
-    final c = Offset(w * 0.5, h * 0.22);
-    final star = Path();
-    for (var i = 0; i < 10; i++) {
-      final r = i.isEven ? 7.0 : 3.0;
-      final a = -math.pi / 2 + i * math.pi / 5;
-      final p = c + Offset(math.cos(a) * r, math.sin(a) * r);
-      i == 0 ? star.moveTo(p.dx, p.dy) : star.lineTo(p.dx, p.dy);
-    }
-    canvas.drawPath(star..close(), Paint()..color = HomeColors.yellow);
-  }
-
-  @override
-  bool shouldRepaint(_SignPainter old) => false;
-}

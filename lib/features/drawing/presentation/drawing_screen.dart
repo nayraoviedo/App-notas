@@ -734,6 +734,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
             onCustom: _insertCustomSticker,
             onAddCustom: _addCustomSticker,
             onDeleteCustom: _deleteCustomSticker,
+            onAsset: _insertAssetSticker,
           ),
         ToolPanel.none => const SizedBox.shrink(),
       };
@@ -920,15 +921,30 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     ));
   }
 
+  /// Sticker de gatito incluido en la app: se copia a las imágenes de la
+  /// nota para que también se exporte y se respalde como cualquier foto.
+  Future<void> _insertAssetSticker(String asset) async {
+    final data = await rootBundle.load(asset);
+    final path = await ref
+        .read(fileStorageProvider)
+        .saveBytes(data.buffer.asUint8List(), folder: 'images');
+    await _placeImageFile(path, maxSide: 200);
+  }
+
   Future<void> _insertCustomSticker(String source) async {
     // Copia propia para la hoja: así borrar el sticker de "Míos" no la afecta.
     final path = await ref.read(fileStorageProvider).importFile(source, folder: 'images');
+    await _placeImageFile(path);
+  }
+
+  Future<void> _placeImageFile(String path, {double maxSide = 260}) async {
     final buffer = await ui.ImmutableBuffer.fromFilePath(path);
     final desc = await ui.ImageDescriptor.encoded(buffer);
     final w = desc.width.toDouble(), h = desc.height.toDouble();
     desc.dispose();
     buffer.dispose();
-    final k = 260 / (w > h ? w : h);
+    if (!mounted) return;
+    final k = maxSide / (w > h ? w : h);
     final c = _visibleCenter;
     _placeAndSelect(ImageItem(
       id: DrawingController.newItemId(),

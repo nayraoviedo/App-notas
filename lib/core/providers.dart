@@ -5,6 +5,8 @@ import '../features/transcription/data/groq_transcription.dart';
 
 import '../features/camera/camera_service.dart';
 import '../features/expenses/data/expenses_repository.dart';
+import '../features/study/data/flashcards_repository.dart';
+import '../features/study/domain/flashcard.dart';
 import '../features/drawing/data/drawing_store.dart';
 import '../features/drawing/domain/drawing.dart';
 import '../features/importing/import_service.dart';
@@ -88,6 +90,12 @@ final customStickersProvider =
 
 final expensesRepositoryProvider =
     Provider<ExpensesRepository>((ref) => ExpensesRepository(ref.watch(databaseProvider)));
+
+final flashcardsRepositoryProvider =
+    Provider<FlashcardsRepository>((ref) => FlashcardsRepository(ref.watch(databaseProvider)));
+
+final flashcardsProvider =
+    StreamProvider<List<Flashcard>>((ref) => ref.watch(flashcardsRepositoryProvider).watchAll());
 
 final allTagsProvider =
     StreamProvider<List<String>>((ref) => ref.watch(notesRepositoryProvider).watchAllTags());

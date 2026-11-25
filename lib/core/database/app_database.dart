@@ -19,6 +19,7 @@ part 'app_database.g.dart';
     Markers,
     Summaries,
     Expenses,
+    Flashcards,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -26,7 +27,7 @@ class AppDatabase extends _$AppDatabase {
       : super(executor ?? driftDatabase(name: 'app_notas'));
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -53,6 +54,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 7) {
             await m.createTable(expenses);
+          }
+          if (from < 8) {
+            await m.createTable(flashcards);
           }
         },
         beforeOpen: (details) async {

@@ -11,6 +11,9 @@ import '../../settings/settings.dart';
 import '../application/audio_tools.dart';
 import '../../summary/application/summary_runner.dart';
 import '../../summary/domain/summary.dart';
+import '../../drawing/presentation/widgets/canvas_item_view.dart' show measureTextItem;
+import '../../study/domain/cornell.dart';
+import 'package:go_router/go_router.dart';
 
 /// Vista completa de una grabación, con tres pestañas:
 /// Transcripción · Notas rápidas · Resumen, y el reproductor abajo.
@@ -142,7 +145,7 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                     onlyImportant: _onlyImportant,
                   ),
                   _QuickNotesTab(blockId: widget.blockId, player: _player, onSeek: _seek),
-                  _SummaryTab(blockId: widget.blockId, onSeek: _seek),
+                  _SummaryTab(noteId: widget.noteId, blockId: widget.blockId, onSeek: _seek),
                 ],
               ),
         bottomNavigationBar: audio == null
@@ -302,7 +305,8 @@ class _QuickNotesTabState extends ConsumerState<_QuickNotesTab> {
 // ------------------------------------------------------------------ Resumen
 
 class _SummaryTab extends ConsumerStatefulWidget {
-  const _SummaryTab({required this.blockId, required this.onSeek});
+  const _SummaryTab({required this.noteId, required this.blockId, required this.onSeek});
+  final String noteId;
   final String blockId;
   final Future<void> Function(int ms) onSeek;
 
@@ -398,6 +402,16 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
             ),
             const Spacer(),
             IconButton(
+              tooltip: 'Pasar a hoja Cornell',
+              icon: const Icon(Icons.view_sidebar_outlined),
+              onPressed: () => _toCornell(summary),
+            ),
+            IconButton(
+              tooltip: 'Crear tarjetas de repaso',
+              icon: const Icon(Icons.style_outlined),
+              onPressed: () => _toFlashcards(summary),
+            ),
+            IconButton(
               tooltip: 'Copiar',
               icon: const Icon(Icons.copy_outlined),
               onPressed: () {
@@ -469,6 +483,37 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
         Text('Generado con ${summary.provider}', style: text.bodySmall),
       ],
     );
+  }
+
+  /// El resumen pasa a una (o varias) hojas Cornell dentro de la nota.
+  Future<void> _toCornell(TranscriptSummary s) async {
+    final pages = cornellPages(s, measure: measureTextItem);
+    final storage = ref.read(fileStorageProvider);
+    String? first;
+    for (final page in pages) {
+      final path = await storage.newDrawingPath();
+      await ref.read(drawingStoreProvider).save(path, page);
+      await ref.read(notesRepositoryProvider).addDrawingBlock(widget.noteId, path);
+      first ??= path;
+    }
+    if (!mounted || first == null) return;
+    context.push('/notes/${widget.noteId}/drawing', extra: first);
+  }
+
+  /// Una tarjeta por capítulo (o por punto clave).
+  Future<void> _toFlashcards(TranscriptSummary s) async {
+    final repo = ref.read(flashcardsRepositoryProvider);
+    final pairs = s.chapters.isNotEmpty
+        ? [for (final c in s.chapters) (c.title, c.summary)]
+        : [for (final k in s.keyPoints) ('¿Qué recuerdas de: ${k.split(' ').take(6).join(' ')}…?', k)];
+    for (final (f, b) in pairs) {
+      await repo.add(front: f, back: b, noteId: widget.noteId);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${pairs.length} tarjetas creadas en Estudio'),
+      action: SnackBarAction(label: 'Repasar', onPressed: () => context.push('/study')),
+    ));
   }
 
   static String _asText(TranscriptSummary s) {
