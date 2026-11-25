@@ -42,7 +42,8 @@ class HighlightTextController extends TextEditingController {
   }
 
   static int _lineStart(String t, int i) {
-    final k = t.lastIndexOf('\n', i - 1);
+    if (i <= 0 || t.isEmpty) return 0;
+    final k = t.lastIndexOf('\n', (i - 1).clamp(0, t.length - 1));
     return k < 0 ? 0 : k + 1;
   }
 
