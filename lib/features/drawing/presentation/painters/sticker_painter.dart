@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'doodles.dart';
+
 /// Stickers de gatitos dibujados (imágenes en assets/stickers/).
 final catStickerAssets = [
   for (var i = 1; i <= 27; i++) 'assets/stickers/cat_${i.toString().padLeft(2, '0')}.png',
@@ -10,6 +12,7 @@ final catStickerAssets = [
 /// Pestañas del panel de stickers.
 enum StickerCategory {
   cats('Gatitos'),
+  doodle('Doodles'),
   mine('Míos'),
   basic('Básico'),
   memo('Memo'),
@@ -645,6 +648,7 @@ final stickerCatalog = <StickerDef>[
       c.drawCircle(Offset(s.width * o.dx, s.height * o.dy), s.width * 0.055, dot);
     }
   }),
+  ...doodleStickers,
 ];
 
 // ------------------------------------------------------ Stickers de texto

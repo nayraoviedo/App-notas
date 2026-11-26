@@ -125,5 +125,8 @@ final coverStickers = <String>[
   '', 'cat:orange', 'cat:gray',
   // Los stickers de gatitos dibujados (assets/stickers/cat_01…27.png).
   for (var i = 1; i <= 27; i++) 'assets/stickers/cat_${i < 10 ? '0$i' : '$i'}.png',
-  '🌸', '🎀', '⭐', '🍓', '🐱', '🐻', '☁️', '🌙', '🌷', '🍀', '📚', '✏️', '🎧', '🧸', '💌',
+  // Doodles dibujados a mano ("doodle:<id>").
+  for (final d in ['heart', 'star', 'sparkles', 'cloud', 'sun', 'flower', 'moon', 'crown', 'bow', 'leaves',
+      'book', 'bulb', 'coffee', 'music', 'paw', 'rainbow', 'cat', 'hearts'])
+    'doodle:doodle_$d',
 ];

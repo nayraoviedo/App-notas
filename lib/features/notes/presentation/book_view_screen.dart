@@ -127,9 +127,9 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
             onPressed: () => context.push('/notes/${widget.noteId}'),
           ),
           IconButton(
-            tooltip: 'Exportar el cuaderno a PDF',
+            tooltip: 'Exportar a PDF o Word',
             icon: const Icon(Icons.picture_as_pdf_outlined),
-            onPressed: () => exportNoteToPdf(ref, widget.noteId),
+            onPressed: () => exportNoteFlow(context, ref, widget.noteId),
           ),
           IconButton(tooltip: 'Editar esta página', icon: const Icon(Icons.edit_outlined), onPressed: _edit),
         ],

@@ -510,6 +510,16 @@ void main() {
     await _shot(tester, '25_gastos_mes');
   });
 
+  testWidgets('stickers doodles', (tester) async {
+    await openDrawing(tester);
+    await tester.ensureVisible(find.byTooltip('Stickers'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Stickers'));
+    await tester.pump();
+    await tester.tap(find.text('Doodles').last);
+    await _shot(tester, '26_doodles');
+  });
+
   testWidgets('portadas nuevas', (tester) async {
     await _phoneSize(tester);
     await tester.pumpWidget(_app(Scaffold(

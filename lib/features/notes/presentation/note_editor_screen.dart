@@ -56,16 +56,8 @@ class NoteEditorScreen extends ConsumerWidget {
           const StudyTimerButton(),
           IconButton(
             icon: const Icon(Icons.ios_share),
-            tooltip: 'Exportar a PDF',
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              messenger.showSnackBar(const SnackBar(content: Text('Preparando PDF…')));
-              try {
-                await exportNoteToPdf(ref, noteId);
-              } catch (e) {
-                messenger.showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
-              }
-            },
+            tooltip: 'Exportar a PDF o Word',
+            onPressed: () => exportNoteFlow(context, ref, noteId),
           ),
         ],
       ),

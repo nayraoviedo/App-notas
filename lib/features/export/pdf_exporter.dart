@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import '../../core/utils/time_format.dart';
 import '../drawing/application/drawing_rasterizer.dart';
 import '../notes/domain/note_block.dart';
 import '../summary/application/summary_runner.dart';
+import 'docx_writer.dart';
 
 /// Exporta una nota completa a PDF y abre el menú de compartir del teléfono:
 /// texto, fotos, hojas a mano (con capas), grabaciones con resumen,
@@ -189,26 +191,39 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Este cuaderno no tiene notas.')));
     return;
   }
+  var word = false;
   final how = await showModalBottomSheet<String>(
     context: context,
-    builder: (context) => SafeArea(
+    builder: (context) => StatefulBuilder(
+      builder: (context, set) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
-            title: Text('Exportar "$name" a PDF', style: const TextStyle(fontWeight: FontWeight.w600)),
+            title: Text('Exportar "$name"', style: const TextStyle(fontWeight: FontWeight.w600)),
             subtitle: Text('${notes.length} ${notes.length == 1 ? 'nota' : 'notas'}'),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, icon: Icon(Icons.picture_as_pdf_outlined), label: Text('PDF')),
+                ButtonSegment(value: true, icon: Icon(Icons.description_outlined), label: Text('Word')),
+              ],
+              selected: {word},
+              onSelectionChanged: (v) => set(() => word = v.first),
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.picture_as_pdf_outlined),
             title: const Text('Cuaderno completo'),
-            subtitle: const Text('Todas las notas en un solo PDF, en orden'),
+            subtitle: const Text('Todas las notas en un solo archivo, en orden'),
             onTap: () => Navigator.pop(context, 'all'),
           ),
           ListTile(
             leading: const Icon(Icons.file_copy_outlined),
             title: const Text('Cada nota por separado'),
-            subtitle: const Text('Un PDF por nota'),
+            subtitle: const Text('Un archivo por nota'),
             onTap: () => Navigator.pop(context, 'each'),
           ),
           ListTile(
@@ -218,6 +233,7 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
           ),
         ],
       ),
+    ),
     ),
   );
   if (how == null || !context.mounted) return;
@@ -244,7 +260,7 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
                     onChanged: (v) => set(() => v == true ? sel.add(n.id) : sel.remove(n.id)),
                   ),
                 SwitchListTile(
-                  title: const Text('Juntas en un solo PDF'),
+                  title: const Text('Juntas en un solo archivo'),
                   value: together,
                   onChanged: (v) => set(() => together = v),
                 ),
@@ -278,7 +294,32 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
     ),
   );
   try {
-    if (!separate) {
+    if (word) {
+      final dir = await getTemporaryDirectory();
+      final files = <XFile>[];
+      if (!separate) {
+        status.value = 'Armando el Word con ${chosen.length} notas…';
+        final w = DocxWriter()..heading(name, level: 0);
+        for (final (i, n) in chosen.indexed) {
+          if (i > 0) w.pageBreak();
+          await _noteToDocx(ref, n.id, w);
+        }
+        final f = File('${dir.path}/${safeFileName(name)}.docx');
+        await f.writeAsBytes(w.build());
+        files.add(XFile(f.path));
+      } else {
+        for (final (i, n) in chosen.indexed) {
+          status.value = 'Nota ${i + 1} de ${chosen.length}…';
+          final w = DocxWriter();
+          await _noteToDocx(ref, n.id, w);
+          final f = File('${dir.path}/${(i + 1).toString().padLeft(2, '0')} - ${safeFileName(n.displayTitle)}.docx');
+          await f.writeAsBytes(w.build());
+          files.add(XFile(f.path));
+        }
+      }
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      await SharePlus.instance.share(ShareParams(files: files, subject: name));
+    } else if (!separate) {
       status.value = 'Armando el PDF con ${chosen.length} notas…';
       final bytes = await buildNotesPdf(ref, [for (final n in chosen) n.id], title: name);
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -300,6 +341,128 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
+    }
+  }
+}
+
+/// Exportar una nota: elegir PDF o Word.
+Future<void> exportNoteFlow(BuildContext context, WidgetRef ref, String noteId) async {
+  final fmt = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_outlined),
+            title: const Text('PDF'),
+            subtitle: const Text('Para leer, imprimir o compartir tal cual'),
+            onTap: () => Navigator.pop(context, 'pdf'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Word (.docx)'),
+            subtitle: const Text('Para seguir editándolo en Word o Google Docs'),
+            onTap: () => Navigator.pop(context, 'docx'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (fmt == null) return;
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showSnackBar(const SnackBar(content: Text('Preparando…')));
+  try {
+    if (fmt == 'pdf') {
+      await exportNoteToPdf(ref, noteId);
+    } else {
+      final note = await ref.read(noteProvider(noteId).future);
+      final w = DocxWriter();
+      await _noteToDocx(ref, noteId, w);
+      final f = File('${(await getTemporaryDirectory()).path}/${safeFileName(note?.displayTitle ?? 'Nota')}.docx');
+      await f.writeAsBytes(w.build());
+      await SharePlus.instance.share(ShareParams(files: [XFile(f.path)]));
+    }
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
+  }
+}
+
+Future<(int, int)> _imageSize(Uint8List bytes) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+  final desc = await ui.ImageDescriptor.encoded(buffer);
+  final size = (desc.width, desc.height);
+  desc.dispose();
+  buffer.dispose();
+  return size;
+}
+
+/// Una nota en Word: texto, fotos, hojas (como imagen), grabaciones con
+/// resumen, notas rápidas y transcripción.
+Future<void> _noteToDocx(WidgetRef ref, String noteId, DocxWriter w) async {
+  final note = await ref.read(noteProvider(noteId).future);
+  final blocks = await ref.read(blocksProvider(noteId).future);
+  final speakers = {for (final s in await ref.read(speakersProvider.future)) s.id: s.name};
+  final store = ref.read(drawingStoreProvider);
+  w.heading(note?.displayTitle ?? 'Nota', level: 1);
+  if (note != null) {
+    w.paragraph('${note.createdAt.day}/${note.createdAt.month}/${note.createdAt.year}',
+        italic: true, halfPoints: 18, color: '777777');
+  }
+  for (final b in blocks) {
+    switch (b) {
+      case TextBlock t:
+        if (t.text.trim().isNotEmpty) w.paragraph(t.text);
+      case ImageBlock img:
+        final f = File(img.path);
+        if (!f.existsSync()) continue;
+        final bytes = await f.readAsBytes();
+        final (iw, ih) = await _imageSize(bytes);
+        final lower = img.path.toLowerCase();
+        if (lower.endsWith('.png')) {
+          w.image(bytes, widthPx: iw, heightPx: ih);
+        } else {
+          w.image(bytes, widthPx: iw, heightPx: ih, jpg: true);
+        }
+        if (img.anchor != null) {
+          w.paragraph('Foto en ${formatMs(img.anchor!.atMs)}', italic: true, halfPoints: 18, color: '777777');
+        }
+      case DrawingBlock dr:
+        final d = await store.load(dr.path);
+        final png = await rasterizeDrawing(d);
+        w.image(png, widthPx: 1240, heightPx: (1240 * d.height / d.width).round());
+      case VideoRefBlock v:
+        w.labeled(formatMs(v.atMs), v.text);
+      case AudioBlock a:
+        w.heading('Grabación (${formatMs(a.durationMs)})', level: 2);
+        final summary = await ref.read(summaryProvider(a.id).future);
+        if (summary != null) {
+          w
+            ..heading(summary.title, level: 2)
+            ..paragraph(summary.overview);
+          for (final k in summary.keyPoints) {
+            w.bullet(k);
+          }
+          for (final c in summary.chapters) {
+            w.labeled(formatMs(c.atMs), '${c.title}. ${c.summary}');
+          }
+        }
+        final markers = await ref.read(markersProvider(a.id).future);
+        final quick = markers.where((m) => m.isQuickNote).toList();
+        if (quick.isNotEmpty) {
+          w.heading('Notas rápidas', level: 2);
+          for (final m in quick) {
+            w.labeled(formatMs(m.atMs), m.label ?? '');
+          }
+        }
+        final segments = await ref.read(segmentsProvider(a.id).future);
+        if (segments.isNotEmpty) {
+          w.heading('Transcripción', level: 2);
+          for (final s in segments) {
+            final who = s.speakerId == null ? '' : ' · ${speakers[s.speakerId] ?? ''}';
+            w.labeled('${formatMs(s.startMs)}$who', s.text);
+          }
+        }
     }
   }
 }

@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import '../../export/docx_writer.dart' show readDocxText;
 import '../../export/pdf_exporter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -69,9 +73,10 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.picture_as_pdf_outlined),
-            tooltip: 'PDF',
+            tooltip: 'Exportar o importar (PDF y Word)',
             onSelected: (v) {
               if (v == 'import') _importPdf(context);
+              if (v == 'word') _importWord(context);
               if (v == 'export') {
                 exportNotebookFlow(context, ref,
                     notebookId: notebookId,
@@ -81,11 +86,15 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
             itemBuilder: (_) => const [
               PopupMenuItem(
                 value: 'export',
-                child: ListTile(leading: Icon(Icons.ios_share), title: Text('Exportar a PDF (completo o por notas)')),
+                child: ListTile(leading: Icon(Icons.ios_share), title: Text('Exportar a PDF o Word (completo o por notas)')),
               ),
               PopupMenuItem(
                 value: 'import',
                 child: ListTile(leading: Icon(Icons.file_download_outlined), title: Text('Importar PDF como nota')),
+              ),
+              PopupMenuItem(
+                value: 'word',
+                child: ListTile(leading: Icon(Icons.description_outlined), title: Text('Importar Word como nota')),
               ),
             ],
           ),
@@ -158,6 +167,25 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
           service.importPdfAsNewNote(pdf, notebookId: widget.notebookId, onProgress: onProgress),
     );
     if (noteId != null && context.mounted) context.push('/notes/$noteId');
+  }
+
+  /// Un Word (.docx) se vuelve una nota con su texto.
+  Future<void> _importWord(BuildContext context) async {
+    final res = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['docx']);
+    final path = res?.files.single.path;
+    if (path == null || !context.mounted) return;
+    try {
+      final text = readDocxText(await File(path).readAsBytes());
+      final title = path.split('/').last.replaceAll(RegExp(r'\.docx$', caseSensitive: false), '');
+      final repo = ref.read(notesRepositoryProvider);
+      final id = await repo.createNote(title: title, notebookId: widget.notebookId);
+      await repo.addTextBlock(id, text: text);
+      if (context.mounted) context.push('/notes/$id');
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo leer el Word: $e')));
+      }
+    }
   }
 }
 

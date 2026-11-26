@@ -981,7 +981,8 @@ class _StickersPanelState extends State<StickersPanel> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: [
-                for (final t in StickerCategory.values)
+                // Los emojis se reemplazaron por doodles dibujados.
+                for (final t in StickerCategory.values.where((t) => t != StickerCategory.emoji))
                   InkWell(
                     onTap: () => setState(() => _tab = t),
                     child: Container(

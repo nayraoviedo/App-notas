@@ -31,9 +31,12 @@ import 'widgets/tool_panels.dart';
 /// forman un cuaderno: se puede pasar de página, ver miniaturas, marcar,
 /// agregar, copiar y borrar páginas.
 class DrawingScreen extends ConsumerStatefulWidget {
-  const DrawingScreen({super.key, required this.noteId, required this.path});
+  const DrawingScreen({super.key, required this.noteId, required this.path, this.embedded = false});
 
   final String noteId;
+
+  /// Dentro de otra pantalla (debajo del video): sin botón de volver.
+  final bool embedded;
 
   /// Archivo JSON de la hoja con la que se abre.
   final String path;
@@ -680,7 +683,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       height: 52,
       child: Row(
         children: [
-          _icon(Icons.arrow_back_ios_new, 'Volver', _close),
+          if (!widget.embedded) _icon(Icons.arrow_back_ios_new, 'Volver', _close),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,

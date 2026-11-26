@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../drawing/presentation/painters/sticker_painter.dart';
 import '../../../core/widgets/cat_mascot.dart';
 import 'cover_designs.dart';
 
@@ -265,7 +266,10 @@ class _NotebookFormState extends State<_NotebookForm> {
                   children: [
                     for (final s in coverStickers)
                       ChoiceChip(
-                        label: s.startsWith('assets/')
+                        label: s.startsWith('doodle:')
+                            ? SizedBox(
+                                width: 34, height: 34, child: CustomPaint(painter: StickerPainter(s.substring(7))))
+                            : s.startsWith('assets/')
                             ? Image.asset(s, width: 34, height: 34)
                             : s.startsWith('cat:')
                             ? CatMascot(
@@ -369,7 +373,17 @@ class NotebookCover extends StatelessWidget {
             ),
             if (icon != null)
               Center(child: Icon(icon, color: Colors.white, size: width * 0.3)),
-            if (style.sticker.startsWith('assets/') && icon == null)
+            if (style.sticker.startsWith('doodle:') && icon == null)
+              Positioned(
+                right: width * 0.06,
+                top: width * 0.08,
+                child: SizedBox(
+                  width: width * 0.4,
+                  height: width * 0.4,
+                  child: CustomPaint(painter: StickerPainter(style.sticker.substring(7))),
+                ),
+              )
+            else if (style.sticker.startsWith('assets/') && icon == null)
               Positioned(
                 right: width * 0.05,
                 top: width * 0.07,
