@@ -4,8 +4,6 @@ name: Probar arranque
 
 on:
   workflow_dispatch:
-  push:
-    branches: [esqueleto-inicial]
 
 jobs:
   arranque:
