@@ -12,6 +12,7 @@ import '../../notes/domain/note.dart';
 import '../../settings/settings.dart';
 import '../../summary/data/llm_clients.dart';
 import '../domain/flashcard.dart';
+import '../../../core/widgets/study_timer.dart';
 
 /// Modelos de IA con clave guardada, en el orden de preferencia.
 Future<List<LlmClient>> availableLlms(WidgetRef ref) async {
@@ -86,6 +87,7 @@ class StudyScreen extends ConsumerWidget {
         appBar: AppBar(
           title: const Text('Estudio'),
           actions: [
+            const StudyTimerButton(),
             IconButton(
               tooltip: 'Modo examen',
               icon: const Icon(Icons.quiz_outlined),

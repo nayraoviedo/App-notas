@@ -125,7 +125,7 @@ class StudyTimerButton extends ConsumerWidget {
 
     if (!t.running) {
       return IconButton(
-        tooltip: 'Temporizador',
+        tooltip: 'Pomodoro (temporizador de estudio)',
         icon: const Icon(Icons.timer_outlined),
         onPressed: () => _choose(context, ref),
       );
