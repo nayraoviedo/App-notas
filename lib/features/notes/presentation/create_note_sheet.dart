@@ -285,7 +285,7 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
               children: [
                 if (_withSheet) ...[
                   card(
-                    label: 'Tapa',
+                    label: 'Elegir tapa',
                     selected: _editingCover,
                     dashed: true,
                     onTap: () => setState(() {
@@ -299,7 +299,7 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
                   ),
                   const SizedBox(width: 8),
                   card(
-                    label: 'Papel',
+                    label: 'Elegir hoja',
                     selected: !_editingCover,
                     onTap: () => setState(() => _editingCover = false),
                     child: DecoratedBox(
@@ -392,7 +392,7 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
                               ),
                               if (_withSheet)
                                 row(
-                                  'Tapa',
+                                  'Con tapa',
                                   Switch(
                                     value: _withCover,
                                     onChanged: (v) => setState(() {
@@ -402,7 +402,7 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
                                   ),
                                 ),
                               row(
-                                'Formato',
+                                'Hoja',
                                 DropdownButton<bool>(
                                   value: _landscape,
                                   underline: const SizedBox.shrink(),
@@ -415,14 +415,14 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
                                 ),
                               ),
                               row(
-                                'Tipo',
+                                'Para',
                                 DropdownButton<bool>(
                                   value: _withSheet,
                                   underline: const SizedBox.shrink(),
                                   isDense: true,
                                   items: const [
-                                    DropdownMenuItem(value: true, child: Text('Cuaderno')),
-                                    DropdownMenuItem(value: false, child: Text('Nota libre')),
+                                    DropdownMenuItem(value: true, child: Text('Escribir a mano')),
+                                    DropdownMenuItem(value: false, child: Text('Solo texto')),
                                   ],
                                   onChanged: (v) => setState(() => _withSheet = v ?? true),
                                 ),

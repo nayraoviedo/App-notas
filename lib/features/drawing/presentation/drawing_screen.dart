@@ -25,6 +25,7 @@ import 'painters/paper_painter.dart';
 import 'widgets/layers_sheet.dart';
 import 'widgets/paper_sheet.dart';
 import 'painters/sticker_painter.dart';
+import 'widgets/table_equation.dart';
 import 'widgets/tool_panels.dart';
 
 /// Hojas para escribir a mano y dibujar, con capas. Las hojas de una nota
@@ -93,6 +94,27 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
 
   bool get _atFit => _transform.value.getMaxScaleOnAxis() <= _fitScale * 1.08;
 
+  /// Pasar de hoja tirando hacia arriba/abajo (por defecto) o deslizando de
+  /// lado (Ajustes → Pasar de hoja).
+  bool get _vertical => (ref.read(sharedPreferencesProvider).getString('pages.mode') ?? 'vertical') == 'vertical';
+
+  /// Cuánto se tiró hacia arriba en la última hoja (1 = suelta para agregar).
+  double _pull = 0;
+
+  bool get _onLastPage {
+    final i = _pageIndex;
+    return i >= 0 && i == _pages.length - 1;
+  }
+
+  /// ¿El dedo tocó fuera de la hoja (en el fondo gris)? Ahí siempre se puede
+  /// tirar o deslizar, aunque se esté dibujando con el dedo.
+  bool _outsidePage(Offset global) {
+    final box = _pageKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return false;
+    final r = Rect.fromPoints(box.localToGlobal(Offset.zero), box.localToGlobal(box.size.bottomRight(Offset.zero)));
+    return !r.contains(global);
+  }
+
   /// Pasar a la hoja siguiente (+1) o anterior (-1).
   Future<void> _turn(int dir) async {
     final i = _pageIndex;
@@ -123,7 +145,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     // Solo cuando el dedo no está dibujando: modo mano o "solo lápiz".
     final fingerFree = ctl != null &&
         (ctl.mode == InputMode.pan || (ctl.stylusOnly && e.kind != PointerDeviceKind.stylus));
-    if (_swipeFingers == 1 && fingerFree && _atFit && _editing == null) {
+    if (_swipeFingers == 1 && (fingerFree || _outsidePage(e.position)) && _atFit && _editing == null) {
       _swipePointer = e.pointer;
       _swipeStart = e.position;
       _swipeTime = DateTime.now();
@@ -132,13 +154,67 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     }
   }
 
-  void _swipeUp(PointerEvent e) {
+  void _swipeMove(PointerMoveEvent e) {
+    if (e.pointer != _swipePointer || !_vertical || !_onLastPage) return;
+    final dy = e.position.dy - _swipeStart.dy;
+    final p = (-dy / 160).clamp(0.0, 1.25);
+    if ((p - _pull).abs() > 0.02) setState(() => _pull = p);
+  }
+
+  Future<void> _swipeUp(PointerEvent e) async {
     _swipeFingers = (_swipeFingers - 1).clamp(0, 10);
     if (e.pointer != _swipePointer) return;
     _swipePointer = null;
     final d = e.position - _swipeStart;
+    final pulled = _pull;
+    if (_pull != 0) setState(() => _pull = 0);
+    if (_vertical) {
+      if (d.dy.abs() < 70 || d.dx.abs() > d.dy.abs() * 0.7) return;
+      if (d.dy < 0 && _onLastPage) {
+        // Tirar hacia arriba en la última hoja: agregar una nueva.
+        if (pulled >= 1) {
+          HapticFeedback.mediumImpact();
+          _slideDir = 1;
+          await _addPage(copy: false);
+          if (mounted) _slide.forward(from: 0);
+        }
+        return;
+      }
+      await _turn(d.dy < 0 ? 1 : -1);
+      return;
+    }
     final fast = DateTime.now().difference(_swipeTime) < const Duration(milliseconds: 700);
-    if (fast && d.dx.abs() > 70 && d.dy.abs() < d.dx.abs() * 0.6) _turn(d.dx < 0 ? 1 : -1);
+    if (fast && d.dx.abs() > 70 && d.dy.abs() < d.dx.abs() * 0.6) await _turn(d.dx < 0 ? 1 : -1);
+  }
+
+  /// Aviso de "Tira para agregar una nueva página" (abajo, en la última hoja).
+  Widget _pullHint() {
+    final ready = _pull >= 1;
+    final color = ready ? const Color(0xFF1E8CB4) : Colors.black45;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 56,
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: _pull > 0 ? 1 : 0.55,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Transform.translate(
+                offset: Offset(0, -10 * _pull),
+                child: Icon(Icons.arrow_upward_rounded, color: color, size: 22 + 6 * _pull),
+              ),
+              Icon(Icons.note_add, color: color, size: 30 + 8 * _pull.clamp(0, 1)),
+              const SizedBox(height: 4),
+              Text(ready ? 'Suelta para agregar la página' : 'Tira hacia arriba para agregar una página',
+                  style: TextStyle(color: color, fontSize: 14)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// Franja en el borde: deslizar desde ahí cambia de hoja aunque estés
@@ -520,14 +596,16 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                           child: Listener(
                             behavior: HitTestBehavior.translucent,
                             onPointerDown: _swipeDown,
+                            onPointerMove: _swipeMove,
                             onPointerUp: _swipeUp,
                             onPointerCancel: _swipeUp,
                             child: AnimatedBuilder(
                               animation: _slide,
                               builder: (context, child) {
                                 final v = Curves.easeOutCubic.transform(_slide.value);
+                                final off = _slideDir * (1 - v) * 140;
                                 return Transform.translate(
-                                  offset: Offset(_slideDir * (1 - v) * 140, 0),
+                                  offset: _vertical ? Offset(0, off) : Offset(off, 0),
                                   child: Opacity(opacity: 0.35 + 0.65 * v, child: child),
                                 );
                               },
@@ -535,10 +613,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                             ),
                           ),
                         ),
-                        if (_editing == null) ...[
+                        if (_editing == null && !_vertical) ...[
                           _edgeSwipe(left: true),
                           _edgeSwipe(left: false),
                         ],
+                        if (_vertical && _onLastPage && _editing == null) _pullHint(),
                         // Número de página (toca para ver miniaturas).
                         Positioned(
                           bottom: 14,
@@ -647,6 +726,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                             onEditText: _editText,
                             onEditShape: () => setState(() => _panel = ToolPanel.shapes),
                             onCrop: _cropImageItem,
+                            onEditSource: (it) =>
+                                _tableOrEquation(table: decodeSource(it.source) is TableData, editing: it),
                           )
                         : const SizedBox.shrink(),
                   ),
@@ -679,55 +760,49 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   /// etiquetas, más opciones y ocultar herramientas.
   Widget _topRow(DrawingController ctl) {
     final rec = ref.watch(recordingControllerProvider);
+    final title = ref.watch(noteProvider(widget.noteId)).valueOrNull?.displayTitle ?? '';
     return SizedBox(
       height: 52,
       child: Row(
         children: [
           if (!widget.embedded) _icon(Icons.arrow_back_ios_new, 'Volver', _close),
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _icon(Icons.photo_camera_outlined, 'Poner una foto', () {
-                    _closePanel();
-                    _chooseImageSource();
-                  }),
-                  if (rec.isActive || rec.status == RecordingStatus.processing)
-                    _RecordingPill(state: rec, onStop: _openRecorder)
-                  else
-                    _icon(Icons.mic_none, 'Grabar audio mientras escribes', _startRecording),
-                  // Grabaciones de esta nota (con su transcripción y resumen).
-                  if (_audios(watch: true).isNotEmpty)
-                    Badge(
-                      label: Text('${_audios().length}'),
-                      offset: const Offset(-4, 4),
-                      child: _icon(Icons.graphic_eq, 'Grabaciones y transcripciones', _showRecordings),
-                    ),
-                  const SizedBox(width: 6),
-                  _icon(Icons.auto_stories_outlined, 'Páginas', _showThumbnails),
-                  _icon(Icons.layers_outlined, 'Capas', () {
-                    _closePanel();
-                    _sheet(LayersSheet(controller: ctl));
-                  }),
-                  _icon(Icons.description_outlined, 'Plantilla de la hoja', () {
-                    _closePanel();
-                    _sheet(PaperSheet(
-                      controller: ctl,
-                      onPickImage: ref.read(cameraServiceProvider).pickImageFromGallery,
-                    ));
-                  }),
-                  _icon(Icons.note_add_outlined, 'Agregar página', () => _addPage(copy: false)),
-                  _icon(Icons.tag, 'Etiquetas', () => showNoteTagsDialog(context, ref, widget.noteId)),
-                  const StudyTimerButton(),
-                  _icon(Icons.more_horiz, 'Más', () {
-                    _closePanel();
-                    _moreMenu(ctl);
-                  }),
-                ],
-              ),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4, right: 4),
+              child: Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             ),
           ),
+          if (rec.isActive || rec.status == RecordingStatus.processing)
+            _RecordingPill(state: rec, onStop: _openRecorder)
+          else if (_audios(watch: true).isNotEmpty)
+            // Grabaciones de esta nota (con su transcripción y resumen).
+            Badge(
+              label: Text('${_audios().length}'),
+              offset: const Offset(-4, 4),
+              child: _icon(Icons.graphic_eq, 'Grabaciones y transcripciones', _showRecordings),
+            ),
+          const StudyTimerButton(),
+          // Insertar: todo lo que se agrega a la hoja, con nombre.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 38),
+              ),
+              onPressed: () => _insertMenu(ctl),
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text('Insertar'),
+            ),
+          ),
+          _icon(Icons.auto_stories_outlined, 'Hojas', _showThumbnails),
+          _icon(Icons.more_vert, 'Más', () {
+            _closePanel();
+            _moreMenu(ctl);
+          }),
           _icon(_toolbarOpen ? Icons.expand_less : Icons.expand_more,
               _toolbarOpen ? 'Ocultar herramientas' : 'Mostrar herramientas',
               () => setState(() {
@@ -737,6 +812,78 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         ],
       ),
     );
+  }
+
+  /// Panel "Insertar": íconos grandes con su nombre.
+  Future<void> _insertMenu(DrawingController ctl) async {
+    _closePanel();
+    final recording = ref.read(recordingControllerProvider).isActive;
+    final items = <(IconData, String, String)>[
+      (Icons.photo_camera_outlined, 'Foto', 'photo'),
+      (Icons.mic_none, recording ? 'Grabando…' : 'Grabar audio', 'rec'),
+      (Icons.table_chart_outlined, 'Tabla', 'table'),
+      (Icons.functions, 'Ecuación', 'eq'),
+      (Icons.category_outlined, 'Formas', 'shapes'),
+      (Icons.emoji_emotions_outlined, 'Stickers', 'stickers'),
+      (Icons.text_fields, 'Texto', 'text'),
+      (Icons.note_add_outlined, 'Hoja nueva', 'page'),
+    ];
+    final a = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          child: GridView.count(
+            crossAxisCount: 4,
+            shrinkWrap: true,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 0.95,
+            children: [
+              for (final (icon, label, id) in items)
+                InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => Navigator.pop(context, id),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 26,
+                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                        child: Icon(icon, size: 26, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (a) {
+      case 'photo':
+        _chooseImageSource();
+      case 'rec':
+        recording ? _openRecorder() : await _startRecording();
+      case 'table':
+        await _tableOrEquation(table: true);
+      case 'eq':
+        await _tableOrEquation(table: false);
+      case 'shapes':
+        setState(() => _panel = ToolPanel.shapes);
+      case 'stickers':
+        setState(() => _panel = ToolPanel.stickers);
+      case 'text':
+        ctl.selectMode(InputMode.text);
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Toca la hoja donde quieras escribir'), duration: Duration(seconds: 2)));
+      case 'page':
+        await _addPage(copy: false);
+    }
   }
 
   /// Fila 2: deshacer/rehacer, herramientas y colores rápidos.
@@ -803,11 +950,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                   c.selectMode(InputMode.text);
                   _closePanel();
                 }, selected: c.mode == InputMode.text),
-                _icon(Icons.category_outlined, 'Formas', () => _togglePanel(ToolPanel.shapes),
-                    selected: _panel == ToolPanel.shapes),
-                _icon(Icons.emoji_emotions_outlined, 'Stickers',
-                    () => _togglePanel(ToolPanel.stickers),
-                    selected: _panel == ToolPanel.stickers),
                 if (showColors) ...[
                   const SizedBox(height: 30, child: VerticalDivider(width: 14)),
                   SizedBox(
@@ -851,10 +993,26 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   Future<void> _moreMenu(DrawingController ctl) async {
     final action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Column(
+        child: SingleChildScrollView(child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('Tipo de hoja (rayada, cuadros, color…)'),
+              onTap: () => Navigator.pop(context, 'paper'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.layers_outlined),
+              title: const Text('Capas'),
+              onTap: () => Navigator.pop(context, 'layers'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.sell_outlined),
+              title: const Text('Etiquetas de la nota'),
+              onTap: () => Navigator.pop(context, 'tags'),
+            ),
             ListTile(
               leading: const Icon(Icons.fullscreen),
               title: const Text('Pantalla completa'),
@@ -907,9 +1065,18 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
             ),
           ],
         ),
-      ),
+      )),
     );
     switch (action) {
+      case 'paper':
+        _sheet(PaperSheet(
+          controller: ctl,
+          onPickImage: ref.read(cameraServiceProvider).pickImageFromGallery,
+        ));
+      case 'layers':
+        _sheet(LayersSheet(controller: ctl));
+      case 'tags':
+        await showNoteTagsDialog(context, ref, widget.noteId);
       case 'full':
         _setFullscreen(true);
       case 'book':
@@ -1036,6 +1203,62 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     ctl.selectMode(InputMode.select);
     ctl.selectItem(item.id);
     _closePanel();
+  }
+
+  /// Insertar (o editar) una tabla o una ecuación: se dibuja como imagen y
+  /// guarda sus datos para poder editarla otra vez.
+  Future<void> _tableOrEquation({required bool table, ImageItem? editing}) async {
+    _closePanel();
+    final old = decodeSource(editing?.source);
+    final Widget view;
+    final String source;
+    if (table) {
+      final data = await editTable(context, old is TableData ? old : null);
+      if (data == null || !mounted) return;
+      view = TableView(data);
+      source = data.encode();
+    } else {
+      final data = await editEquation(context, old is EquationData ? old : null);
+      if (data == null || !mounted) return;
+      view = EquationView(data);
+      source = data.encode();
+    }
+    final (png, size) = await renderWidgetToPng(context, view);
+    final path = await ref.read(fileStorageProvider).saveBytes(png, folder: 'images');
+    if (!mounted) return;
+    // Tamaño en la hoja (1000 de ancho): como se ve en pantalla, sin pasarse.
+    var w = size.width * 1.2, h = size.height * 1.2;
+    if (w > 900) {
+      h = h * 900 / w;
+      w = 900;
+    }
+    if (editing != null) {
+      _ctl?.updateItem(
+        editing.id,
+        (_) => ImageItem(
+          id: editing.id,
+          x: editing.x,
+          y: editing.y,
+          scale: editing.scale,
+          rotation: editing.rotation,
+          path: path,
+          width: w,
+          height: h,
+          source: source,
+        ),
+      );
+      return;
+    }
+    final c = _visibleCenter;
+    _placeAndSelect(ImageItem(
+      id: DrawingController.newItemId(),
+      x: c.dx,
+      y: c.dy,
+      path: path,
+      width: w,
+      height: h,
+      source: source,
+    ));
   }
 
   /// Recortar una foto que ya está en la hoja (mantiene su ancho).
@@ -1598,8 +1821,10 @@ class _ItemBar extends StatelessWidget {
     required this.onEditText,
     required this.onEditShape,
     required this.onCrop,
+    required this.onEditSource,
   });
   final DrawingController controller;
+  final void Function(ImageItem item) onEditSource;
   final void Function(TextItem item) onEditText;
   final void Function(ImageItem item) onCrop;
   final VoidCallback onEditShape;
@@ -1631,6 +1856,8 @@ class _ItemBar extends StatelessWidget {
                 action(Icons.edit_outlined, 'Editar', () => onEditText(item))
               else if (item is ShapeItem)
                 action(Icons.palette_outlined, 'Estilo', onEditShape)
+              else if (item is ImageItem && item.source != null)
+                action(Icons.edit_outlined, 'Editar', () => onEditSource(item))
               else if (item is ImageItem) ...[
                 action(Icons.crop, 'Recortar', () => onCrop(item)),
                 PopupMenuButton<ImageFrame>(

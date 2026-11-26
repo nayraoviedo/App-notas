@@ -247,24 +247,6 @@ class _HomeViewState extends State<HomeView> {
                         ],
                       ),
                     ),
-                    // Botón amarillo para cambiar de vista.
-                    Positioned(
-                      right: 12,
-                      top: 10,
-                      child: Material(
-                        color: HomeColors.yellow,
-                        shape: const CircleBorder(),
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () => setState(() => _carousel = !_carousel),
-                          child: const SizedBox(
-                            width: 36,
-                            height: 36,
-                            child: Icon(Icons.swap_vert, size: 20, color: HomeColors.ink),
-                          ),
-                        ),
-                      ),
-                    ),
                     if (_talking)
                       Positioned(
                         top: _greetingText != null ? h * 0.06 : h * 0.2,

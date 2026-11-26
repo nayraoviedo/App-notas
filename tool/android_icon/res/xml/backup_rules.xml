@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copia automática de Android en la cuenta de Google (hasta 25 MB):
+     notas, hojas, fotos y ajustes. Sin audios ni videos (pesan mucho) y sin
+     las claves de IA (van cifradas en el teléfono). -->
+<full-backup-content>
+    <include domain="root" path="app_flutter/" />
+    <include domain="sharedpref" path="." />
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="root" path="app_flutter/audio/" />
+    <exclude domain="root" path="app_flutter/videos/" />
+    <exclude domain="root" path="app_flutter/_restore_pendiente/" />
+</full-backup-content>

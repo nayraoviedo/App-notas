@@ -104,7 +104,8 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: Theme.of(context).colorScheme.primary)),
                 ),
-                for (final f in appFonts.where((f) => f.group == group))
+                if (group == FontGroup.mine) const ImportFontTile(),
+                for (final f in allFonts().where((f) => f.group == group))
                   ListTile(
                     selected: f.family == current,
                     title: Text(f.label),
@@ -135,7 +136,7 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
     var style = fontStyle(b.fontFamily, size: b.fontSize, base: base);
     if (b.textColor != null) style = style.copyWith(color: Color(b.textColor!));
     final label =
-        appFonts.where((f) => f.family == b.fontFamily).firstOrNull?.label ??
+        allFonts().where((f) => f.family == b.fontFamily).firstOrNull?.label ??
             b.fontFamily ??
             'Sistema';
 

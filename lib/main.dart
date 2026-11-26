@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'core/fonts.dart';
 import 'features/backup/backup_service.dart';
 import 'features/settings/settings.dart';
 
@@ -18,6 +19,7 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   loadCatPrefs(prefs);
+  await loadCustomFonts();
   runApp(ProviderScope(
     overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
     child: const AppNotas(),

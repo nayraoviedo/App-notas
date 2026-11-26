@@ -72,6 +72,7 @@ sealed class CanvasItem {
           width: (j['w'] as num).toDouble(),
           height: (j['h'] as num).toDouble(),
           frame: ImageFrame.values.byName(j['frame'] as String? ?? 'none'),
+          source: j['src'] as String?,
         );
       case 'sticker':
         return StickerItem(
@@ -240,9 +241,14 @@ class ImageItem extends CanvasItem {
     required this.width,
     required this.height,
     this.frame = ImageFrame.none,
+    this.source,
   });
 
   final String path;
+
+  /// Si la imagen es una tabla o ecuación hecha en la app: sus datos (JSON)
+  /// para poder volver a editarla. null en fotos.
+  final String? source;
 
   /// Tamaño base (con escala 1) en coordenadas de la hoja.
   final double width;
@@ -260,6 +266,7 @@ class ImageItem extends CanvasItem {
         width: width,
         height: height,
         frame: frame,
+        source: source,
       );
 
   ImageItem withFrame(ImageFrame f) => ImageItem(
@@ -272,6 +279,7 @@ class ImageItem extends CanvasItem {
         width: width,
         height: height,
         frame: f,
+        source: source,
       );
 
   @override
@@ -281,6 +289,7 @@ class ImageItem extends CanvasItem {
         'w': width,
         'h': height,
         if (frame != ImageFrame.none) 'frame': frame.name,
+        if (source != null) 'src': source,
       };
 }
 

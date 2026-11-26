@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 /// Fuentes disponibles para los bloques de texto.
 ///
@@ -20,6 +27,7 @@ class AppFont {
 }
 
 enum FontGroup {
+  mine('Mis fuentes'),
   latin('Generales'),
   cursive('Cursiva y journaling'),
   calligraphy('Caligrafía elegante'),
@@ -141,6 +149,8 @@ const fontSizes = <double>[14, 16, 18, 20, 24, 30, 36];
 TextStyle fontStyle(String? family, {double? size, TextStyle? base}) {
   final b = (base ?? const TextStyle()).copyWith(fontSize: size);
   if (family == null) return b;
+  // Fuente importada por la persona: ya está cargada con su nombre.
+  if (customFonts.value.contains(family)) return b.copyWith(fontFamily: family);
   try {
     return GoogleFonts.getFont(family, textStyle: b);
   } catch (_) {
@@ -150,3 +160,86 @@ TextStyle fontStyle(String? family, {double? size, TextStyle? base}) {
 
 /// ¿El texto tiene caracteres chinos/japoneses (CJK)?
 bool hasCjk(String text) => RegExp(r'[㐀-鿿豈-﫿]').hasMatch(text);
+
+// ------------------------------------------------------- Fuentes propias
+
+/// Nombres de las fuentes importadas (archivos .ttf / .otf del teléfono).
+final customFonts = ValueNotifier<List<String>>(const []);
+
+/// Todas las fuentes para elegir: primero las tuyas.
+List<AppFont> allFonts() => [
+      for (final f in customFonts.value) AppFont(f, f, group: FontGroup.mine, sample: 'Así se ve tu fuente'),
+      ...appFonts,
+    ];
+
+Future<Directory> _fontsDir() async {
+  final d = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'fuentes'));
+  if (!d.existsSync()) d.createSync(recursive: true);
+  return d;
+}
+
+Future<void> _register(File f) async {
+  final name = p.basenameWithoutExtension(f.path);
+  final loader = FontLoader(name)..addFont(f.readAsBytes().then((b) => ByteData.sublistView(b)));
+  await loader.load();
+}
+
+/// Se llama al abrir la app.
+Future<void> loadCustomFonts() async {
+  try {
+    final dir = await _fontsDir();
+    final files = dir.listSync().whereType<File>().where((f) => RegExp(r'\.(ttf|otf)$', caseSensitive: false).hasMatch(f.path)).toList();
+    for (final f in files) {
+      await _register(f);
+    }
+    customFonts.value = [for (final f in files) p.basenameWithoutExtension(f.path)]..sort();
+  } catch (_) {}
+}
+
+/// Elegir un .ttf u .otf y agregarlo. Devuelve su nombre, o null.
+Future<String?> importCustomFont() async {
+  final res = await FilePicker.platform.pickFiles(type: FileType.any);
+  final path = res?.files.single.path;
+  if (path == null) return null;
+  if (!RegExp(r'\.(ttf|otf)$', caseSensitive: false).hasMatch(path)) {
+    throw const FormatException('Elige un archivo de fuente .ttf u .otf');
+  }
+  final name = p.basenameWithoutExtension(path).replaceAll(RegExp(r'[^\w\- ]'), ' ').trim();
+  final dest = File(p.join((await _fontsDir()).path, '$name${p.extension(path).toLowerCase()}'));
+  await File(path).copy(dest.path);
+  await _register(dest);
+  customFonts.value = {...customFonts.value, name}.toList()..sort();
+  return name;
+}
+
+Future<void> deleteCustomFont(String name) async {
+  final dir = await _fontsDir();
+  for (final f in dir.listSync().whereType<File>()) {
+    if (p.basenameWithoutExtension(f.path) == name) f.deleteSync();
+  }
+  customFonts.value = [for (final f in customFonts.value) if (f != name) f];
+}
+
+/// Fila "Importar fuente" para los selectores de letra.
+class ImportFontTile extends StatelessWidget {
+  const ImportFontTile({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        leading: const Icon(Icons.upload_file),
+        title: const Text('Importar fuente (.ttf u .otf)'),
+        subtitle: const Text('Por ejemplo, una que bajaste de dafont o Google Fonts'),
+        onTap: () async {
+          try {
+            final name = await importCustomFont();
+            if (name != null && context.mounted) {
+              Navigator.pop(context, AppFont(name, name, group: FontGroup.mine));
+            }
+          } catch (e) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'.replaceFirst('FormatException: ', ''))));
+            }
+          }
+        },
+      );
+}

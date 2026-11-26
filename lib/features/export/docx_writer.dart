@@ -164,3 +164,74 @@ String _unescape(String s) => s
     .replaceAll('&quot;', '"')
     .replaceAll('&apos;', "'")
     .replaceAll('&amp;', '&');
+
+// --------------------------------------------------------------- EPUB
+
+/// Capítulos de un libro EPUB: (título, texto). En el orden del libro.
+List<(String, String)> readEpubChapters(List<int> bytes) {
+  final zip = ZipDecoder().decodeBytes(bytes);
+  String? read(String name) {
+    final f = zip.files.where((f) => f.name == name).firstOrNull;
+    return f == null ? null : utf8.decode(f.content as List<int>, allowMalformed: true);
+  }
+
+  final container = read('META-INF/container.xml');
+  final opfPath = container == null ? null : RegExp(r'full-path="([^"]+)"').firstMatch(container)?.group(1);
+  final opf = opfPath == null ? null : read(opfPath);
+  if (opf == null) throw const FormatException('Ese archivo no parece un libro EPUB.');
+  final base = opfPath!.contains('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+  final hrefs = {
+    for (final m in RegExp(r'<item\b[^>]*>').allMatches(opf))
+      if (RegExp(r'id="([^"]+)"').firstMatch(m.group(0)!)?.group(1) case final id?)
+        id: RegExp(r'href="([^"]+)"').firstMatch(m.group(0)!)?.group(1) ?? '',
+  };
+  final order = [for (final m in RegExp(r'<itemref\b[^>]*idref="([^"]+)"').allMatches(opf)) m.group(1)!];
+  final out = <(String, String)>[];
+  for (final id in order) {
+    final href = hrefs[id];
+    if (href == null || href.isEmpty) continue;
+    final html = read(base + Uri.decodeFull(href));
+    if (html == null) continue;
+    final title = RegExp(r'<h[1-3][^>]*>([\s\S]*?)</h[1-3]>').firstMatch(html)?.group(1);
+    final text = htmlToText(html);
+    if (text.trim().length < 3) continue;
+    out.add((title == null ? 'Capítulo ${out.length + 1}' : htmlToText(title), text));
+  }
+  return out;
+}
+
+/// Texto simple a partir de HTML/XHTML (párrafos separados por línea).
+String htmlToText(String html) {
+  var s = html
+      .replaceAll(RegExp(r'<(script|style|head)[\s\S]*?</\1>', caseSensitive: false), '')
+      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'</(p|div|h[1-6]|li|tr|section)>', caseSensitive: false), '\n')
+      .replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '• ')
+      .replaceAll(RegExp(r'<[^>]+>'), '');
+  s = _unescape(s.replaceAll('&nbsp;', ' ').replaceAll('&#160;', ' '));
+  s = s.replaceAll(RegExp(r'[ \t]+'), ' ').replaceAll(RegExp(r' *\n *'), '\n');
+  return s.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+}
+
+// ---------------------------------------------------------- PowerPoint
+
+/// Texto de cada diapositiva de un .pptx, en orden.
+List<String> readPptxSlides(List<int> bytes) {
+  final zip = ZipDecoder().decodeBytes(bytes);
+  final slides = zip.files.where((f) => RegExp(r'^ppt/slides/slide\d+\.xml$').hasMatch(f.name)).toList()
+    ..sort((a, b) => int.parse(RegExp(r'\d+').firstMatch(a.name.split('/').last)!.group(0)!)
+        .compareTo(int.parse(RegExp(r'\d+').firstMatch(b.name.split('/').last)!.group(0)!)));
+  if (slides.isEmpty) throw const FormatException('Ese archivo no parece una presentación de PowerPoint (.pptx).');
+  return [
+    for (final f in slides)
+      () {
+        final xml = utf8.decode(f.content as List<int>, allowMalformed: true);
+        final paras = <String>[];
+        for (final p in RegExp(r'<a:p>[\s\S]*?</a:p>|<a:p [\s\S]*?</a:p>').allMatches(xml)) {
+          final t = [for (final m in RegExp(r'<a:t>([\s\S]*?)</a:t>').allMatches(p.group(0)!)) m.group(1)].join();
+          if (t.trim().isNotEmpty) paras.add(_unescape(t));
+        }
+        return paras.join('\n');
+      }(),
+  ];
+}

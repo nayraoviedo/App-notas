@@ -37,6 +37,8 @@ dependencies:
   quick_actions: ^1.0.0
   # Exportar e importar Word (.docx es un zip)
   archive: '>=3.6.0 <5.0.0'
+  # Ecuaciones (fórmulas escritas como en LaTeX)
+  flutter_math_fork: ^0.7.4
   # Quitar el fondo de las fotos (ML Kit, en el teléfono)
   google_mlkit_subject_segmentation: ^0.3.2
   # Avisos de exámenes y entregas

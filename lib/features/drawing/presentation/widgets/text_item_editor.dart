@@ -23,7 +23,7 @@ class TextStyleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final label = appFonts.where((f) => f.family == item.font).firstOrNull?.label.split(' · ').first ??
+    final label = allFonts().where((f) => f.family == item.font).firstOrNull?.label.split(' · ').first ??
         'Fuente predeterminada';
 
     Widget pill({required Widget child, VoidCallback? onTap}) => Material(
@@ -186,7 +186,8 @@ Future<AppFont?> pickFont(BuildContext context, String? current) {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Text(group.label, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
             ),
-            for (final f in appFonts.where((f) => f.group == group))
+            if (group == FontGroup.mine) const ImportFontTile(),
+                for (final f in allFonts().where((f) => f.group == group))
               ListTile(
                 selected: f.family == current,
                 title: Text(f.label),

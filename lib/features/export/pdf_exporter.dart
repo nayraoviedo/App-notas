@@ -191,7 +191,7 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Este cuaderno no tiene notas.')));
     return;
   }
-  var word = false;
+  var fmt = 'pdf';
   final how = await showModalBottomSheet<String>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -205,13 +205,14 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SegmentedButton<bool>(
+            child: SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: false, icon: Icon(Icons.picture_as_pdf_outlined), label: Text('PDF')),
-                ButtonSegment(value: true, icon: Icon(Icons.description_outlined), label: Text('Word')),
+                ButtonSegment(value: 'pdf', label: Text('PDF')),
+                ButtonSegment(value: 'docx', label: Text('Word')),
+                ButtonSegment(value: 'md', label: Text('Markdown')),
               ],
-              selected: {word},
-              onSelectionChanged: (v) => set(() => word = v.first),
+              selected: {fmt},
+              onSelectionChanged: (v) => set(() => fmt = v.first),
             ),
           ),
           ListTile(
@@ -294,7 +295,29 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
     ),
   );
   try {
-    if (word) {
+    if (fmt == 'md') {
+      final dir = await getTemporaryDirectory();
+      final files = <XFile>[];
+      if (!separate) {
+        status.value = 'Armando el Markdown…';
+        final parts = ['# $name\n'];
+        for (final n in chosen) {
+          parts.add(await _noteToMarkdown(ref, n.id, level: 2));
+        }
+        final f = File('${dir.path}/${safeFileName(name)}.md');
+        await f.writeAsString(parts.join('\n\n---\n\n'));
+        files.add(XFile(f.path));
+      } else {
+        for (final (i, n) in chosen.indexed) {
+          status.value = 'Nota ${i + 1} de ${chosen.length}…';
+          final f = File('${dir.path}/${(i + 1).toString().padLeft(2, '0')} - ${safeFileName(n.displayTitle)}.md');
+          await f.writeAsString(await _noteToMarkdown(ref, n.id));
+          files.add(XFile(f.path));
+        }
+      }
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      await SharePlus.instance.share(ShareParams(files: files, subject: name));
+    } else if (fmt == 'docx') {
       final dir = await getTemporaryDirectory();
       final files = <XFile>[];
       if (!separate) {
@@ -365,6 +388,12 @@ Future<void> exportNoteFlow(BuildContext context, WidgetRef ref, String noteId) 
             subtitle: const Text('Para seguir editándolo en Word o Google Docs'),
             onTap: () => Navigator.pop(context, 'docx'),
           ),
+          ListTile(
+            leading: const Icon(Icons.tag),
+            title: const Text('Markdown (.md)'),
+            subtitle: const Text('Texto simple para Notion, Obsidian, GitHub…'),
+            onTap: () => Navigator.pop(context, 'md'),
+          ),
         ],
       ),
     ),
@@ -375,6 +404,11 @@ Future<void> exportNoteFlow(BuildContext context, WidgetRef ref, String noteId) 
   try {
     if (fmt == 'pdf') {
       await exportNoteToPdf(ref, noteId);
+    } else if (fmt == 'md') {
+      final note = await ref.read(noteProvider(noteId).future);
+      final f = File('${(await getTemporaryDirectory()).path}/${safeFileName(note?.displayTitle ?? 'Nota')}.md');
+      await f.writeAsString(await _noteToMarkdown(ref, noteId));
+      await SharePlus.instance.share(ShareParams(files: [XFile(f.path)]));
     } else {
       final note = await ref.read(noteProvider(noteId).future);
       final w = DocxWriter();
@@ -465,4 +499,63 @@ Future<void> _noteToDocx(WidgetRef ref, String noteId, DocxWriter w) async {
         }
     }
   }
+}
+
+/// Una nota en Markdown: texto, resumen, notas rápidas y transcripción.
+/// Fotos y hojas a mano se indican con una marca (no van adentro del .md).
+Future<String> _noteToMarkdown(WidgetRef ref, String noteId, {int level = 1}) async {
+  final note = await ref.read(noteProvider(noteId).future);
+  final blocks = await ref.read(blocksProvider(noteId).future);
+  final speakers = {for (final s in await ref.read(speakersProvider.future)) s.id: s.name};
+  final h = '#' * level, h2 = '#' * (level + 1), h3 = '#' * (level + 2);
+  final b = StringBuffer('$h ${note?.displayTitle ?? 'Nota'}\n\n');
+  if (note != null) {
+    b.writeln('_${note.createdAt.day}/${note.createdAt.month}/${note.createdAt.year}_\n');
+  }
+  var sheets = 0, photos = 0;
+  for (final bl in blocks) {
+    switch (bl) {
+      case TextBlock t:
+        if (t.text.trim().isNotEmpty) b.writeln('${t.text.trim()}\n');
+      case ImageBlock img:
+        photos++;
+        b.writeln('_[Foto $photos${img.anchor != null ? ' · ${formatMs(img.anchor!.atMs)}' : ''}]_\n');
+      case DrawingBlock _:
+        sheets++;
+        b.writeln('_[Hoja a mano $sheets]_\n');
+      case VideoRefBlock v:
+        b.writeln('- **${formatMs(v.atMs)}** ${v.text}');
+      case AudioBlock a:
+        b.writeln('$h2 Grabación (${formatMs(a.durationMs)})\n');
+        final summary = await ref.read(summaryProvider(a.id).future);
+        if (summary != null) {
+          b.writeln('$h3 ${summary.title}\n\n${summary.overview}\n');
+          for (final k in summary.keyPoints) {
+            b.writeln('- $k');
+          }
+          b.writeln();
+          for (final c in summary.chapters) {
+            b.writeln('- **${formatMs(c.atMs)} ${c.title}:** ${c.summary}');
+          }
+          b.writeln();
+        }
+        final quick = (await ref.read(markersProvider(a.id).future)).where((m) => m.isQuickNote).toList();
+        if (quick.isNotEmpty) {
+          b.writeln('$h3 Notas rápidas\n');
+          for (final m in quick) {
+            b.writeln('- **${formatMs(m.atMs)}** ${m.label}');
+          }
+          b.writeln();
+        }
+        final segments = await ref.read(segmentsProvider(a.id).future);
+        if (segments.isNotEmpty) {
+          b.writeln('$h3 Transcripción\n');
+          for (final s in segments) {
+            final who = s.speakerId == null ? '' : ' ${speakers[s.speakerId] ?? ''}:';
+            b.writeln('**[${formatMs(s.startMs)}]**$who ${s.text}\n');
+          }
+        }
+    }
+  }
+  return b.toString().trim();
 }

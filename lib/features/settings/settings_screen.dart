@@ -147,6 +147,33 @@ class SettingsScreen extends ConsumerWidget {
               if (f != null) await setAppFont(ref, f);
             },
           ),
+          const _Header('Hojas'),
+          ListTile(
+            leading: const Icon(Icons.swap_vert),
+            title: const Text('Pasar de hoja'),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'vertical', icon: Icon(Icons.swap_vert), label: Text('Tirar ↑↓')),
+                  ButtonSegment(value: 'horizontal', icon: Icon(Icons.swap_horiz), label: Text('Deslizar ←→')),
+                ],
+                selected: {ref.read(sharedPreferencesProvider).getString('pages.mode') ?? 'vertical'},
+                onSelectionChanged: (v) async {
+                  await ref.read(sharedPreferencesProvider).setString('pages.mode', v.first);
+                  ref.invalidate(settingsProvider); // redibujar
+                },
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(72, 0, 16, 8),
+            child: Text(
+              'Tirar: en la última hoja, tira hacia arriba para agregar otra. '
+              'Se hace con el dedo en el fondo gris, en modo mano o con "solo lápiz".',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+          ),
           const _Header('Copia de seguridad'),
           ListTile(
             leading: const Icon(Icons.cloud_upload_outlined),

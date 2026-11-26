@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import '../../export/docx_writer.dart' show readDocxText;
+import '../../export/docx_writer.dart' show readDocxText, readEpubChapters, readPptxSlides;
 import '../../export/pdf_exporter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -94,7 +94,9 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
               ),
               PopupMenuItem(
                 value: 'word',
-                child: ListTile(leading: Icon(Icons.description_outlined), title: Text('Importar Word como nota')),
+                child: ListTile(
+                    leading: Icon(Icons.description_outlined),
+                    title: Text('Importar Word, EPUB o PowerPoint')),
               ),
             ],
           ),
@@ -169,21 +171,36 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
     if (noteId != null && context.mounted) context.push('/notes/$noteId');
   }
 
-  /// Un Word (.docx) se vuelve una nota con su texto.
+  /// Word (.docx), libro (.epub) o presentación (.pptx) → una nota con su
+  /// texto (un bloque por capítulo o diapositiva).
   Future<void> _importWord(BuildContext context) async {
-    final res = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['docx']);
+    final res = await FilePicker.platform.pickFiles(type: FileType.any);
     final path = res?.files.single.path;
     if (path == null || !context.mounted) return;
+    final lower = path.toLowerCase();
+    final title = path.split('/').last.replaceAll(RegExp(r'\.(docx|epub|pptx)$', caseSensitive: false), '');
     try {
-      final text = readDocxText(await File(path).readAsBytes());
-      final title = path.split('/').last.replaceAll(RegExp(r'\.docx$', caseSensitive: false), '');
+      final bytes = await File(path).readAsBytes();
+      final List<String> blocks;
+      if (lower.endsWith('.docx')) {
+        blocks = [readDocxText(bytes)];
+      } else if (lower.endsWith('.epub')) {
+        blocks = [for (final (t, body) in readEpubChapters(bytes)) '$t\n\n$body'];
+      } else if (lower.endsWith('.pptx')) {
+        blocks = [for (final (i, t) in readPptxSlides(bytes).indexed) 'Diapositiva ${i + 1}\n$t'];
+      } else {
+        throw const FormatException('Elige un archivo .docx, .epub o .pptx (para PDF usa "Importar PDF").');
+      }
       final repo = ref.read(notesRepositoryProvider);
       final id = await repo.createNote(title: title, notebookId: widget.notebookId);
-      await repo.addTextBlock(id, text: text);
+      for (final b in blocks) {
+        if (b.trim().isNotEmpty) await repo.addTextBlock(id, text: b.trim());
+      }
       if (context.mounted) context.push('/notes/$id');
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo leer el Word: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo importar: ${'$e'.replaceFirst('FormatException: ', '')}')));
       }
     }
   }

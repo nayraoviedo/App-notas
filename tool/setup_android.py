@@ -55,6 +55,11 @@ if "RECORD_AUDIO" not in s:
     i = s.index(">", s.index("<manifest")) + 1
     s = s[:i] + PERMISSIONS + s[i:]
 s = s.replace('android:label="app_notas"', 'android:label="Kumo"')
+# Copia automática en la cuenta de Google (reglas en res/xml/).
+if "fullBackupContent" not in s:
+    s = s.replace("<application", '<application android:allowBackup="true" '
+                  'android:fullBackupContent="@xml/backup_rules" '
+                  'android:dataExtractionRules="@xml/data_extraction_rules"', 1)
 if "ScheduledNotificationReceiver" not in s:
     i = s.index(">", s.index("<application")) + 1
     s = s[:i] + APP_EXTRAS + s[i:]

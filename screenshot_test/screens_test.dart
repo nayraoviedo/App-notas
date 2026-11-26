@@ -230,7 +230,7 @@ void main() {
       body: CreateNoteForm(),
     )));
     await _shot(tester, '03_crear_nota');
-    await tester.tap(find.text('Tapa').first);
+    await tester.tap(find.text('Elegir tapa').first);
     await _shot(tester, '04_crear_nota_tapas');
   });
 
@@ -273,18 +273,20 @@ void main() {
 
   testWidgets('panel de formas', (tester) async {
     await openDrawing(tester);
-    await tester.ensureVisible(find.byTooltip('Formas'));
-    await tester.pump();
-    await tester.tap(find.byTooltip('Formas'));
+    await tester.tap(find.text('Insertar'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Formas').last);
+    await tester.pump(const Duration(milliseconds: 500));
     await _shot(tester, '08_formas');
   });
 
   for (final (i, tab) in ['Básico', 'Memo', 'Texto', 'Natural'].indexed) {
     testWidgets('stickers $tab', (tester) async {
       await openDrawing(tester);
-      await tester.ensureVisible(find.byTooltip('Stickers'));
-      await tester.pump();
-      await tester.tap(find.byTooltip('Stickers'));
+      await tester.tap(find.text('Insertar'));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('Stickers').last);
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.pump();
       await tester.tap(find.text(tab).last);
       await _shot(tester, '${(9 + i).toString().padLeft(2, '0')}_stickers_${tab.toLowerCase()}');
@@ -360,9 +362,10 @@ void main() {
 
   testWidgets('stickers gatitos', (tester) async {
     await openDrawing(tester);
-    await tester.ensureVisible(find.byTooltip('Stickers'));
-    await tester.pump();
-    await tester.tap(find.byTooltip('Stickers'));
+    await tester.tap(find.text('Insertar'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Stickers').last);
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
     await tester.tap(find.text('Gatitos').last);
     await _shot(tester, '18_stickers_gatitos');
@@ -512,12 +515,20 @@ void main() {
 
   testWidgets('stickers doodles', (tester) async {
     await openDrawing(tester);
-    await tester.ensureVisible(find.byTooltip('Stickers'));
-    await tester.pump();
-    await tester.tap(find.byTooltip('Stickers'));
+    await tester.tap(find.text('Insertar'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Stickers').last);
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
     await tester.tap(find.text('Doodles').last);
     await _shot(tester, '26_doodles');
+  });
+
+  testWidgets('insertar', (tester) async {
+    await openDrawing(tester);
+    await tester.tap(find.text('Insertar'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await _shot(tester, '27_insertar');
   });
 
   testWidgets('portadas nuevas', (tester) async {
