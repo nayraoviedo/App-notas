@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,7 +14,9 @@ import 'package:printing/printing.dart';
 import '../../core/fonts.dart';
 import '../../core/providers.dart';
 import '../../core/utils/time_format.dart';
+import '../backup/drive_sync.dart';
 import '../drawing/application/drawing_rasterizer.dart';
+import '../settings/settings.dart';
 import '../notes/domain/note_block.dart';
 import '../summary/application/summary_runner.dart';
 import 'docx_writer.dart';
@@ -232,12 +235,23 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
             title: const Text('Elegir notas…'),
             onTap: () => Navigator.pop(context, 'pick'),
           ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.add_link),
+            title: const Text('Compartir con un link'),
+            subtitle: const Text('Se sube como PDF a tu Google Drive y te da un link para mandar'),
+            onTap: () => Navigator.pop(context, 'link'),
+          ),
         ],
       ),
     ),
     ),
   );
   if (how == null || !context.mounted) return;
+  if (how == 'link') {
+    await _shareLinkFlow(context, ref, notes.map((n) => n.id).toList(), name);
+    return;
+  }
   var chosen = notes;
   var separate = how == 'each';
   if (how == 'pick') {
@@ -558,4 +572,62 @@ Future<String> _noteToMarkdown(WidgetRef ref, String noteId, {int level = 1}) as
     }
   }
   return b.toString().trim();
+}
+
+
+/// Sube el cuaderno como PDF a Google Drive y comparte el link.
+Future<void> _shareLinkFlow(BuildContext context, WidgetRef ref, List<String> noteIds, String name) async {
+  final status = ValueNotifier<String>('Armando el PDF…');
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      content: Row(children: [
+        const CircularProgressIndicator(),
+        const SizedBox(width: 16),
+        Expanded(child: ValueListenableBuilder(valueListenable: status, builder: (_, v, __) => Text(v))),
+      ]),
+    ),
+  );
+  try {
+    final bytes = await buildNotesPdf(ref, noteIds, title: name);
+    final link = await DriveSync.instance.shareFile(
+      ref.read(sharedPreferencesProvider),
+      bytes,
+      '${safeFileName(name)}.pdf',
+      onStatus: (s) => status.value = s,
+    );
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    await Clipboard.setData(ClipboardData(text: link));
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Link listo ✓'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Ya está copiado. Quien tenga el link puede ver el PDF (no editarlo). '
+              'Lo encuentras en tu Drive, carpeta "Kumo compartidos".'),
+          const SizedBox(height: 8),
+          SelectableText(link, style: const TextStyle(fontSize: 13)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              SharePlus.instance.share(ShareParams(text: '$name 📒 $link', subject: name));
+            },
+            icon: const Icon(Icons.share),
+            label: const Text('Mandar'),
+          ),
+        ],
+      ),
+    );
+  } catch (e) {
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo compartir: $e')));
+    }
+  }
 }

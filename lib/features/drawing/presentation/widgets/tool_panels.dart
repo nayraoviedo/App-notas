@@ -28,6 +28,56 @@ IconData toolIcon(ToolType t) => switch (t) {
 
 /// Ícono de borrador (goma rosada de lápiz, inclinada): el de Material no
 /// existe y la varita mágica confundía.
+/// Ícono del lazo: un lazo punteado con su cuerda (más claro que el de
+/// "selección" de Material).
+class LassoIcon extends StatelessWidget {
+  const LassoIcon({super.key, this.size = 24});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        size: Size.square(size),
+        painter: _LassoPainter(IconTheme.of(context).color ?? Colors.black87),
+      );
+}
+
+class _LassoPainter extends CustomPainter {
+  _LassoPainter(this.ink);
+  final Color ink;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final k = s.width / 24;
+    canvas.save();
+    canvas.scale(k);
+    final paint = Paint()
+      ..color = ink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.9
+      ..strokeCap = StrokeCap.round;
+    // Óvalo punteado.
+    final oval = Path()..addOval(const Rect.fromLTWH(3, 3, 18, 12));
+    for (final m in oval.computeMetrics()) {
+      var d = 0.0;
+      while (d < m.length) {
+        canvas.drawPath(m.extractPath(d, d + 3.2), paint);
+        d += 5.4;
+      }
+    }
+    // Cuerda con nudo.
+    final rope = Path()
+      ..moveTo(8, 14.4)
+      ..quadraticBezierTo(6.5, 18, 9, 19.5)
+      ..quadraticBezierTo(11.5, 21, 10, 23);
+    canvas.drawPath(rope, paint);
+    canvas.drawCircle(const Offset(8, 14.6), 1.7, Paint()..color = ink);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_LassoPainter old) => old.ink != ink;
+}
+
 class EraserIcon extends StatelessWidget {
   const EraserIcon({super.key, this.size = 24});
   final double size;

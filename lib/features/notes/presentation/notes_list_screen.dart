@@ -72,8 +72,15 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
             onPressed: () => showSearch(context: context, delegate: NotesSearchDelegate(ref)),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            tooltip: 'Exportar o importar (PDF y Word)',
+            tooltip: 'Exportar, compartir o importar archivos',
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.import_export),
+                SizedBox(width: 4),
+                Text('Archivos'),
+              ]),
+            ),
             onSelected: (v) {
               if (v == 'import') _importPdf(context);
               if (v == 'word') _importWord(context);
@@ -86,7 +93,7 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
             itemBuilder: (_) => const [
               PopupMenuItem(
                 value: 'export',
-                child: ListTile(leading: Icon(Icons.ios_share), title: Text('Exportar a PDF o Word (completo o por notas)')),
+                child: ListTile(leading: Icon(Icons.ios_share), title: Text('Exportar o compartir (PDF, Word, link)')),
               ),
               PopupMenuItem(
                 value: 'import',

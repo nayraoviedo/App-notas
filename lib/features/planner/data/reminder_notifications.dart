@@ -12,6 +12,44 @@ class ReminderNotifications {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
+  /// Qué hacer al tocar un aviso (lo pone la app: abrir el resumen, etc.).
+  void Function(String? payload)? onTap;
+
+  /// Aviso con el que se abrió la app (si fue así).
+  String? pendingPayload;
+
+  static const _weeklyId = 0x7FFF0001;
+
+  /// Aviso cada domingo a las 19:00: "tu resumen de la semana".
+  Future<void> scheduleWeeklySummary({bool on = true}) async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(id: _weeklyId);
+    } catch (_) {}
+    if (!on) return;
+    final now = DateTime.now();
+    var t = DateTime(now.year, now.month, now.day + (7 - now.weekday) % 7, 19);
+    if (!t.isAfter(now)) t = t.add(const Duration(days: 7));
+    try {
+      await _plugin.zonedSchedule(
+        id: _weeklyId,
+        scheduledDate: tz.TZDateTime.from(t.toUtc(), tz.UTC),
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'resumen',
+            'Resumen de la semana',
+            channelDescription: 'Cada domingo, lo que hiciste y lo que viene',
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+        title: '🐱 Tu semana en Kumo',
+        body: 'Mira lo que hiciste y lo que viene la próxima semana',
+        payload: 'week',
+      );
+    } catch (_) {}
+  }
+
   static const _details = NotificationDetails(
     android: AndroidNotificationDetails(
       'pendientes',
@@ -29,7 +67,12 @@ class ReminderNotifications {
         settings: const InitializationSettings(
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         ),
+        onDidReceiveNotificationResponse: (r) => onTap?.call(r.payload),
       );
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp ?? false) {
+        pendingPayload = launch?.notificationResponse?.payload;
+      }
       _ready = true;
     } catch (_) {
       _ready = false;

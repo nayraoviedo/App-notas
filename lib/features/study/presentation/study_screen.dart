@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/daily_stats.dart';
 import '../../../core/providers.dart';
 import '../../../core/utils/time_format.dart';
 import '../../../core/widgets/cat_mascot.dart';
@@ -208,6 +209,7 @@ class _ReviewState extends ConsumerState<_Review> {
                         ),
                         onPressed: () async {
                           await ref.read(flashcardsRepositoryProvider).save(schedule(c, r));
+                          await DailyStats.bump(ref.read(sharedPreferencesProvider), 'reviews');
                           if (mounted) setState(() => _show = false);
                         },
                         child: Column(

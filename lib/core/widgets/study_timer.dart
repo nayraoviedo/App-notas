@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/drawing/presentation/painters/sticker_painter.dart' show catStickerAssets;
 import '../../features/settings/settings.dart';
+import '../daily_stats.dart';
 import '../providers.dart';
 
 /// Temporizador de estudio (por ejemplo, 25 min tipo Pomodoro). Es global:
@@ -83,6 +84,7 @@ class StudyTimerButton extends ConsumerWidget {
     final prefs = ref.read(sharedPreferencesProvider);
     final count = (prefs.getInt('pomodoro.count') ?? 0) + 1;
     await prefs.setInt('pomodoro.count', count);
+    await DailyStats.bump(prefs, 'pomodoro');
     final asset = catStickerAssets[(DateTime.now().millisecondsSinceEpoch ~/ 1000) % catStickerAssets.length];
     try {
       final data = await rootBundle.load(asset);

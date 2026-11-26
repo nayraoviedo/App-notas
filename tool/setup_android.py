@@ -156,3 +156,39 @@ if (FIRMA / "kumo.jks").exists():
         g = g[:j] + signing + g[j:]
         g = g.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("kumo")')
         GRADLE.write_text(g)
+
+# Widget de inicio (próxima clase, pendiente y botones). Va sin plugin: el
+# código Kotlin está en tool/android_widget y reemplaza el MainActivity
+# que genera `flutter create`.
+WIDGET = Path(__file__).parent / "android_widget"
+if WIDGET.exists():
+    shutil.copytree(WIDGET / "res", Path("android/app/src/main/res"), dirs_exist_ok=True)
+    mains = list(Path("android/app/src/main").rglob("MainActivity.kt"))
+    kdir = mains[0].parent if mains else Path("android/app/src/main/kotlin/com/appnotas/app_notas")
+    pkg = "com.appnotas.app_notas"
+    for m in mains:
+        for line in m.read_text().splitlines():
+            if line.startswith("package "):
+                pkg = line.split()[1].strip()
+    for m in mains:
+        m.unlink()
+    for java in Path("android/app/src/main").rglob("MainActivity.java"):
+        java.unlink()
+    kdir.mkdir(parents=True, exist_ok=True)
+    for name in ("MainActivity.kt", "KumoWidget.kt"):
+        code = (WIDGET / "kotlin" / name).read_text().replace("package com.appnotas.app_notas", f"package {pkg}", 1)
+        (kdir / name).write_text(code)
+    s = MANIFEST.read_text()
+    if "KumoWidget" not in s:
+        receiver = """
+        <receiver android:name=".KumoWidget" android:exported="false" android:label="Kumo">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/kumo_widget_info" />
+        </receiver>
+"""
+        i = s.index(">", s.index("<application")) + 1
+        s = s[:i] + receiver + s[i:]
+        MANIFEST.write_text(s)
+    print("Widget de inicio listo")

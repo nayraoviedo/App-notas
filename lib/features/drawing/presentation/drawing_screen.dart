@@ -17,6 +17,8 @@ import '../../recording/application/recording_controller.dart';
 import '../../settings/settings.dart';
 import '../application/drawing_controller.dart';
 import '../application/handwriting.dart';
+import '../data/page_templates.dart';
+import 'presentation_screen.dart';
 import '../domain/drawing.dart';
 import 'drawing_block_view.dart';
 import 'widgets/canvas_item_view.dart';
@@ -425,7 +427,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
 
 
 
-  Future<void> _addPage({required bool copy}) async {
+  Future<void> _addPage({required bool copy, Drawing? from}) async {
     final ctl = _ctl;
     final pages = _pages;
     final i = _pageIndex;
@@ -434,7 +436,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     final storage = ref.read(fileStorageProvider);
     final path = await storage.newDrawingPath();
     final d = ctl.drawing;
-    final newDrawing = copy
+    final newDrawing = from ??
+        (copy
         ? d.copyWith(bookmarked: false, clearTab: true)
         // Página nueva con la misma hoja (plantilla, color, tamaño).
         : Drawing(
@@ -446,7 +449,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               practice: d.paper.practice?.copyWith(chars: const []),
             ),
             layers: const [DrawingLayer(id: 'l1', name: 'Capa 1')],
-          );
+          ));
     await ref.read(drawingStoreProvider).save(path, newDrawing);
     await ref
         .read(notesRepositoryProvider)
@@ -764,11 +767,15 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                                 customBorder: const StadiumBorder(),
                                 onTap: _showThumbnails,
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-                                  child: Text(
-                                    index < 0 ? '–' : '${index + 1}/${pages.length}',
-                                    style: const TextStyle(fontSize: 16, color: Colors.black54),
-                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                    const Icon(Icons.grid_view_outlined, size: 16, color: Colors.black54),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      index < 0 ? '–' : 'Hoja ${index + 1} de ${pages.length}',
+                                      style: const TextStyle(fontSize: 15, color: Colors.black54),
+                                    ),
+                                  ]),
                                 ),
                               ),
                             ),
@@ -931,7 +938,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               label: const Text('Insertar'),
             ),
           ),
-          _icon(Icons.auto_stories_outlined, 'Hojas', _showThumbnails),
+          _icon(Icons.grid_view_outlined, 'Ver todas las hojas', _showThumbnails),
           _icon(Icons.more_vert, 'Más', () {
             _closePanel();
             _moreMenu(ctl);
@@ -1015,7 +1022,88 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Toca la hoja donde quieras escribir'), duration: Duration(seconds: 2)));
       case 'page':
-        await _addPage(copy: false);
+        await _newPageChooser();
+    }
+  }
+
+  /// "Hoja nueva": igual que esta, o desde una plantilla propia.
+  Future<void> _newPageChooser() async {
+    final templates = await PageTemplates.list();
+    if (!mounted) return;
+    if (templates.isEmpty) {
+      await _addPage(copy: false);
+      return;
+    }
+    final pick = await showModalBottomSheet<Object>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const ListTile(title: Text('Hoja nueva', style: TextStyle(fontWeight: FontWeight.bold))),
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined),
+              title: const Text('En blanco, con la misma hoja'),
+              onTap: () => Navigator.pop(context, 'same'),
+            ),
+            const Divider(),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Align(alignment: Alignment.centerLeft, child: Text('Mis plantillas')),
+            ),
+            for (final t in templates)
+              ListTile(
+                leading: const Icon(Icons.dashboard_customize_outlined),
+                title: Text(t.name),
+                onTap: () => Navigator.pop(context, t),
+                trailing: IconButton(
+                  tooltip: 'Borrar plantilla',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () async {
+                    await PageTemplates.delete(t);
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                ),
+              ),
+          ]),
+        ),
+      ),
+    );
+    if (pick == 'same') {
+      await _addPage(copy: false);
+    } else if (pick is PageTemplate) {
+      final d = await PageTemplates.load(pick);
+      await _addPage(copy: false, from: d);
+    }
+  }
+
+  Future<void> _saveAsTemplate(DrawingController ctl) async {
+    await ctl.flush();
+    if (!mounted) return;
+    final name = TextEditingController();
+    final r = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Guardar como plantilla'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('La hoja se guarda tal como está (dibujos, stickers, tablas). '
+              'Luego, en Insertar → Hoja nueva, la eliges para empezar otra igual.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: name,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Nombre', hintText: 'Planner semanal, Ejercicios…'),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, name.text), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (r == null || r.trim().isEmpty) return;
+    await PageTemplates.save(r, ctl.drawing);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Plantilla "${r.trim()}" guardada ✓')));
     }
   }
 
@@ -1075,9 +1163,18 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                     _closePanel();
                   }
                 }, selected: eraserOn),
-                _icon(Icons.highlight_alt, 'Lazo: rodea trazos para moverlos; toca textos y fotos para editarlos', () {
+                _icon(Icons.highlight_alt, 'Lazo: rodea trazos para moverlos o pasarlos a texto; toca textos y fotos para editarlos', glyph: const LassoIcon(), () {
+                  final first = c.mode != InputMode.select;
                   c.selectMode(InputMode.select);
                   _closePanel();
+                  if (first) {
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(const SnackBar(
+                        duration: Duration(seconds: 2),
+                        content: Text('Lazo: rodea con el dedo lo que quieras mover, copiar o pasar a texto'),
+                      ));
+                  }
                 }, selected: c.mode == InputMode.select),
                 _icon(Icons.text_fields, 'Texto: toca la hoja para escribir', () {
                   c.selectMode(InputMode.text);
@@ -1174,6 +1271,17 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               onTap: () => Navigator.pop(context, 'copy'),
             ),
             ListTile(
+              leading: const Icon(Icons.dashboard_customize_outlined),
+              title: const Text('Guardar como plantilla'),
+              subtitle: const Text('Para empezar otras hojas iguales'),
+              onTap: () => Navigator.pop(context, 'template'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.co_present_outlined),
+              title: const Text('Presentar (con puntero láser)'),
+              onTap: () => Navigator.pop(context, 'present'),
+            ),
+            ListTile(
               leading: const Icon(Icons.rotate_90_degrees_ccw_outlined),
               title: Text(ctl.drawing.isLandscape ? 'Poner vertical' : 'Poner horizontal'),
               onTap: () => Navigator.pop(context, 'rotate'),
@@ -1240,6 +1348,19 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         ctl.toggleBookmark();
       case 'copy':
         await _addPage(copy: true);
+      case 'template':
+        await _saveAsTemplate(ctl);
+      case 'present':
+        await ctl.flush();
+        if (!mounted) return;
+        final i = _pageIndex;
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => PresentationScreen(
+            paths: [for (final p in _pages) p.path],
+            initial: i < 0 ? 0 : i,
+          ),
+        ));
       case 'rotate':
         ctl.setLandscape(!ctl.drawing.isLandscape);
       case 'stylus':

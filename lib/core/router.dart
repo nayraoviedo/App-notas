@@ -10,6 +10,7 @@ import '../features/notebooks/presentation/library_screen.dart';
 import '../features/notes/presentation/book_view_screen.dart';
 import '../features/notes/presentation/note_editor_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/summary/presentation/weekly_summary_screen.dart';
 import '../features/notes/presentation/notes_list_screen.dart';
 import '../features/recording/presentation/recording_detail_screen.dart';
 import '../features/recording/presentation/recording_screen.dart';
@@ -44,6 +45,10 @@ final appRouter = GoRouter(
           path: 'planner',
           builder: (context, state) =>
               PlannerScreen(initialTab: state.uri.queryParameters['tab'] == 'pendientes' ? 1 : 0),
+        ),
+        GoRoute(
+          path: 'week',
+          builder: (context, state) => const WeeklySummaryScreen(),
         ),
         GoRoute(
           path: 'journal',

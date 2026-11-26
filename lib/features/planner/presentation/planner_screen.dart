@@ -8,6 +8,7 @@ import '../../../core/widgets/cat_mascot.dart';
 import '../../notebooks/domain/notebook.dart';
 import '../../settings/settings.dart';
 import '../data/reminder_notifications.dart';
+import '../../../core/home_widget.dart';
 import '../domain/planner.dart';
 
 class PlannerController extends Notifier<PlannerState> {
@@ -18,7 +19,7 @@ class PlannerController extends Notifier<PlannerState> {
 
   void _save(PlannerState s) {
     state = s;
-    ref.read(sharedPreferencesProvider).setString(_key, s.encode());
+    ref.read(sharedPreferencesProvider).setString(_key, s.encode()).then((_) => HomeWidget.refresh());
   }
 
   void saveClass(ClassSlot c) => _save(state.copyWith(classes: [
@@ -65,6 +66,13 @@ class PlannerScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Mi semana'),
+          actions: [
+            TextButton.icon(
+              onPressed: () => context.push('/week'),
+              icon: const Icon(Icons.insights_outlined),
+              label: const Text('Resumen'),
+            ),
+          ],
           bottom: const TabBar(tabs: [Tab(text: 'Horario'), Tab(text: 'Pendientes')]),
         ),
         body: const TabBarView(children: [ScheduleView(), RemindersView()]),

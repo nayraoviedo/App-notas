@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/daily_stats.dart';
 import '../../../core/providers.dart';
 import '../../../core/widgets/cat_mascot.dart';
+import '../../settings/settings.dart';
 import '../domain/flashcard.dart';
 
 /// Una pregunta del examen: la tarjeta y 4 respuestas (una correcta).
@@ -134,6 +136,7 @@ class _ExamScreenState extends ConsumerState<ExamScreen> {
     });
     // Lo que fallas vuelve pronto al repaso; lo que aciertas se aleja.
     await ref.read(flashcardsRepositoryProvider).save(schedule(q.card, ok ? Recall.good : Recall.again));
+    await DailyStats.bump(ref.read(sharedPreferencesProvider), 'reviews');
   }
 
   Widget _result(int total) {

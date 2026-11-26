@@ -38,26 +38,34 @@ class NoteEditorScreen extends ConsumerWidget {
           child: Text(note?.displayTitle ?? ''),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.menu_book_outlined),
-            tooltip: 'Hojear como cuaderno',
-            onPressed: () => context.push('/notes/$noteId/book'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Cambiar título',
-            onPressed: () => _rename(context, ref, note?.title ?? ''),
-          ),
-          IconButton(
-            icon: const Icon(Icons.drive_file_move_outline),
-            tooltip: 'Mover a cuaderno',
-            onPressed: () => _move(context, ref, note?.notebookId),
-          ),
           const StudyTimerButton(),
           IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: 'Exportar a PDF o Word',
             onPressed: () => exportNoteFlow(context, ref, noteId),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Más',
+            onSelected: (v) => switch (v) {
+              'book' => context.push('/notes/$noteId/book'),
+              'rename' => _rename(context, ref, note?.title ?? ''),
+              'move' => _move(context, ref, note?.notebookId),
+              _ => null,
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'book',
+                child: ListTile(leading: Icon(Icons.menu_book_outlined), title: Text('Hojear como cuaderno')),
+              ),
+              PopupMenuItem(
+                value: 'rename',
+                child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Cambiar título')),
+              ),
+              PopupMenuItem(
+                value: 'move',
+                child: ListTile(leading: Icon(Icons.drive_file_move_outline), title: Text('Mover a otro cuaderno')),
+              ),
+            ],
           ),
         ],
       ),

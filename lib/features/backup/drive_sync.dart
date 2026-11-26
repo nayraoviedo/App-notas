@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
@@ -79,6 +80,77 @@ class DriveSync {
   }
 
   Map<String, String> _h(String token) => {'Authorization': 'Bearer $token'};
+
+  static const shareScopes = ['https://www.googleapis.com/auth/drive.file'];
+
+  /// Sube un archivo a tu Drive (carpeta "Kumo compartidos") y devuelve un
+  /// link que cualquiera puede abrir para verlo (no para editarlo).
+  Future<String> shareFile(SharedPreferences prefs, Uint8List bytes, String fileName,
+      {String mime = 'application/pdf', void Function(String)? onStatus}) async {
+    await _init(prefs);
+    var user = _user ?? await GoogleSignIn.instance.attemptLightweightAuthentication();
+    if (user == null) {
+      try {
+        user = await GoogleSignIn.instance.authenticate(scopeHint: shareScopes);
+      } on GoogleSignInException catch (e) {
+        throw DriveException('No se pudo iniciar sesión: ${e.description ?? e.code.name}');
+      }
+      await prefs.setString(emailKey, user.email);
+    }
+    _user = user;
+    var auth = await user.authorizationClient.authorizationForScopes(shareScopes);
+    auth ??= await user.authorizationClient.authorizeScopes(shareScopes);
+    final token = auth.accessToken;
+
+    onStatus?.call('Subiendo a tu Google Drive…');
+    final folder = await _shareFolder(token);
+    final boundary = 'kumo${DateTime.now().microsecondsSinceEpoch}';
+    final meta = jsonEncode({'name': fileName, 'parents': [folder], 'mimeType': mime});
+    final body = BytesBuilder()
+      ..add(utf8.encode('--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n'))
+      ..add(utf8.encode('--$boundary\r\nContent-Type: $mime\r\n\r\n'))
+      ..add(bytes)
+      ..add(utf8.encode('\r\n--$boundary--'));
+    final up = await http.post(
+      Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink'),
+      headers: {..._h(token), 'Content-Type': 'multipart/related; boundary=$boundary'},
+      body: body.takeBytes(),
+    );
+    _check(up);
+    final j = jsonDecode(up.body) as Map;
+    final id = j['id'] as String;
+
+    onStatus?.call('Creando el link…');
+    final perm = await http.post(
+      Uri.parse('https://www.googleapis.com/drive/v3/files/$id/permissions'),
+      headers: {..._h(token), 'Content-Type': 'application/json'},
+      body: jsonEncode({'role': 'reader', 'type': 'anyone'}),
+    );
+    _check(perm);
+    return j['webViewLink'] as String? ?? 'https://drive.google.com/file/d/$id/view';
+  }
+
+  /// Carpeta "Kumo compartidos" en tu Drive (se crea la primera vez).
+  Future<String> _shareFolder(String token) async {
+    const name = 'Kumo compartidos';
+    final res = await http.get(
+      Uri.https('www.googleapis.com', '/drive/v3/files', {
+        'q': "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        'fields': 'files(id)',
+      }),
+      headers: _h(token),
+    );
+    _check(res);
+    final files = (jsonDecode(res.body)['files'] as List?) ?? const [];
+    if (files.isNotEmpty) return files.first['id'] as String;
+    final made = await http.post(
+      Uri.parse('https://www.googleapis.com/drive/v3/files?fields=id'),
+      headers: {..._h(token), 'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, 'mimeType': 'application/vnd.google-apps.folder'}),
+    );
+    _check(made);
+    return (jsonDecode(made.body) as Map)['id'] as String;
+  }
 
   /// Copias guardadas en Drive (la más nueva primero): (id, fecha, bytes).
   Future<List<(String, DateTime, int)>> list(SharedPreferences prefs) async {

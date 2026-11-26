@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quick_actions/quick_actions.dart';
 
+import 'core/home_widget.dart';
 import 'core/providers.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 import 'features/drawing/presentation/painters/stroke_renderer.dart';
 import 'features/backup/backup_service.dart';
 import 'features/backup/drive_sync.dart';
+import 'features/planner/data/reminder_notifications.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
 
@@ -25,6 +27,29 @@ class _AppNotasState extends ConsumerState<AppNotas> {
     _recoverLostPhoto();
     _setupShortcuts();
     _autoBackup();
+    _setupWidgetAndWeekly();
+  }
+
+  /// Widget de inicio y aviso del resumen de los domingos.
+  Future<void> _setupWidgetAndWeekly() async {
+    HomeWidget.refresh();
+    HomeWidget.listen((a) => switch (a) {
+          'nota' || 'grabar' => _onShortcut(a),
+          'pendientes' => appRouter.push('/planner?tab=pendientes'),
+          _ => null,
+        });
+    final n = ReminderNotifications.instance;
+    n.onTap = (payload) {
+      if (payload == 'week') appRouter.push('/week');
+    };
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      await n.scheduleWeeklySummary(on: prefs.getBool('week.notify') ?? true);
+      if (n.pendingPayload == 'week') {
+        n.pendingPayload = null;
+        appRouter.push('/week');
+      }
+    } catch (_) {}
   }
 
   /// Copia de seguridad automática semanal (en segundo plano, al abrir).

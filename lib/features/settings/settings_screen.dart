@@ -13,6 +13,7 @@ import '../../core/fonts.dart';
 import '../../core/theme.dart';
 import '../backup/backup_service.dart';
 import '../backup/drive_sync.dart';
+import '../planner/data/reminder_notifications.dart';
 import 'settings.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -179,6 +180,21 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const _Header('Letra a mano'),
           const _HandwritingTile(),
+          const _Header('Avisos'),
+          StatefulBuilder(builder: (context, setState) {
+            final prefs = ref.watch(sharedPreferencesProvider);
+            return SwitchListTile(
+              secondary: const Icon(Icons.insights_outlined),
+              title: const Text('Resumen de la semana'),
+              subtitle: const Text('Cada domingo a las 19:00, lo que hiciste y lo que viene'),
+              value: prefs.getBool('week.notify') ?? true,
+              onChanged: (v) async {
+                await prefs.setBool('week.notify', v);
+                setState(() {});
+                await ReminderNotifications.instance.scheduleWeeklySummary(on: v);
+              },
+            );
+          }),
           const _Header('Google Drive'),
           const _DriveTiles(),
           const _Header('Copia de seguridad'),
