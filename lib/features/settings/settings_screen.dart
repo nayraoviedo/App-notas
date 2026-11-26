@@ -256,6 +256,20 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const _Header('Grabación'),
+          StatefulBuilder(builder: (context, setState) {
+            final prefs = ref.watch(sharedPreferencesProvider);
+            return SwitchListTile(
+              secondary: const Icon(Icons.high_quality_outlined),
+              title: const Text('Grabar en alta calidad'),
+              subtitle: const Text('Sonido más claro (48 kHz) para escucharlo o compartirlo. '
+                  'Ocupa unas 3 veces más espacio. La transcripción funciona igual.'),
+              value: prefs.getBool('record.hq') ?? false,
+              onChanged: (v) async {
+                await prefs.setBool('record.hq', v);
+                setState(() {});
+              },
+            );
+          }),
           SwitchListTile(
             title: const Text('Transcripción en vivo'),
             subtitle: const Text('Apágala si el teléfono se pone lento'),

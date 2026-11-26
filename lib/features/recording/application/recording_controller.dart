@@ -17,6 +17,7 @@ import '../../transcription/domain/transcript_segment.dart';
 import '../../transcription/domain/transcription_service.dart';
 import '../data/wav_writer.dart';
 import '../../../core/platform_info.dart';
+import '../data/pcm_resample.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
 
@@ -114,6 +115,7 @@ class RecordingController extends Notifier<RecordingState> {
   SpeakerTracker? _tracker;
   LiveTranscription? _live;
   StreamSubscription<Uint8List>? _pcmSub;
+  StreamSubscription<Uint8List>? _pcm16Sub;
   StreamSubscription<String>? _liveSub;
   StreamSubscription<SpeakerChangeSuggestion>? _suggestionSub;
   Timer? _ticker;
@@ -161,7 +163,11 @@ class RecordingController extends Notifier<RecordingState> {
     _recorder = recorder;
 
     final path = await ref.read(fileStorageProvider).newAudioPath();
-    _wav = WavWriter(path);
+    // Alta calidad: se guarda a 48 kHz; para transcribir y detectar voces
+    // se baja a 16 kHz al vuelo.
+    final hq = ref.read(sharedPreferencesProvider).getBool('record.hq') ?? false;
+    final rate = hq ? 48000 : 16000;
+    _wav = WavWriter(path, sampleRate: rate);
     await _wav!.open();
 
     // La detección de voz se prepara en segundo plano: la primera vez descarga
@@ -187,19 +193,21 @@ class RecordingController extends Notifier<RecordingState> {
       (s) => state = state.copyWith(pendingSpeakerChange: s),
     );
 
-    final pcm = (await recorder.startStream(const RecordConfig(
+    final raw = (await recorder.startStream(RecordConfig(
       encoder: AudioEncoder.pcm16bits,
-      sampleRate: 16000,
+      sampleRate: rate,
       numChannels: 1,
     )))
         .asBroadcastStream();
+    final ds = hq ? Downsampler3() : null;
+    final pcm = ds == null ? raw : raw.map(ds.add).asBroadcastStream();
 
     _levels.clear();
-    _pcmSub = pcm.listen((bytes) {
+    _pcmSub = raw.listen((bytes) {
       _wav?.add(bytes);
-      _tracker?.addPcm16(bytes);
       _peak = math.max(_peak, pcmLevel(bytes));
     });
+    _pcm16Sub = pcm.listen((bytes) => _tracker?.addPcm16(bytes));
 
     _ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
       if (state.status == RecordingStatus.recording) {
@@ -310,6 +318,7 @@ class RecordingController extends Notifier<RecordingState> {
 
     await safe(() => _recorder?.stop());
     await safe(() => _pcmSub?.cancel());
+    await safe(() => _pcm16Sub?.cancel());
     await safe(() => _live?.stop());
     await safe(() => _liveSub?.cancel());
     await safe(() => _wav?.close());
@@ -389,6 +398,7 @@ class RecordingController extends Notifier<RecordingState> {
     await _live?.stop();
     await _liveSub?.cancel();
     await _pcmSub?.cancel();
+    await _pcm16Sub?.cancel();
     await _wav?.close();
     final storage = ref.read(fileStorageProvider);
     await storage.deleteIfExists(_wav?.path);
@@ -408,6 +418,7 @@ class RecordingController extends Notifier<RecordingState> {
       _live = null;
       _liveSub = null;
       _pcmSub = null;
+      _pcm16Sub = null;
       _suggestionSub = null;
       _ticker = null;
     }
@@ -422,6 +433,7 @@ class RecordingController extends Notifier<RecordingState> {
     _live = null;
     _liveSub = null;
     _pcmSub = null;
+    _pcm16Sub = null;
     _suggestionSub = null;
     _ticker = null;
   }

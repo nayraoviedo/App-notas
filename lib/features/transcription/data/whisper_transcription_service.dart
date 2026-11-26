@@ -7,6 +7,8 @@ import 'package:whisper_ggml/whisper_ggml.dart';
 import '../domain/transcript_segment.dart';
 import '../domain/transcription_service.dart';
 import '../../../core/platform_info.dart';
+import '../../recording/data/pcm_resample.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Transcripción 100 % en el teléfono con whisper.cpp (paquete whisper_ggml).
 ///
@@ -150,14 +152,24 @@ class WhisperTranscriptionService implements TranscriptionService {
   }) async {
     if (!isPhone) throw TranscriptionException(_desktopMsg);
     await ensureModel();
-    final result = await _controller.transcribe(
+    // Las grabaciones en alta calidad (48 kHz) se bajan a 16 kHz, que es lo
+    // que lee whisper.
+    final temp = wavSampleRate(wavPath) == 48000
+        ? '${(await getTemporaryDirectory()).path}/w16_${DateTime.now().microsecondsSinceEpoch}.wav'
+        : null;
+    final input = temp == null ? wavPath : await wav48To16(wavPath, temp);
+    final result = await _controller
+        .transcribe(
       model: model,
-      audioPath: wavPath,
+      audioPath: input,
       lang: lang,
       withSegments: true,
       initialPrompt: vocabulary.isEmpty ? null : vocabulary.join(', '),
       onProgress: onProgress,
-    );
+    )
+        .whenComplete(() {
+      if (temp != null) File(temp).delete().ignore();
+    });
     if (result == null) {
       throw TranscriptionException('El motor de voz no pudo leer este audio.');
     }
