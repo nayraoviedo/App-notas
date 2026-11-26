@@ -23,15 +23,17 @@ class DriveSync {
   static const lastKey = 'drive.last';
   static const autoKey = 'drive.auto';
 
+  /// ID de cliente web del proyecto "Kumo" en Google Cloud (es público, no
+  /// es una clave). Se puede cambiar en Ajustes.
+  static const defaultClientId = '529008696542-89313m0rasquf8tp43nfa4h0kc6vnecb.apps.googleusercontent.com';
+
   bool _ready = false;
   GoogleSignInAccount? _user;
 
   Future<void> _init(SharedPreferences prefs) async {
     if (_ready) return;
-    final clientId = prefs.getString(clientIdKey)?.trim();
-    if (clientId == null || clientId.isEmpty) {
-      throw const DriveException('Primero pega el "ID de cliente web" de Google Cloud en Ajustes.');
-    }
+    final saved = prefs.getString(clientIdKey)?.trim();
+    final clientId = saved == null || saved.isEmpty ? defaultClientId : saved;
     await GoogleSignIn.instance.initialize(serverClientId: clientId);
     _ready = true;
   }

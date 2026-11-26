@@ -564,7 +564,7 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
         ListTile(
           leading: const Icon(Icons.key_outlined),
           title: const Text('ID de cliente web (Google Cloud)'),
-          subtitle: Text(clientId == null || clientId.isEmpty ? 'Falta: tócalo para pegarlo' : clientId,
+          subtitle: Text(clientId == null || clientId.isEmpty ? 'El de Kumo (ya viene puesto)' : clientId,
               maxLines: 1, overflow: TextOverflow.ellipsis),
           onTap: _setClientId,
         ),
