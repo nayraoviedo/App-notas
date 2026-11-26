@@ -5,6 +5,7 @@
 // Las imágenes quedan en screenshot_test/out/. Necesita FLUTTER_ROOT (para la
 // fuente Roboto y los íconos) y, opcional, las fuentes de Google en
 // screenshot_test/fonts/ (las descarga el workflow).
+import 'dart:async';
 import 'dart:io';
 
 import 'package:app_notas/core/fonts.dart';
@@ -69,12 +70,17 @@ Future<void> _loadFonts() async {
   if (!dir.existsSync()) return;
   for (final f in dir.listSync().whereType<File>()) {
     final family = f.uri.pathSegments.last.split('.').first.replaceAll('_', ' ');
-    final internal = fontStyle(family).fontFamily;
-    if (internal != null) await _loadFont(internal, [f.path]);
-    for (final w in [FontWeight.bold]) {
-      final b = fontStyle(family, base: TextStyle(fontWeight: w)).fontFamily;
-      if (b != null && b != internal) await _loadFont(b, [f.path]);
-    }
+    // También con su nombre normal (para el tema de las capturas).
+    await _loadFont(family, [f.path]);
+    // google_fonts intenta cargar la letra en segundo plano y falla (no hay
+    // internet en las pruebas): ese error se ignora, aquí se registra a mano.
+    String? internal, bold;
+    runZonedGuarded(() {
+      internal = fontStyle(family).fontFamily;
+      bold = fontStyle(family, base: const TextStyle(fontWeight: FontWeight.bold)).fontFamily;
+    }, (_, __) {});
+    if (internal != null) await _loadFont(internal!, [f.path]);
+    if (bold != null && bold != internal) await _loadFont(bold!, [f.path]);
   }
 }
 
@@ -84,7 +90,15 @@ Future<void> _phoneSize(WidgetTester tester) async {
   addTearDown(tester.view.reset);
 }
 
-ThemeData _theme() => AppTheme.light();
+/// Mismo tema que la app, con la letra manuscrita cargada a mano (en las
+/// pruebas google_fonts no descarga nada).
+ThemeData _theme() {
+  final t = AppTheme.light('Normal');
+  return t.copyWith(
+    textTheme: t.textTheme.apply(fontFamily: 'Patrick Hand', fontSizeFactor: 1.1),
+    primaryTextTheme: t.primaryTextTheme.apply(fontFamily: 'Patrick Hand'),
+  );
+}
 
 Future<void> _shot(WidgetTester tester, String name) async {
   await tester.pump(const Duration(milliseconds: 400));
