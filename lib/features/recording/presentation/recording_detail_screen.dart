@@ -15,6 +15,7 @@ import '../../summary/application/summary_runner.dart';
 import '../../summary/domain/summary.dart';
 import '../../drawing/presentation/widgets/canvas_item_view.dart' show measureTextItem;
 import '../../study/domain/cornell.dart';
+import '../../study/domain/mind_map.dart';
 import 'package:go_router/go_router.dart';
 
 /// Vista completa de una grabación, con tres pestañas:
@@ -781,6 +782,11 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
             ),
             const Spacer(),
             IconButton(
+              tooltip: 'Mapa mental',
+              icon: const Icon(Icons.hub_outlined),
+              onPressed: () => _toMindMap(summary),
+            ),
+            IconButton(
               tooltip: 'Pasar a hoja Cornell',
               icon: const Icon(Icons.view_sidebar_outlined),
               onPressed: () => _toCornell(summary),
@@ -892,6 +898,18 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
     }
     if (!mounted || first == null) return;
     context.push('/notes/${widget.noteId}/drawing', extra: first);
+  }
+
+  /// Mapa mental de la clase en un lienzo infinito (editable).
+  Future<void> _toMindMap(TranscriptSummary s) async {
+    final d = mindMapDrawing(s, measure: measureTextItem);
+    final path = await ref.read(fileStorageProvider).newDrawingPath();
+    await ref.read(drawingStoreProvider).save(path, d);
+    await ref.read(notesRepositoryProvider).addDrawingBlock(widget.noteId, path);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Mapa mental listo 🧠 Pellizca para alejar y ver todo; mueve o edita lo que quieras.')));
+    context.push('/notes/${widget.noteId}/drawing', extra: path);
   }
 
   /// Una tarjeta por capítulo (o por punto clave).
