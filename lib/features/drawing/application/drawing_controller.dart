@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -644,7 +645,7 @@ class DrawingController extends ChangeNotifier {
 
   final List<Drawing> _undo = [];
   final List<Drawing> _redo = [];
-  static const _maxHistory = 60;
+  static const _maxHistory = 300;
 
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;
@@ -657,6 +658,23 @@ class DrawingController extends ChangeNotifier {
     _redo.clear();
     change();
     _changed();
+  }
+
+  /// Historial para no perderlo al pasar a otra hoja y volver.
+  (List<Drawing>, List<Drawing>, Drawing) get history => (List.of(_undo), List.of(_redo), _drawing);
+
+  /// Recupera el historial si la hoja no cambió desde que se guardó.
+  void restoreHistory((List<Drawing>, List<Drawing>, Drawing) h) {
+    final (u, r, at) = h;
+    if (jsonEncode(at.toJson()) != jsonEncode(_drawing.toJson())) return;
+    _undo
+      ..clear()
+      ..addAll(u);
+    _redo
+      ..clear()
+      ..addAll(r);
+    _drawing = at; // mismas referencias que el historial
+    notifyListeners();
   }
 
   void undo() {

@@ -364,6 +364,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         ),
       );
 
+  /// Deshacer de cada hoja, para no perderlo al pasar de hoja y volver.
+  final _histories = <String, (List<Drawing>, List<Drawing>, Drawing)>{};
+
   Future<void> _load(String path, {bool keepView = false}) async {
     if (_editing != null) _commitEditing();
     final old = _ctl;
@@ -371,6 +374,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       await old.flush();
       ref.invalidate(drawingFileProvider(_path));
       unawaited(_indexHandwriting(_path, old.drawing));
+      _histories[_path] = old.history;
     }
     final store = ref.read(drawingStoreProvider);
     final drawing = await store.load(path);
@@ -385,6 +389,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       _ctl = DrawingController(drawing, onSave: (d) => store.save(path, d))
         ..stylusOnly = old?.stylusOnly ?? settings.stylusOnly;
       if (keepTool != null) _ctl!.selectTool(keepTool);
+      final h = _histories[path];
+      if (h != null) _ctl!.restoreHistory(h);
     });
     old?.dispose();
   }
