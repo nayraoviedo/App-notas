@@ -719,7 +719,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _close();
       },
-      child: Scaffold(
+      child: CallbackShortcuts(
+        bindings: ctl == null ? const {} : _shortcuts(ctl),
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
         backgroundColor: const Color(0xFFE9ECEF),
         body: ctl == null
             ? const Center(child: CircularProgressIndicator())
@@ -889,6 +893,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                   ),
                 ],
               ),
+      ),
+        ),
       ),
     );
   }
@@ -1436,6 +1442,48 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     } else {
       context.push('/notes/${widget.noteId}/record');
     }
+  }
+
+  // ------------------------------------------------- Atajos de teclado
+
+  /// Atajos para la compu (o una tablet con teclado). No se usan mientras
+  /// se escribe un texto.
+  Map<ShortcutActivator, VoidCallback> _shortcuts(DrawingController c) {
+    bool typing() =>
+        _editing != null ||
+        FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() != null;
+    VoidCallback guard(VoidCallback f) => () {
+          if (!typing()) f();
+        };
+    void tool(ToolType t) {
+      c.selectTool(t);
+      _closePanel();
+    }
+
+    return {
+      const SingleActivator(LogicalKeyboardKey.keyZ, control: true): guard(c.undo),
+      const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): guard(c.undo),
+      const SingleActivator(LogicalKeyboardKey.keyY, control: true): guard(c.redo),
+      const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true): guard(c.redo),
+      const SingleActivator(LogicalKeyboardKey.keyP): guard(() => tool(ToolType.pen)),
+      const SingleActivator(LogicalKeyboardKey.keyB): guard(() => tool(ToolType.pen)),
+      const SingleActivator(LogicalKeyboardKey.keyH): guard(() => tool(ToolType.highlighter)),
+      const SingleActivator(LogicalKeyboardKey.keyE): guard(() => tool(ToolType.eraser)),
+      const SingleActivator(LogicalKeyboardKey.keyL): guard(() {
+        c.selectMode(InputMode.select);
+        _closePanel();
+      }),
+      const SingleActivator(LogicalKeyboardKey.keyT): guard(() {
+        c.selectMode(InputMode.text);
+        _closePanel();
+      }),
+      const SingleActivator(LogicalKeyboardKey.delete): guard(c.deleteSelection),
+      const SingleActivator(LogicalKeyboardKey.backspace): guard(c.deleteSelection),
+      const SingleActivator(LogicalKeyboardKey.keyD, control: true): guard(c.duplicateSelection),
+      const SingleActivator(LogicalKeyboardKey.escape): guard(c.clearStrokeSelection),
+      const SingleActivator(LogicalKeyboardKey.pageDown): guard(() => _turn(1)),
+      const SingleActivator(LogicalKeyboardKey.pageUp): guard(() => _turn(-1)),
+    };
   }
 
   // ----------------------------------------------------- Letra a mano

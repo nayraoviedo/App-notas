@@ -195,7 +195,9 @@ class _HomeViewState extends State<HomeView> {
         child: Column(
           children: [
             LayoutBuilder(builder: (context, c) {
-              final w = c.maxWidth;
+              // En pantallas anchas (compu, tablet) la portada no ocupa
+              // media pantalla: se queda de un tamaño cómodo, al centro.
+              final w = c.maxWidth > 760 ? 640.0 : c.maxWidth;
               final h = w * 420 / 1062;
               Widget zone(CatKind kind, double l, double r) => Positioned(
                     left: w * l,
@@ -218,7 +220,8 @@ class _HomeViewState extends State<HomeView> {
                       ),
                     ),
                   );
-              return SizedBox(
+              return Center(
+                child: SizedBox(
                 width: w,
                 height: h,
                 child: Stack(
@@ -268,6 +271,7 @@ class _HomeViewState extends State<HomeView> {
                       Positioned(left: w * 0.72, top: h * 0.18, child: const _Zzz()),
                     ],
                   ],
+                ),
                 ),
               );
             }),
