@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import '../../../core/platform_info.dart';
+import 'yt_dlp.dart';
 
 /// ¿Es un enlace de YouTube (youtube.com, youtu.be, shorts…)?
 bool isYoutubeUrl(String source) => YoutubePlayerController.convertUrlToId(source) != null;
@@ -46,9 +47,14 @@ class MediaKitBackend implements VideoBackend {
   @override
   Widget view() => Video(controller: _video);
 
+  /// Para avisar qué está haciendo mientras carga (YouTube en la compu).
+  void Function(String status)? onStatus;
+
   @override
   Future<void> open({int startMs = 0}) async {
-    await _player.open(Media(source), play: false);
+    // YouTube en la compu: primero el enlace directo del video.
+    final url = isYoutubeUrl(source) ? await YtDlp.directUrl(source, onStatus: onStatus) : source;
+    await _player.open(Media(url), play: false);
     if (startMs > 0) {
       // Esperar a que el video sepa su duración antes de saltar.
       await _player.stream.duration

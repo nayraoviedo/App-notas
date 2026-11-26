@@ -71,15 +71,29 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
     _open();
   }
 
+  String? _loading;
+
   Future<void> _open() async {
+    final p = _player;
+    if (p is MediaKitBackend && isYoutubeUrl(widget.videoPath)) {
+      p.onStatus = (s) {
+        if (mounted) setState(() => _loading = s);
+      };
+    }
     try {
       await _player.open(startMs: widget.startMs);
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo abrir el video. ¿Hay internet?')),
-        );
+        final msg = '$e'.replaceFirst('Exception: ', '');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text(msg.contains('YouTube') || msg.contains('privado') || msg.contains('ayudante')
+              ? msg
+              : 'No se pudo abrir el video. Revisa tu internet o que el enlace sea correcto.'),
+        ));
       }
+    } finally {
+      if (mounted) setState(() => _loading = null);
     }
   }
 
@@ -349,7 +363,23 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
     final sheet = blocks.whereType<DrawingBlock>().firstOrNull;
     final onSheet = _tabs.index == 3;
 
-    final videoView = AspectRatio(aspectRatio: 16 / 9, child: _player.view());
+    final videoView = AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(fit: StackFit.expand, children: [
+        _player.view(),
+        if (_loading != null)
+          ColoredBox(
+            color: Colors.black54,
+            child: Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const CircularProgressIndicator(color: Colors.white),
+                const SizedBox(height: 10),
+                Text(_loading!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
+              ]),
+            ),
+          ),
+      ]),
+    );
 
     final notesTab = Column(
       children: [
