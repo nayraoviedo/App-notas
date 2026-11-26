@@ -272,6 +272,10 @@ class PaperStyle {
 }
 
 /// Una hoja de dibujo/escritura a mano, con capas.
+/// Lienzo infinito: hacia abajo (vertical, como un rollo), hacia el lado
+/// (horizontal, como una línea de tiempo) o hacia los dos lados (libre).
+enum InfiniteGrow { down, right, both }
+
 class Drawing {
   const Drawing({
     required this.width,
@@ -282,7 +286,11 @@ class Drawing {
     this.tab,
     this.tabColor,
     this.infinite = false,
+    this.grow = InfiniteGrow.both,
   });
+
+  /// Hacia dónde crece el lienzo infinito.
+  final InfiniteGrow grow;
 
   /// Lienzo infinito: la hoja crece sola hacia la derecha y hacia abajo
   /// al dibujar cerca del borde.
@@ -326,6 +334,7 @@ class Drawing {
     int? tabColor,
     bool clearTab = false,
     bool? infinite,
+    InfiniteGrow? grow,
   }) =>
       Drawing(
         width: width ?? this.width,
@@ -336,6 +345,7 @@ class Drawing {
         tab: clearTab ? null : (tab ?? this.tab),
         tabColor: clearTab ? null : (tabColor ?? this.tabColor),
         infinite: infinite ?? this.infinite,
+        grow: grow ?? this.grow,
       );
 
   Map<String, Object?> toJson() => {
@@ -347,6 +357,7 @@ class Drawing {
         if (tab != null) 'tab': tab,
         if (tabColor != null) 'tabColor': tabColor,
         if (infinite) 'inf': true,
+        if (infinite && grow != InfiniteGrow.both) 'grow': grow.name,
         'layers': layers.map((l) => l.toJson()).toList(),
       };
 
@@ -358,6 +369,7 @@ class Drawing {
         tab: j['tab'] as String?,
         tabColor: j['tabColor'] as int?,
         infinite: j['inf'] as bool? ?? false,
+        grow: InfiniteGrow.values.where((g) => g.name == j['grow']).firstOrNull ?? InfiniteGrow.both,
         layers: [
           for (final l in (j['layers'] as List? ?? const []))
             DrawingLayer.fromJson((l as Map).cast<String, Object?>()),

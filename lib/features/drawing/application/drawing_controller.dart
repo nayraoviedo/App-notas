@@ -374,13 +374,16 @@ class DrawingController extends ChangeNotifier {
   }
 
   /// Convierte la hoja en lienzo infinito (o la vuelve hoja normal A4).
-  void setInfinite(bool on) {
-    if (on == _drawing.infinite) return;
+  void setInfinite(bool on, {InfiniteGrow? grow}) {
+    final g = grow ?? _drawing.grow;
+    if (on == _drawing.infinite && g == _drawing.grow) return;
     _commit(() => _drawing = on
         ? _drawing.copyWith(
             infinite: true,
-            width: math.max(_drawing.width, Drawing.infiniteStart),
-            height: math.max(_drawing.height, Drawing.infiniteStart),
+            grow: g,
+            // Vertical: ancho de hoja y largo que crece; horizontal: al revés.
+            width: g == InfiniteGrow.down ? Drawing.a4Width : math.max(_drawing.width, Drawing.infiniteStart),
+            height: g == InfiniteGrow.right ? Drawing.a4Width : math.max(_drawing.height, Drawing.infiniteStart),
           )
         : _drawing.copyWith(infinite: false, width: Drawing.a4Width, height: Drawing.a4Height));
   }
@@ -400,8 +403,9 @@ class DrawingController extends ChangeNotifier {
         if (it.y + 400 > maxY) maxY = it.y + 400;
       }
     }
-    final w = maxX > _drawing.width - 800 ? maxX + 1600 : _drawing.width;
-    final h = maxY > _drawing.height - 800 ? maxY + 1600 : _drawing.height;
+    final g = _drawing.grow;
+    final w = g != InfiniteGrow.down && maxX > _drawing.width - 800 ? maxX + 1600 : _drawing.width;
+    final h = g != InfiniteGrow.right && maxY > _drawing.height - 800 ? maxY + 1600 : _drawing.height;
     if (w != _drawing.width || h != _drawing.height) {
       _drawing = _drawing.copyWith(width: w, height: h);
     }

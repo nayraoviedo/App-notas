@@ -48,4 +48,15 @@ void main() {
     final again = Drawing.fromJson(c.drawing.toJson());
     expect(again.infinite, isTrue);
   });
+
+  test('el lienzo infinito vertical solo crece hacia abajo', () {
+    final c = DrawingController(Drawing.blank())..setInfinite(true, grow: InfiniteGrow.down);
+    expect(c.drawing.width, Drawing.a4Width);
+    c.startStroke(const Offset(950, 2900), null);
+    c.extendStroke(const Offset(990, 2950), null);
+    c.endStroke();
+    expect(c.drawing.width, Drawing.a4Width);
+    expect(c.drawing.height, greaterThan(4000));
+    expect(Drawing.fromJson(c.drawing.toJson()).grow, InfiniteGrow.down);
+  });
 }

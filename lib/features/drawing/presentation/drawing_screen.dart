@@ -1107,6 +1107,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           height: Drawing.infiniteStart,
         ),
       );
+      // Elegir enseguida hacia dónde crece y el tipo de papel.
+      final c = _ctl;
+      if (mounted && c != null) {
+        _sheet(PaperSheet(
+          controller: c,
+          onPickImage: ref.read(cameraServiceProvider).pickImageFromGallery,
+        ));
+      }
     } else if (pick is PageTemplate) {
       final d = await PageTemplates.load(pick);
       await _addPage(copy: false, from: d);

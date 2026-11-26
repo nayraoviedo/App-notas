@@ -187,15 +187,32 @@ class PaperSheet extends StatelessWidget {
                     controller.setLandscape(v == 'h');
                   },
                 ),
-                if (controller.drawing.infinite)
+                if (controller.drawing.infinite) ...[
+                  const SizedBox(height: 10),
+                  const Text('¿Hacia dónde crece?'),
+                  const SizedBox(height: 6),
+                  SegmentedButton<InfiniteGrow>(
+                    segments: const [
+                      ButtonSegment(
+                          value: InfiniteGrow.down, icon: Icon(Icons.south), label: Text('Vertical')),
+                      ButtonSegment(
+                          value: InfiniteGrow.right, icon: Icon(Icons.east), label: Text('Horizontal')),
+                      ButtonSegment(
+                          value: InfiniteGrow.both, icon: Icon(Icons.open_with), label: Text('Libre')),
+                    ],
+                    selected: {controller.drawing.grow},
+                    onSelectionChanged: (s) => controller.setInfinite(true, grow: s.first),
+                  ),
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
-                      'Lienzo infinito: la hoja crece sola cuando dibujas cerca del borde. '
-                      'Muévete con dos dedos y pellizca para alejar y ver todo.',
+                      'La hoja crece sola cuando dibujas cerca del borde. Vertical: como un rollo '
+                      'hacia abajo. Horizontal: hacia el lado, como una línea de tiempo. Libre: '
+                      'para los dos lados (mapas mentales). Arriba eliges el tipo de papel.',
                       style: TextStyle(fontSize: 13, color: Colors.black54),
                     ),
                   ),
+                ],
               ],
             ),
           ),
