@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as pth;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
@@ -18,6 +19,7 @@ import '../backup/drive_sync.dart';
 import '../drawing/application/drawing_rasterizer.dart';
 import '../settings/settings.dart';
 import '../notes/domain/note_block.dart';
+import '../recording/application/audio_tools.dart';
 import '../summary/application/summary_runner.dart';
 import 'docx_writer.dart';
 
@@ -235,6 +237,12 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
             title: const Text('Elegir notas…'),
             onTap: () => Navigator.pop(context, 'pick'),
           ),
+          ListTile(
+            leading: const Icon(Icons.graphic_eq),
+            title: const Text('Solo los audios'),
+            subtitle: const Text('Todas las grabaciones del cuaderno (m4a)'),
+            onTap: () => Navigator.pop(context, 'audio'),
+          ),
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.add_link),
@@ -248,6 +256,10 @@ Future<void> exportNotebookFlow(BuildContext context, WidgetRef ref, {String? no
     ),
   );
   if (how == null || !context.mounted) return;
+  if (how == 'audio') {
+    await shareAudiosFlow(context, ref, notes.map((n) => n.id).toList());
+    return;
+  }
   if (how == 'link') {
     await _shareLinkFlow(context, ref, notes.map((n) => n.id).toList(), name);
     return;
@@ -408,11 +420,21 @@ Future<void> exportNoteFlow(BuildContext context, WidgetRef ref, String noteId) 
             subtitle: const Text('Texto simple para Notion, Obsidian, GitHub…'),
             onTap: () => Navigator.pop(context, 'md'),
           ),
+          ListTile(
+            leading: const Icon(Icons.graphic_eq),
+            title: const Text('Audios de las grabaciones'),
+            subtitle: const Text('Cada grabación como archivo de audio (m4a)'),
+            onTap: () => Navigator.pop(context, 'audio'),
+          ),
         ],
       ),
     ),
   );
   if (fmt == null) return;
+  if (fmt == 'audio') {
+    if (context.mounted) await shareAudiosFlow(context, ref, [noteId]);
+    return;
+  }
   final messenger = ScaffoldMessenger.of(context);
   messenger.showSnackBar(const SnackBar(content: Text('Preparando…')));
   try {
@@ -629,5 +651,35 @@ Future<void> _shareLinkFlow(BuildContext context, WidgetRef ref, List<String> no
       Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo compartir: $e')));
     }
+  }
+}
+
+
+/// Comparte los audios de las grabaciones de esas notas (para guardarlos en
+/// Drive, Descargas, WhatsApp…).
+Future<void> shareAudiosFlow(BuildContext context, WidgetRef ref, List<String> noteIds) async {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showSnackBar(const SnackBar(content: Text('Preparando los audios…')));
+  try {
+    final files = <XFile>[];
+    for (final id in noteIds) {
+      final note = await ref.read(noteProvider(id).future);
+      final title = safeFileName(note?.displayTitle ?? 'Nota');
+      final audios = (await ref.read(blocksProvider(id).future)).whereType<AudioBlock>().toList();
+      for (var i = 0; i < audios.length; i++) {
+        if (!File(audios[i].path).existsSync()) continue;
+        final out = await AudioTools.toM4a(audios[i].path);
+        final suffix = audios.length == 1 ? '' : ' ${i + 1}';
+        files.add(XFile(out, name: '$title - grabación$suffix${pth.extension(out)}'));
+      }
+    }
+    messenger.hideCurrentSnackBar();
+    if (files.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('No hay grabaciones aquí')));
+      return;
+    }
+    await SharePlus.instance.share(ShareParams(files: files));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
   }
 }
