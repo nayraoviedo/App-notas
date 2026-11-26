@@ -298,7 +298,7 @@ class _EditorToolbar extends ConsumerWidget {
               icon: Icons.ondemand_video_outlined,
               label: 'Video',
               onTap: () async {
-                final source = await _chooseVideo(context, ref);
+                final source = await chooseVideo(context, ref);
                 if (source != null && context.mounted) onOpenVideo(context, source, 0);
               },
             ),
@@ -316,7 +316,7 @@ class _EditorToolbar extends ConsumerWidget {
 }
 
 /// Video de la galería o enlace (YouTube o video directo).
-Future<String?> _chooseVideo(BuildContext context, WidgetRef ref) async {
+Future<String?> chooseVideo(BuildContext context, WidgetRef ref) async {
   final kind = await showModalBottomSheet<String>(
     context: context,
     builder: (context) => SafeArea(

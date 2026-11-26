@@ -31,6 +31,8 @@ import 'widgets/paper_sheet.dart';
 import 'painters/sticker_painter.dart';
 import 'widgets/table_equation.dart';
 import 'widgets/tool_panels.dart';
+import '../../notes/presentation/note_editor_screen.dart' show chooseVideo;
+import '../../../core/router.dart' show VideoArgs;
 
 /// Hojas para escribir a mano y dibujar, con capas. Las hojas de una nota
 /// forman un cuaderno: se puede pasar de página, ver miniaturas, marcar,
@@ -972,6 +974,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     final items = <(IconData, String, String)>[
       (Icons.photo_camera_outlined, 'Foto', 'photo'),
       (Icons.mic_none, recording ? 'Grabando…' : 'Grabar audio', 'rec'),
+      (Icons.ondemand_video_outlined, 'Video y notas', 'video'),
       (Icons.table_chart_outlined, 'Tabla', 'table'),
       (Icons.functions, 'Ecuación', 'eq'),
       (Icons.category_outlined, 'Formas', 'shapes'),
@@ -1020,6 +1023,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         _chooseImageSource();
       case 'rec':
         recording ? _openRecorder() : await _startRecording();
+      case 'video':
+        final source = await chooseVideo(context, ref);
+        if (source != null && mounted) {
+          await ctl.flush();
+          if (!mounted) return;
+          context.push('/notes/${widget.noteId}/video', extra: VideoArgs(videoPath: source, startMs: 0));
+        }
       case 'table':
         await _tableOrEquation(table: true);
       case 'eq':
