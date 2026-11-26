@@ -48,6 +48,19 @@ class AudioTools {
     return wavPath;
   }
 
+  /// Copia limpia del audio (sin ruido, volumen parejo) en WAV mono 16 kHz,
+  /// para volver a transcribir. null si no se pudo.
+  static Future<String?> enhancedWav16k(String input) async {
+    final out = p.join((await getTemporaryDirectory()).path, '${p.basenameWithoutExtension(input)}-limpio.wav');
+    final args = ['-y', '-i', input, '-af', enhanceFilter, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', out];
+    if (!isPhone) return await _desktopFfmpeg(args) ? out : null;
+    try {
+      final session = await FFmpegKit.executeWithArguments(args);
+      if (ReturnCode.isSuccess(await session.getReturnCode()) && File(out).existsSync()) return out;
+    } catch (_) {}
+    return null;
+  }
+
   /// Filtros de "audio mejorado" para voz.
   static const enhanceFilter = 'highpass=f=90,'
       'afftdn=nr=12:nf=-30:tn=1,'

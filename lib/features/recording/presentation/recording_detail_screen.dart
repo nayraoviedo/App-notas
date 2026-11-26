@@ -402,6 +402,12 @@ class _TranscriptToolsState extends ConsumerState<_TranscriptTools> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
+                  if (_status != null) ...[
+                    const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(width: 8),
+                    Text(_status!),
+                    const SizedBox(width: 12),
+                  ],
                   ChoiceChip(
                     label: const Text('Original'),
                     selected: showing == TranscriptVersion.original,
@@ -424,14 +430,86 @@ class _TranscriptToolsState extends ConsumerState<_TranscriptTools> {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Pasar a notas',
-            icon: const Icon(Icons.note_add_outlined),
-            onPressed: _toNotes,
+          PopupMenuButton<String>(
+            tooltip: 'Más',
+            enabled: _progress == null && _status == null,
+            onSelected: (v) => switch (v) {
+              'notes' => _toNotes(),
+              'clean' => _retranscribe(),
+              'back' => _restore(),
+              _ => null,
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'notes',
+                child: ListTile(leading: Icon(Icons.note_add_outlined), title: Text('Pasar a notas')),
+              ),
+              const PopupMenuItem(
+                value: 'clean',
+                child: ListTile(
+                  leading: Icon(Icons.graphic_eq),
+                  title: Text('Transcribir de nuevo con audio mejorado'),
+                  subtitle: Text('Quita el ruido y vuelve a escuchar la clase'),
+                ),
+              ),
+              if (hasPreviousTranscript(widget.audioPath))
+                const PopupMenuItem(
+                  value: 'back',
+                  child: ListTile(leading: Icon(Icons.undo), title: Text('Volver a la transcripción anterior')),
+                ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  String? _status;
+
+  Future<void> _retranscribe() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Transcribir con audio mejorado'),
+        content: const Text('Se limpia el audio (ruido de fondo, zumbidos, volumen) y se vuelve a transcribir. '
+            'Úsalo si la transcripción salió con muchos errores por el ruido.\n\n'
+            'La transcripción actual se guarda: si la nueva sale peor, puedes volver a ella desde este mismo menú. '
+            'Las correcciones con IA se pierden (puedes corregir de nuevo).'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Transcribir')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _status = 'Limpiando el audio…');
+    try {
+      final n = await retranscribeEnhanced(
+        ref,
+        blockId: widget.blockId,
+        audioPath: widget.audioPath,
+        onStatus: (s) {
+          if (mounted) setState(() => _status = s);
+        },
+      );
+      messenger.showSnackBar(SnackBar(
+        content: Text('Listo ✓ $n fragmentos con el audio mejorado'),
+        action: SnackBarAction(label: 'Volver a la anterior', onPressed: _restore),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
+    }
+    if (mounted) setState(() => _status = null);
+  }
+
+  Future<void> _restore() async {
+    await restorePreviousTranscript(ref, blockId: widget.blockId, audioPath: widget.audioPath);
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Volviste a la transcripción anterior')));
+    }
   }
 }
 
