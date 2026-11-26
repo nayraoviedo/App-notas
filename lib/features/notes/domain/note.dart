@@ -28,7 +28,11 @@ class SearchHit {
     required this.snippet,
     this.blockId,
     this.atMs,
+    this.inTranscript = false,
   });
+
+  /// Lo encontró en lo que se dijo en una grabación (abre el audio ahí).
+  final bool inTranscript;
 
   final String noteId;
   final String noteTitle;

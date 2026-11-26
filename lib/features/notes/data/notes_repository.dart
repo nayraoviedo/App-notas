@@ -365,6 +365,26 @@ class NotesRepository {
         snippet: s.content,
         blockId: s.blockId,
         atMs: s.startMs,
+        inTranscript: true,
+      ));
+    }
+
+    // Y las notas que escribiste mientras grababas.
+    final markQuery = _db.select(_db.markers).join([
+      innerJoin(_db.blocks, _db.blocks.id.equalsExp(_db.markers.blockId)),
+      innerJoin(_db.notes, _db.notes.id.equalsExp(_db.blocks.noteId)),
+    ])
+      ..where(_db.markers.label.like(pattern));
+    for (final row in await markQuery.get()) {
+      final m = row.readTable(_db.markers);
+      final n = row.readTable(_db.notes);
+      hits.add(SearchHit(
+        noteId: n.id,
+        noteTitle: n.title,
+        snippet: '📝 ${m.label ?? ''}',
+        blockId: m.blockId,
+        atMs: m.atMs,
+        inTranscript: true,
       ));
     }
     return hits;

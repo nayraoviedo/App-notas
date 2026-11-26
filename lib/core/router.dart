@@ -87,6 +87,7 @@ final appRouter = GoRouter(
               builder: (context, state) => RecordingDetailScreen(
                 noteId: state.pathParameters['id']!,
                 blockId: state.pathParameters['blockId']!,
+                startMs: int.tryParse(state.uri.queryParameters['t'] ?? ''),
               ),
             ),
             GoRoute(

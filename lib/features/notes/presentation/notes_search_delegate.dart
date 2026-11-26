@@ -44,17 +44,64 @@ class NotesSearchDelegate extends SearchDelegate<void> {
             itemBuilder: (context, i) {
               final h = hits[i];
               return ListTile(
-                leading: Icon(h.atMs != null ? Icons.graphic_eq : Icons.notes),
+                leading: Icon(h.inTranscript
+                    ? Icons.graphic_eq
+                    : h.snippet.startsWith('✍️')
+                        ? Icons.draw_outlined
+                        : Icons.notes),
                 title: Text(h.noteTitle.isEmpty ? 'Nota sin título' : h.noteTitle),
-                subtitle: Text(h.snippet, maxLines: 2, overflow: TextOverflow.ellipsis),
-                trailing: h.atMs != null ? Text(formatMs(h.atMs!)) : null,
+                subtitle: _highlight(context, _around(h.snippet, query)),
+                trailing: h.inTranscript && h.atMs != null
+                    ? Chip(
+                        avatar: const Icon(Icons.play_arrow, size: 16),
+                        label: Text(formatMs(h.atMs!)),
+                        visualDensity: VisualDensity.compact,
+                      )
+                    : null,
                 onTap: () {
                   close(context, null);
-                  context.push('/notes/${h.noteId}');
+                  // Lo que dijo el profe: abrir la grabación en ese minuto.
+                  if (h.inTranscript && h.blockId != null) {
+                    context.push('/notes/${h.noteId}/audio/${h.blockId}?t=${h.atMs ?? 0}');
+                  } else {
+                    context.push('/notes/${h.noteId}');
+                  }
                 },
               );
             },
           );
         },
       );
+
+  /// Un pedazo del texto alrededor de lo buscado.
+  static String _around(String text, String q) {
+    final t = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final i = t.toLowerCase().indexOf(q.trim().toLowerCase());
+    if (i < 0 || t.length <= 140) return t;
+    final start = (i - 50).clamp(0, t.length);
+    final end = (i + q.length + 80).clamp(0, t.length);
+    return '${start > 0 ? '…' : ''}${t.substring(start, end)}${end < t.length ? '…' : ''}';
+  }
+
+  /// Resalta lo buscado en amarillo.
+  Widget _highlight(BuildContext context, String text) {
+    final q = query.trim().toLowerCase();
+    final style = DefaultTextStyle.of(context).style;
+    if (q.isEmpty) return Text(text, maxLines: 3, overflow: TextOverflow.ellipsis);
+    final spans = <TextSpan>[];
+    final lower = text.toLowerCase();
+    var from = 0;
+    while (true) {
+      final i = lower.indexOf(q, from);
+      if (i < 0) break;
+      if (i > from) spans.add(TextSpan(text: text.substring(from, i)));
+      spans.add(TextSpan(
+        text: text.substring(i, i + q.length),
+        style: const TextStyle(backgroundColor: Color(0xFFFFF176), fontWeight: FontWeight.w600),
+      ));
+      from = i + q.length;
+    }
+    if (from < text.length) spans.add(TextSpan(text: text.substring(from)));
+    return Text.rich(TextSpan(style: style, children: spans), maxLines: 3, overflow: TextOverflow.ellipsis);
+  }
 }

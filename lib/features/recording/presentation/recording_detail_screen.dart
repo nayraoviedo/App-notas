@@ -21,9 +21,12 @@ import 'package:go_router/go_router.dart';
 /// Vista completa de una grabación, con tres pestañas:
 /// Transcripción · Notas rápidas · Resumen, y el reproductor abajo.
 class RecordingDetailScreen extends ConsumerStatefulWidget {
-  const RecordingDetailScreen({super.key, required this.noteId, required this.blockId});
+  const RecordingDetailScreen({super.key, required this.noteId, required this.blockId, this.startMs});
   final String noteId;
   final String blockId;
+
+  /// Minuto donde empezar a escuchar (por ejemplo, desde el buscador).
+  final int? startMs;
 
   @override
   ConsumerState<RecordingDetailScreen> createState() => _RecordingDetailScreenState();
@@ -58,7 +61,10 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
 
     if (audio != null && _loadedPath != audio.path) {
       _loadedPath = audio.path;
-      _player.setFilePath(audio.path);
+      final start = widget.startMs;
+      _player.setFilePath(audio.path).then((_) {
+        if (start != null && start > 0) _seek(start);
+      }).catchError((_) {});
     }
 
     final rec = ref.watch(recordingControllerProvider);
