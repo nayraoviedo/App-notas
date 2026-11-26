@@ -103,12 +103,14 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: |
-          sudo apt-get install -y xvfb imagemagick > /dev/null
+          sudo apt-get install -y xvfb imagemagick gnome-keyring dbus-x11 > /dev/null
           mkdir -p capturas
           cd build/linux/x64/release/bundle
-          xvfb-run -s "-screen 0 1280x900x24" bash -c '
+          # Las claves se guardan en el llavero del sistema (como en Ubuntu).
+          xvfb-run -s "-screen 0 1200x860x24" dbus-run-session -- bash -c '
+            echo "kumo" | gnome-keyring-daemon --unlock --components=secrets > /dev/null
             ./kumo > /tmp/kumo.log 2>&1 &
-            sleep 25
+            sleep 30
             import -window root "$GITHUB_WORKSPACE/capturas/escritorio_inicio.png"
           ' || true
           tail -40 /tmp/kumo.log || true
