@@ -281,7 +281,15 @@ class Drawing {
     this.bookmarked = false,
     this.tab,
     this.tabColor,
+    this.infinite = false,
   });
+
+  /// Lienzo infinito: la hoja crece sola hacia la derecha y hacia abajo
+  /// al dibujar cerca del borde.
+  final bool infinite;
+
+  /// Tamaño con el que empieza un lienzo infinito.
+  static const infiniteStart = 3000.0;
 
   /// Pestaña al costado del cuaderno (como un separador), o null.
   final String? tab;
@@ -317,6 +325,7 @@ class Drawing {
     String? tab,
     int? tabColor,
     bool clearTab = false,
+    bool? infinite,
   }) =>
       Drawing(
         width: width ?? this.width,
@@ -326,6 +335,7 @@ class Drawing {
         bookmarked: bookmarked ?? this.bookmarked,
         tab: clearTab ? null : (tab ?? this.tab),
         tabColor: clearTab ? null : (tabColor ?? this.tabColor),
+        infinite: infinite ?? this.infinite,
       );
 
   Map<String, Object?> toJson() => {
@@ -336,6 +346,7 @@ class Drawing {
         if (bookmarked) 'bookmarked': true,
         if (tab != null) 'tab': tab,
         if (tabColor != null) 'tabColor': tabColor,
+        if (infinite) 'inf': true,
         'layers': layers.map((l) => l.toJson()).toList(),
       };
 
@@ -346,6 +357,7 @@ class Drawing {
         bookmarked: j['bookmarked'] as bool? ?? false,
         tab: j['tab'] as String?,
         tabColor: j['tabColor'] as int?,
+        infinite: j['inf'] as bool? ?? false,
         layers: [
           for (final l in (j['layers'] as List? ?? const []))
             DrawingLayer.fromJson((l as Map).cast<String, Object?>()),

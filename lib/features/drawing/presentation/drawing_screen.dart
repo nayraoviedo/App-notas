@@ -199,7 +199,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
 
   /// Pasar de hoja tirando hacia arriba/abajo (por defecto) o deslizando de
   /// lado (Ajustes → Pasar de hoja).
-  bool get _vertical => (ref.read(sharedPreferencesProvider).getString('pages.mode') ?? 'vertical') == 'vertical';
+  bool get _vertical =>
+      !(_ctl?.drawing.infinite ?? false) &&
+      (ref.read(sharedPreferencesProvider).getString('pages.mode') ?? 'vertical') == 'vertical';
 
   /// Cuánto se tiró hacia arriba en la última hoja (1 = suelta para agregar).
   double _pull = 0;
@@ -1039,10 +1041,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   Future<void> _newPageChooser() async {
     final templates = await PageTemplates.list();
     if (!mounted) return;
-    if (templates.isEmpty) {
-      await _addPage(copy: false);
-      return;
-    }
     final pick = await showModalBottomSheet<Object>(
       context: context,
       builder: (context) => SafeArea(
@@ -1054,7 +1052,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               title: const Text('En blanco, con la misma hoja'),
               onTap: () => Navigator.pop(context, 'same'),
             ),
-            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.all_inclusive),
+              title: const Text('Lienzo infinito'),
+              subtitle: const Text('Crece solo mientras dibujas: mapas mentales, esquemas…'),
+              onTap: () => Navigator.pop(context, 'infinite'),
+            ),
+            if (templates.isNotEmpty) const Divider(),
+            if (templates.isNotEmpty)
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: Align(alignment: Alignment.centerLeft, child: Text('Mis plantillas')),
@@ -1079,6 +1084,16 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     );
     if (pick == 'same') {
       await _addPage(copy: false);
+    } else if (pick == 'infinite') {
+      final paper = _ctl?.drawing.paper ?? const PaperStyle();
+      await _addPage(
+        copy: false,
+        from: Drawing.blank(paper: paper).copyWith(
+          infinite: true,
+          width: Drawing.infiniteStart,
+          height: Drawing.infiniteStart,
+        ),
+      );
     } else if (pick is PageTemplate) {
       final d = await PageTemplates.load(pick);
       await _addPage(copy: false, from: d);
@@ -1786,10 +1801,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
             final d = ctl.drawing;
             // Ajustar la hoja al ancho de la pantalla la primera vez (y al
             // girarla entre vertical/horizontal).
-            final fitKey = c.maxWidth * 10000 + d.width;
+            // El lienzo infinito crece: se ajusta a 1000 de ancho y no se
+            // vuelve a ajustar cuando crece.
+            final fitW = d.infinite ? Drawing.a4Width : d.width;
+            final fitKey = c.maxWidth * 10000 + fitW + (d.infinite ? 0.5 : 0);
             if (_fittedWidth != fitKey) {
               _fittedWidth = fitKey;
-              final scale = (c.maxWidth - 16) / d.width;
+              final scale = (c.maxWidth - 16) / fitW;
               _fitScale = scale;
               _transform.value = Matrix4.identity()
                 ..setEntry(0, 0, scale)
@@ -1802,9 +1820,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
             return InteractiveViewer(
               transformationController: _transform,
               constrained: false,
-              minScale: 0.2,
+              minScale: d.infinite ? 0.04 : 0.2,
               maxScale: 8,
-              boundaryMargin: const EdgeInsets.all(400),
+              boundaryMargin: EdgeInsets.all(d.infinite ? 1200 : 400),
               panEnabled: ctl.mode == InputMode.pan || ctl.stylusOnly || _twoFingers,
               child: _stacked(ctl, Container(
                 key: _pageKey,

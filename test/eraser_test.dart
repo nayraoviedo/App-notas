@@ -35,4 +35,17 @@ void main() {
     c.undo();
     expect(c.activeLayer.strokes.length, 2);
   });
+
+  test('el lienzo infinito crece al dibujar cerca del borde', () {
+    final c = DrawingController(Drawing.blank())..setInfinite(true);
+    expect(c.drawing.infinite, isTrue);
+    expect(c.drawing.width, Drawing.infiniteStart);
+    c.startStroke(const Offset(2900, 2900), null);
+    c.extendStroke(const Offset(2950, 2950), null);
+    c.endStroke();
+    expect(c.drawing.width, greaterThan(4000));
+    expect(c.drawing.height, greaterThan(4000));
+    final again = Drawing.fromJson(c.drawing.toJson());
+    expect(again.infinite, isTrue);
+  });
 }

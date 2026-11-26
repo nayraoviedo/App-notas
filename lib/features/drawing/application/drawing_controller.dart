@@ -370,6 +370,40 @@ class DrawingController extends ChangeNotifier {
     _changed();
   }
 
+  /// Convierte la hoja en lienzo infinito (o la vuelve hoja normal A4).
+  void setInfinite(bool on) {
+    if (on == _drawing.infinite) return;
+    _commit(() => _drawing = on
+        ? _drawing.copyWith(
+            infinite: true,
+            width: math.max(_drawing.width, Drawing.infiniteStart),
+            height: math.max(_drawing.height, Drawing.infiniteStart),
+          )
+        : _drawing.copyWith(infinite: false, width: Drawing.a4Width, height: Drawing.a4Height));
+  }
+
+  /// En el lienzo infinito, agranda la hoja si se dibuja cerca del borde.
+  void _growInfinite() {
+    if (!_drawing.infinite) return;
+    var maxX = 0.0, maxY = 0.0;
+    for (final l in _drawing.layers) {
+      for (final s in l.strokes) {
+        final b = s.bounds;
+        if (b.right > maxX) maxX = b.right;
+        if (b.bottom > maxY) maxY = b.bottom;
+      }
+      for (final it in l.items) {
+        if (it.x + 400 > maxX) maxX = it.x + 400;
+        if (it.y + 400 > maxY) maxY = it.y + 400;
+      }
+    }
+    final w = maxX > _drawing.width - 800 ? maxX + 1600 : _drawing.width;
+    final h = maxY > _drawing.height - 800 ? maxY + 1600 : _drawing.height;
+    if (w != _drawing.width || h != _drawing.height) {
+      _drawing = _drawing.copyWith(width: w, height: h);
+    }
+  }
+
   void setLandscape(bool landscape) {
     if (landscape == _drawing.isLandscape) return;
     _commit(() => _drawing =
@@ -824,6 +858,7 @@ class DrawingController extends ChangeNotifier {
   // ---------------------------------------------------------------- Guardar
 
   void _changed() {
+    _growInfinite();
     _dirty = true;
     notifyListeners();
     _saveTimer?.cancel();

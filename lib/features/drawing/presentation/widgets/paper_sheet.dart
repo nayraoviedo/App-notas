@@ -164,14 +164,38 @@ class PaperSheet extends StatelessWidget {
                     ),
                   ],
                 ),
-                SegmentedButton<bool>(
+                SegmentedButton<String>(
                   segments: const [
-                    ButtonSegment(value: false, icon: Icon(Icons.crop_portrait), label: Text('Vertical')),
-                    ButtonSegment(value: true, icon: Icon(Icons.crop_landscape), label: Text('Horizontal')),
+                    ButtonSegment(value: 'v', icon: Icon(Icons.crop_portrait), label: Text('Vertical')),
+                    ButtonSegment(value: 'h', icon: Icon(Icons.crop_landscape), label: Text('Horizontal')),
+                    ButtonSegment(value: 'inf', icon: Icon(Icons.all_inclusive), label: Text('Infinito')),
                   ],
-                  selected: {controller.drawing.isLandscape},
-                  onSelectionChanged: (s) => controller.setLandscape(s.first),
+                  selected: {
+                    controller.drawing.infinite
+                        ? 'inf'
+                        : controller.drawing.isLandscape
+                            ? 'h'
+                            : 'v'
+                  },
+                  onSelectionChanged: (s) {
+                    final v = s.first;
+                    if (v == 'inf') {
+                      controller.setInfinite(true);
+                      return;
+                    }
+                    controller.setInfinite(false);
+                    controller.setLandscape(v == 'h');
+                  },
                 ),
+                if (controller.drawing.infinite)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Lienzo infinito: la hoja crece sola cuando dibujas cerca del borde. '
+                      'Muévete con dos dedos y pellizca para alejar y ver todo.',
+                      style: TextStyle(fontSize: 13, color: Colors.black54),
+                    ),
+                  ),
               ],
             ),
           ),
