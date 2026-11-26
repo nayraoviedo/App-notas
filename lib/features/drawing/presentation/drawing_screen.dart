@@ -83,6 +83,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
+    // El lazo necesita saber cuánto ocupa cada texto.
+    DrawingController.itemSizer =
+        (it) => it is TextItem ? measureTextItem(it) : DrawingController.roughItemSize(it);
     _load(_path);
     _transform.addListener(_onViewChanged);
   }
@@ -1864,9 +1867,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                               opacity: d.layers[i].opacity,
                               child: IgnorePointer(
                                 // Los elementos solo se tocan con "Texto" o "Mover".
+                                // Con algo elegido por el lazo, se mueve todo junto.
                                 ignoring: !(ctl.mode == InputMode.select ||
                                         ctl.mode == InputMode.text) ||
-                                    d.layers[i].locked,
+                                    d.layers[i].locked ||
+                                    ctl.hasStrokeSelection,
                                 child: Stack(
                                   clipBehavior: Clip.hardEdge,
                                   children: [
@@ -2505,7 +2510,7 @@ class _StrokeSelectionBar extends StatelessWidget {
                   if (c != null) controller.recolorSelection(c);
                 },
               ),
-              action(Icons.text_fields, 'A texto', onToText),
+              if (controller.selectedStrokes.isNotEmpty) action(Icons.text_fields, 'A texto', onToText),
               action(Icons.copy_outlined, 'Duplicar', controller.duplicateSelection),
               action(Icons.delete_outline, 'Borrar', controller.deleteSelection),
               action(Icons.check, 'Listo', controller.clearStrokeSelection),

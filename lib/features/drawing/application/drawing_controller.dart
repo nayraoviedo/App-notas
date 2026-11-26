@@ -85,6 +85,7 @@ class DrawingController extends ChangeNotifier {
     mode = InputMode.draw;
     selectedItemId = null;
     selectedStrokes = {};
+    selectedItems = {};
     lasso = null;
     notifyListeners();
   }
@@ -93,6 +94,7 @@ class DrawingController extends ChangeNotifier {
     mode = m;
     if (m != InputMode.select) {
       selectedStrokes = {};
+    selectedItems = {};
       lasso = null;
     }
     if (m != InputMode.select && m != InputMode.text) selectedItemId = null;
@@ -161,6 +163,7 @@ class DrawingController extends ChangeNotifier {
   void setActiveLayer(int i) {
     _active = i;
     selectedStrokes = {};
+    selectedItems = {};
     notifyListeners();
   }
 
@@ -524,15 +527,45 @@ class DrawingController extends ChangeNotifier {
   /// Trazos seleccionados (índices en la capa activa).
   Set<int> selectedStrokes = {};
 
-  bool get hasStrokeSelection => selectedStrokes.isNotEmpty;
+  /// Textos, fotos, stickers y figuras de la capa activa elegidos con el lazo.
+  Set<String> selectedItems = {};
+
+  /// Tamaño de un elemento (sin escala). La pantalla pone uno exacto para
+  /// los textos; este es aproximado.
+  static Size Function(CanvasItem) itemSizer = roughItemSize;
+
+  static Size roughItemSize(CanvasItem it) => switch (it) {
+        TextItem t => Size(t.width, t.size * 1.4 * (1 + '\n'.allMatches(t.text).length)),
+        ImageItem i => Size(i.width, i.height),
+        StickerItem st => Size(st.width, st.height),
+        ShapeItem sh => Size(sh.width + sh.strokeWidth + 12, sh.height + sh.strokeWidth + 12),
+      };
+
+  /// Rectángulo que ocupa un elemento en la hoja (aprox. si está girado).
+  static Rect itemRect(CanvasItem it) {
+    final sz = itemSizer(it) * it.scale;
+    final rot = it.rotation % math.pi;
+    final w = sz.width * math.cos(rot).abs() + sz.height * math.sin(rot).abs();
+    final h = sz.width * math.sin(rot).abs() + sz.height * math.cos(rot).abs();
+    return Rect.fromCenter(center: Offset(it.x, it.y), width: w, height: h);
+  }
+
+  Iterable<CanvasItem> get _selItems =>
+      activeLayer.items.where((it) => selectedItems.contains(it.id));
+
+  bool get hasStrokeSelection => selectedStrokes.isNotEmpty || selectedItems.isNotEmpty;
 
   Rect? get selectionBounds {
-    if (selectedStrokes.isEmpty) return null;
+    if (!hasStrokeSelection) return null;
     final strokes = activeLayer.strokes;
     Rect? r;
     for (final i in selectedStrokes) {
       if (i >= strokes.length) continue;
       final b = strokes[i].bounds;
+      r = r == null ? b : r.expandToInclude(b);
+    }
+    for (final it in _selItems) {
+      final b = itemRect(it);
       r = r == null ? b : r.expandToInclude(b);
     }
     return r;
@@ -541,6 +574,7 @@ class DrawingController extends ChangeNotifier {
   void beginLasso(Offset at) {
     lasso = [at];
     selectedStrokes = {};
+    selectedItems = {};
     notifyListeners();
   }
 
@@ -576,12 +610,19 @@ class DrawingController extends ChangeNotifier {
       if (inside >= pts.length * 0.6) sel.add(i);
     }
     selectedStrokes = sel;
+    // Y los textos, fotos, stickers y figuras cuyo centro queda adentro.
+    selectedItems = {
+      if (!activeLayer.locked)
+        for (final it in activeLayer.items)
+          if (poly.contains(Offset(it.x, it.y))) it.id,
+    };
     notifyListeners();
   }
 
   void clearStrokeSelection() {
-    if (selectedStrokes.isEmpty && lasso == null) return;
+    if (!hasStrokeSelection && lasso == null) return;
     selectedStrokes = {};
+    selectedItems = {};
     lasso = null;
     notifyListeners();
   }
@@ -595,8 +636,9 @@ class DrawingController extends ChangeNotifier {
         points: [for (final p in s.points) StrokePoint(p.x + delta.dx, p.y + delta.dy, p.p)],
       );
 
-  void _changeSelected(Stroke Function(Stroke) f, {bool undoable = true}) {
-    if (selectedStrokes.isEmpty) return;
+  void _changeSelected(Stroke Function(Stroke) f,
+      {bool undoable = true, CanvasItem Function(CanvasItem)? items}) {
+    if (!hasStrokeSelection) return;
     void apply() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];
@@ -604,7 +646,12 @@ class DrawingController extends ChangeNotifier {
       for (final k in selectedStrokes) {
         if (k < strokes.length) strokes[k] = f(strokes[k]);
       }
-      layers[i] = layers[i].copyWith(strokes: strokes);
+      final its = items == null
+          ? layers[i].items
+          : [
+              for (final it in layers[i].items) selectedItems.contains(it.id) ? items(it) : it,
+            ];
+      layers[i] = layers[i].copyWith(strokes: strokes, items: its);
       _drawing = _drawing.copyWith(layers: layers);
     }
 
@@ -617,12 +664,23 @@ class DrawingController extends ChangeNotifier {
   }
 
   /// Mover los trazos seleccionados (llamar antes a [beginItemChange]).
-  void moveSelection(Offset delta) => _changeSelected((s) => _copyStroke(s, delta: delta), undoable: false);
+  void moveSelection(Offset delta) => _changeSelected(
+        (s) => _copyStroke(s, delta: delta),
+        undoable: false,
+        items: (it) => it.moved(x: it.x + delta.dx, y: it.y + delta.dy),
+      );
 
-  void recolorSelection(int color) => _changeSelected((s) => _copyStroke(s, color: color));
+  void recolorSelection(int color) => _changeSelected(
+        (s) => _copyStroke(s, color: color),
+        items: (it) => switch (it) {
+          TextItem t => t.copyWith(color: color),
+          ShapeItem sh => sh.copyWith(color: color),
+          _ => it,
+        },
+      );
 
   void deleteSelection() {
-    if (selectedStrokes.isEmpty) return;
+    if (!hasStrokeSelection) return;
     _commit(() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];
@@ -630,14 +688,19 @@ class DrawingController extends ChangeNotifier {
         for (var k = 0; k < layers[i].strokes.length; k++)
           if (!selectedStrokes.contains(k)) layers[i].strokes[k],
       ];
-      layers[i] = layers[i].copyWith(strokes: keep);
+      final keepItems = [
+        for (final it in layers[i].items)
+          if (!selectedItems.contains(it.id)) it,
+      ];
+      layers[i] = layers[i].copyWith(strokes: keep, items: keepItems);
       _drawing = _drawing.copyWith(layers: layers);
       selectedStrokes = {};
+    selectedItems = {};
     });
   }
 
   void duplicateSelection() {
-    if (selectedStrokes.isEmpty) return;
+    if (!hasStrokeSelection) return;
     _commit(() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];
@@ -648,9 +711,15 @@ class DrawingController extends ChangeNotifier {
       ];
       final start = strokes.length;
       strokes.addAll(copies);
-      layers[i] = layers[i].copyWith(strokes: strokes);
+      final itemCopies = [
+        for (final it in layers[i].items)
+          if (selectedItems.contains(it.id))
+            _cloneItem(it).moved(x: it.x + 30, y: it.y + 30),
+      ];
+      layers[i] = layers[i].copyWith(strokes: strokes, items: [...layers[i].items, ...itemCopies]);
       _drawing = _drawing.copyWith(layers: layers);
       selectedStrokes = {for (var k = 0; k < copies.length; k++) start + k};
+      selectedItems = {for (final it in itemCopies) it.id};
     });
   }
 
@@ -842,6 +911,7 @@ class DrawingController extends ChangeNotifier {
     _redo.add(_drawing);
     _drawing = _undo.removeLast();
     selectedStrokes = {};
+    selectedItems = {};
     if (findItem(selectedItemId) == null) selectedItemId = null;
     _changed();
   }
@@ -851,6 +921,7 @@ class DrawingController extends ChangeNotifier {
     _undo.add(_drawing);
     _drawing = _redo.removeLast();
     selectedStrokes = {};
+    selectedItems = {};
     if (findItem(selectedItemId) == null) selectedItemId = null;
     _changed();
   }
