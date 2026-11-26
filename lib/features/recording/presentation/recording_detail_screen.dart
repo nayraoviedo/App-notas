@@ -10,6 +10,7 @@ import '../../notes/presentation/widgets/audio_block_view.dart';
 import '../../settings/settings.dart';
 import '../application/audio_tools.dart';
 import '../application/recording_controller.dart';
+import '../application/transcript_tools.dart';
 import '../../summary/application/summary_runner.dart';
 import '../../summary/domain/summary.dart';
 import '../../drawing/presentation/widgets/canvas_item_view.dart' show measureTextItem;
@@ -203,12 +204,24 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : TabBarView(
                       children: [
-                        TranscriptView(
-                          blockId: widget.blockId,
-                          audioPath: audio.path,
-                          player: _player,
-                          photos: photos,
-                          onlyImportant: _onlyImportant,
+                        Column(
+                          children: [
+                            _TranscriptTools(
+                              noteId: widget.noteId,
+                              blockId: widget.blockId,
+                              audioPath: audio.path,
+                              title: note?.displayTitle ?? 'Transcripción',
+                            ),
+                            Expanded(
+                              child: TranscriptView(
+                                blockId: widget.blockId,
+                                audioPath: audio.path,
+                                player: _player,
+                                photos: photos,
+                                onlyImportant: _onlyImportant,
+                              ),
+                            ),
+                          ],
                         ),
                         _QuickNotesTab(blockId: widget.blockId, player: _player, onSeek: _seek),
                         _SummaryTab(noteId: widget.noteId, blockId: widget.blockId, onSeek: _seek),
@@ -247,6 +260,166 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
       ),
     );
     if (v != null) await ref.read(notesRepositoryProvider).renameNote(widget.noteId, v);
+  }
+}
+
+/// "Original / Corregido con IA" y "Pasar a notas".
+class _TranscriptTools extends ConsumerStatefulWidget {
+  const _TranscriptTools({
+    required this.noteId,
+    required this.blockId,
+    required this.audioPath,
+    required this.title,
+  });
+  final String noteId;
+  final String blockId;
+  final String audioPath;
+  final String title;
+
+  @override
+  ConsumerState<_TranscriptTools> createState() => _TranscriptToolsState();
+}
+
+class _TranscriptToolsState extends ConsumerState<_TranscriptTools> {
+  int? _progress;
+
+  Future<void> _pick(TranscriptVersion v) async {
+    final (has, showing) = transcriptVersionInfo(widget.audioPath);
+    if (v == showing && (has || v == TranscriptVersion.original)) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (v == TranscriptVersion.corrected && !has) {
+      setState(() => _progress = 0);
+      try {
+        final n = await correctTranscriptWithAi(
+          ref,
+          blockId: widget.blockId,
+          audioPath: widget.audioPath,
+          onProgress: (p) {
+            if (mounted) setState(() => _progress = p);
+          },
+        );
+        messenger.showSnackBar(SnackBar(content: Text('Corregí $n fragmentos ✓ (puedes volver al original)')));
+      } catch (e) {
+        messenger.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
+      }
+      if (mounted) setState(() => _progress = null);
+      return;
+    }
+    await showTranscriptVersion(ref, audioPath: widget.audioPath, version: v);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toNotes() async {
+    final how = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('Pasar la transcripción a notas', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text('Se usa la versión que estás viendo (original o corregida)'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('Escrita en hojas del cuaderno'),
+              subtitle: const Text('Hojas rayadas con letra manuscrita, para subrayar y escribir encima'),
+              onTap: () => Navigator.pop(context, 'sheets'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.notes),
+              title: const Text('Como texto en la nota'),
+              subtitle: const Text('Para editarla, resaltar y hacer listas'),
+              onTap: () => Navigator.pop(context, 'text'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (how == null || !mounted) return;
+    final segs = await ref.read(segmentsProvider(widget.blockId).future);
+    final names = {for (final sp in await ref.read(speakersProvider.future)) sp.id: sp.name};
+    final paragraphs = [
+      for (final (at, sp, t) in transcriptParagraphs(segs)) (at, sp == null ? null : names[sp], t),
+    ];
+    if (paragraphs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Todavía no hay transcripción.')));
+      }
+      return;
+    }
+    final repo = ref.read(notesRepositoryProvider);
+    if (how == 'text') {
+      final text = [
+        widget.title,
+        for (final (at, sp, t) in paragraphs) '\n${formatMs(at)}${sp == null ? '' : ' · $sp'}\n$t',
+      ].join('\n');
+      await repo.addTextBlock(widget.noteId, text: text);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('Transcripción agregada como texto en la nota ✓'),
+          action: SnackBarAction(label: 'Ver', onPressed: () => context.push('/notes/${widget.noteId}')),
+        ));
+      }
+      return;
+    }
+    final pages = transcriptPages(widget.title, paragraphs, measure: measureTextItem);
+    String? first;
+    for (final page in pages) {
+      final path = await ref.read(fileStorageProvider).newDrawingPath();
+      await ref.read(drawingStoreProvider).save(path, page);
+      await repo.addDrawingBlock(widget.noteId, path);
+      first ??= path;
+    }
+    if (!mounted || first == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${pages.length} ${pages.length == 1 ? 'hoja' : 'hojas'} con la transcripción ✓')));
+    context.push('/notes/${widget.noteId}/drawing', extra: first);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (has, showing) = transcriptVersionInfo(widget.audioPath);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('Original'),
+                    selected: showing == TranscriptVersion.original,
+                    onSelected: _progress != null ? null : (_) => _pick(TranscriptVersion.original),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    avatar: _progress != null
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_fix_high, size: 16),
+                    label: Text(_progress != null
+                        ? 'Corrigiendo $_progress%'
+                        : has
+                            ? 'Corregido con IA'
+                            : 'Corregir con IA'),
+                    selected: showing == TranscriptVersion.corrected,
+                    onSelected: _progress != null ? null : (_) => _pick(TranscriptVersion.corrected),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Pasar a notas',
+            icon: const Icon(Icons.note_add_outlined),
+            onPressed: _toNotes,
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -1,3 +1,4 @@
+import '../../export/pdf_exporter.dart';
 import 'cat_greeting.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -172,6 +173,12 @@ class LibraryScreen extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('Exportar a PDF'),
+              subtitle: const Text('Completo o nota por nota'),
+              onTap: () => Navigator.pop(context, 'export'),
+            ),
+            ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Editar nombre, color o portada'),
               onTap: () => Navigator.pop(context, 'edit'),
@@ -188,7 +195,9 @@ class LibraryScreen extends ConsumerWidget {
     );
     if (!context.mounted) return;
     final repo = ref.read(notebooksRepositoryProvider);
-    if (action == 'edit') {
+    if (action == 'export' && context.mounted) {
+      await exportNotebookFlow(context, ref, notebookId: nb.id, name: nb.name);
+    } else if (action == 'edit') {
       final r = await showNotebookForm(
         context,
         initial: nb,

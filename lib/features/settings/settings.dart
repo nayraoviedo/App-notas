@@ -140,7 +140,7 @@ final themeModeProvider = StateProvider<ThemeMode>((ref) {
   return ThemeMode.values.where((m) => m.name == v).firstOrNull ?? ThemeMode.light;
 });
 
-/// Letra de toda la app (ver appFonts en core/theme.dart).
+/// Letra de toda la app (ver uiFonts en core/theme.dart).
 final appFontProvider = StateProvider<String>(
     (ref) => ref.watch(sharedPreferencesProvider).getString('app.font') ?? 'Patrick Hand');
 

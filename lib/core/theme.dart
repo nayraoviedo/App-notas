@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Letras para toda la app (manuscritas, que se lean bien en botones y listas).
-const appFonts = <String, String>{
+const uiFonts = <String, String>{
   'Patrick Hand': 'Manuscrita clara (recomendada)',
   'Mali': 'Redondita',
   'Itim': 'Cuaderno',

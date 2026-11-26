@@ -123,7 +123,7 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.font_download_outlined),
             title: const Text('Letra de la app'),
-            subtitle: Text(appFonts[ref.watch(appFontProvider)] ?? ref.watch(appFontProvider)),
+            subtitle: Text(uiFonts[ref.watch(appFontProvider)] ?? ref.watch(appFontProvider)),
             onTap: () async {
               final f = await showModalBottomSheet<String>(
                 context: context,
@@ -131,7 +131,7 @@ class SettingsScreen extends ConsumerWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      for (final e in appFonts.entries)
+                      for (final e in uiFonts.entries)
                         ListTile(
                           title: Text(e.value,
                               style: e.key == 'Normal' ? null : fontStyle(e.key, size: 20)),

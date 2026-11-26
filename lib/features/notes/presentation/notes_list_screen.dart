@@ -1,3 +1,4 @@
+import '../../export/pdf_exporter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -66,10 +67,27 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
             tooltip: 'Buscar (también dentro de los audios)',
             onPressed: () => showSearch(context: context, delegate: NotesSearchDelegate(ref)),
           ),
-          IconButton(
+          PopupMenuButton<String>(
             icon: const Icon(Icons.picture_as_pdf_outlined),
-            tooltip: 'Importar PDF como nota',
-            onPressed: () => _importPdf(context),
+            tooltip: 'PDF',
+            onSelected: (v) {
+              if (v == 'import') _importPdf(context);
+              if (v == 'export') {
+                exportNotebookFlow(context, ref,
+                    notebookId: notebookId,
+                    name: notebookId == null ? 'Todas las notas' : (notebook?.name ?? 'Cuaderno'));
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: ListTile(leading: Icon(Icons.ios_share), title: Text('Exportar a PDF (completo o por notas)')),
+              ),
+              PopupMenuItem(
+                value: 'import',
+                child: ListTile(leading: Icon(Icons.file_download_outlined), title: Text('Importar PDF como nota')),
+              ),
+            ],
           ),
         ],
       ),
