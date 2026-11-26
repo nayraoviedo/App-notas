@@ -57,6 +57,20 @@ class LayerPainter extends CustomPainter {
       layers[index],
       live: index == controller.activeLayerIndex ? controller.currentStroke : null,
     );
+    // Círculo del borrador por área, para ver qué se va a borrar.
+    final at = controller.eraserAt;
+    if (at != null && index == controller.activeLayerIndex) {
+      final r = controller.eraserRadius;
+      canvas.drawCircle(at, r, Paint()..color = const Color(0x22000000));
+      canvas.drawCircle(
+        at,
+        r,
+        Paint()
+          ..color = const Color(0x88000000)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
   }
 
   @override

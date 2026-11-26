@@ -389,6 +389,16 @@ class DrawingController extends ChangeNotifier {
   void startStroke(Offset at, double? pressure, {double sizeScale = 1}) {
     if (!canDrawOnActiveLayer) return;
     _snapped = false;
+    if (tool == ToolType.eraser) {
+      // Borrador por área: corta los trazos justo donde pasa (no pinta
+      // "transparente", así solo borra lo que toca).
+      _erasingGesture = false;
+      _eraserRadius = (settings.size * sizeScale).clamp(2, 120) / 2;
+      eraserAt = at;
+      _eraseArea(at, at);
+      notifyListeners();
+      return;
+    }
     currentStroke = Stroke(
       tool: tool,
       color: settings.color,
@@ -401,6 +411,14 @@ class DrawingController extends ChangeNotifier {
   }
 
   void extendStroke(Offset at, double? pressure) {
+    final prev = eraserAt;
+    if (prev != null) {
+      if ((prev - at).distanceSquared < 0.8) return;
+      eraserAt = at;
+      _eraseArea(prev, at);
+      notifyListeners();
+      return;
+    }
     final s = currentStroke;
     if (s == null || _snapped) return;
     final last = s.points.last;
@@ -411,6 +429,12 @@ class DrawingController extends ChangeNotifier {
   }
 
   void endStroke() {
+    if (eraserAt != null) {
+      eraserAt = null;
+      _erasingGesture = false;
+      notifyListeners();
+      return;
+    }
     final s = currentStroke;
     if (s == null) return;
     currentStroke = null;
@@ -447,6 +471,12 @@ class DrawingController extends ChangeNotifier {
 
   /// Cancela el trazo (por ejemplo, al poner un segundo dedo para hacer zoom).
   void cancelStroke() {
+    if (eraserAt != null) {
+      eraserAt = null;
+      _erasingGesture = false;
+      notifyListeners();
+      return;
+    }
     if (currentStroke == null) return;
     currentStroke = null;
     notifyListeners();
@@ -595,6 +625,102 @@ class DrawingController extends ChangeNotifier {
   bool _erasingGesture = false;
 
   void beginEraseStrokes() => _erasingGesture = false;
+
+  /// Dónde está el borrador por área mientras se arrastra (para dibujar el
+  /// círculo); null si no se está borrando.
+  Offset? eraserAt;
+  double _eraserRadius = 15;
+  double get eraserRadius => _eraserRadius;
+
+  /// Borra la parte de los trazos que queda dentro del recorrido a→b.
+  void _eraseArea(Offset a, Offset b) {
+    final layer = activeLayer;
+    final r = _eraserRadius;
+    final hit = Rect.fromPoints(a, b).inflate(r);
+    var changed = false;
+    final out = <Stroke>[];
+    for (final s in layer.strokes) {
+      if (!s.bounds.overlaps(hit)) {
+        out.add(s);
+        continue;
+      }
+      final cut = _cutStroke(s, a, b, r);
+      if (cut == null) {
+        out.add(s);
+      } else {
+        changed = true;
+        out.addAll(cut);
+      }
+    }
+    if (!changed) return;
+    void apply() {
+      final layers = [..._drawing.layers];
+      layers[activeLayerIndex] = layer.copyWith(strokes: out);
+      _drawing = _drawing.copyWith(layers: layers);
+    }
+
+    // Un solo paso de "deshacer" por pasada del borrador.
+    if (!_erasingGesture) {
+      _erasingGesture = true;
+      _commit(apply);
+    } else {
+      apply();
+      _changed();
+    }
+  }
+
+  /// Los pedazos que quedan de [s] después de borrar el recorrido a→b con
+  /// radio [r]; null si no lo toca.
+  static List<Stroke>? _cutStroke(Stroke s, Offset a, Offset b, double r) {
+    final reach = r + s.size * 0.35;
+    bool inside(double x, double y) => _distToSegment(Offset(x, y), a, b) <= reach;
+    // La cinta y los trazos de un punto se borran enteros si se tocan.
+    if (s.tool == ToolType.tape || s.points.length < 2) {
+      return s.points.any((p) => inside(p.x, p.y)) || _hits(s, a, reach) ? const [] : null;
+    }
+    // Puntos más juntos para poder cortar en cualquier parte (las líneas
+    // rectas tienen solo dos puntos).
+    final step = (reach / 3).clamp(1.0, 6.0);
+    final pts = <StrokePoint>[s.points.first];
+    for (var i = 1; i < s.points.length; i++) {
+      final p0 = s.points[i - 1], p1 = s.points[i];
+      final d = (Offset(p1.x, p1.y) - Offset(p0.x, p0.y)).distance;
+      final n = (d / step).floor();
+      for (var k = 1; k < n; k++) {
+        final t = k / n;
+        final pr = p0.p == null || p1.p == null ? p1.p : p0.p! + (p1.p! - p0.p!) * t;
+        pts.add(StrokePoint(p0.x + (p1.x - p0.x) * t, p0.y + (p1.y - p0.y) * t, pr));
+      }
+      pts.add(p1);
+    }
+    final flags = [for (final p in pts) inside(p.x, p.y)];
+    if (!flags.contains(true)) return null;
+    final pieces = <Stroke>[];
+    var run = <StrokePoint>[];
+    void close() {
+      if (run.length >= 2) {
+        pieces.add(Stroke(
+          tool: s.tool,
+          color: s.color,
+          size: s.size,
+          thinning: s.thinning,
+          streamline: s.streamline,
+          points: run,
+        ));
+      }
+      run = <StrokePoint>[];
+    }
+
+    for (var i = 0; i < pts.length; i++) {
+      if (flags[i]) {
+        close();
+      } else {
+        run.add(pts[i]);
+      }
+    }
+    close();
+    return pieces;
+  }
 
   /// Borra los trazos de la capa activa que pasen cerca de [at].
   void eraseStrokesAt(Offset at, {double radius = 14}) {

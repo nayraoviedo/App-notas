@@ -389,6 +389,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       _ctl = DrawingController(drawing, onSave: (d) => store.save(path, d))
         ..stylusOnly = old?.stylusOnly ?? settings.stylusOnly;
       if (keepTool != null) _ctl!.selectTool(keepTool);
+      // Mantener también "borrar trazo completo" (o lazo, texto…) en la hoja nueva.
+      final keepMode = old?.mode;
+      if (keepMode != null && keepMode != InputMode.draw) _ctl!.selectMode(keepMode);
       final h = _histories[path];
       if (h != null) _ctl!.restoreHistory(h);
     });
