@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../drawing/application/handwriting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:file_picker/file_picker.dart';
@@ -175,6 +177,8 @@ class SettingsScreen extends ConsumerWidget {
               style: TextStyle(fontSize: 13, color: Colors.black54),
             ),
           ),
+          const _Header('Letra a mano'),
+          const _HandwritingTile(),
           const _Header('Google Drive'),
           const _DriveTiles(),
           const _Header('Copia de seguridad'),
@@ -654,5 +658,81 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
         ],
       ],
     );
+  }
+}
+
+
+/// Reconocer letra a mano: buscar lo escrito y pasarlo a texto.
+class _HandwritingTile extends ConsumerStatefulWidget {
+  const _HandwritingTile();
+
+  @override
+  ConsumerState<_HandwritingTile> createState() => _HandwritingTileState();
+}
+
+class _HandwritingTileState extends ConsumerState<_HandwritingTile> {
+  bool? _ready;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Handwriting.instance.isReady().then((v) {
+      if (mounted) setState(() => _ready = v);
+    }).catchError((_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    final on = prefs.getBool('hw.enabled') ?? true;
+    return Column(children: [
+      SwitchListTile(
+        secondary: const Icon(Icons.draw_outlined),
+        title: const Text('Buscar en lo que escribo a mano'),
+        subtitle: Text(_busy
+            ? 'Bajando el lector de letra (~20 MB)…'
+            : _ready == true
+                ? 'Listo ✓ · El buscador también encuentra tu letra'
+                : 'Hay que bajar el lector de letra una vez (~20 MB)'),
+        value: on,
+        onChanged: (v) async {
+          await prefs.setBool('hw.enabled', v);
+          setState(() {});
+          if (v && _ready != true) _download();
+        },
+      ),
+      if (_ready != true && !_busy)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(72, 0, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _download,
+              icon: const Icon(Icons.download),
+              label: const Text('Bajar lector de letra'),
+            ),
+          ),
+        ),
+      const Padding(
+        padding: EdgeInsets.fromLTRB(72, 0, 16, 8),
+        child: Text(
+          'Para pasar tu letra a texto: usa el lazo, rodea lo escrito y toca "A texto".',
+          style: TextStyle(fontSize: 13, color: Colors.black54),
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _download() async {
+    setState(() => _busy = true);
+    try {
+      await Handwriting.instance.ensureModel();
+      if (mounted) setState(() => _ready = true);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }

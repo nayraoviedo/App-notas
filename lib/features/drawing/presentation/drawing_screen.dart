@@ -16,6 +16,7 @@ import '../../notes/presentation/note_tags_dialog.dart';
 import '../../recording/application/recording_controller.dart';
 import '../../settings/settings.dart';
 import '../application/drawing_controller.dart';
+import '../application/handwriting.dart';
 import '../domain/drawing.dart';
 import 'drawing_block_view.dart';
 import 'widgets/canvas_item_view.dart';
@@ -367,6 +368,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     if (old != null) {
       await old.flush();
       ref.invalidate(drawingFileProvider(_path));
+      unawaited(_indexHandwriting(_path, old.drawing));
     }
     final store = ref.read(drawingStoreProvider);
     final drawing = await store.load(path);
@@ -407,6 +409,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     }
     await _ctl?.flush();
     ref.invalidate(drawingFileProvider(_path)); // refrescar la vista previa
+    final c = _ctl;
+    if (c != null) unawaited(_indexHandwriting(_path, c.drawing));
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -848,7 +852,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                   ListenableBuilder(
                     listenable: ctl,
                     builder: (context, _) => ctl.hasStrokeSelection
-                        ? _StrokeSelectionBar(controller: ctl)
+                        ? _StrokeSelectionBar(controller: ctl, onToText: _strokesToText)
                         : ctl.selectedItem != null
                         ? _ItemBar(
                             controller: ctl,
@@ -1266,6 +1270,113 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     } else {
       context.push('/notes/${widget.noteId}/record');
     }
+  }
+
+  // ----------------------------------------------------- Letra a mano
+
+  /// Guarda el texto reconocido de la hoja para que la búsqueda encuentre
+  /// lo escrito a mano (solo si el reconocedor ya está bajado).
+  Future<void> _indexHandwriting(String path, Drawing d) async {
+    try {
+      // Leer todo de ref antes de esperar: la pantalla puede cerrarse.
+      final prefs = ref.read(sharedPreferencesProvider);
+      final repo = ref.read(notesRepositoryProvider);
+      final block = _pages.where((p) => p.path == path).firstOrNull;
+      if (block == null || prefs.getBool('hw.enabled') == false) return;
+      final hw = Handwriting.instance;
+      if (!await hw.isReady()) return;
+      final strokes = [for (final l in d.layers) ...l.strokes];
+      final key = 'hw.count.$path';
+      if (prefs.getInt(key) == strokes.length) return; // sin cambios
+      final text = await hw.recognize(strokes);
+      await repo.updateText(block.id, text.isEmpty ? '' : '✍️ $text');
+      await prefs.setInt(key, strokes.length);
+    } catch (_) {}
+  }
+
+  /// Lazo → "A texto": lo escrito a mano se vuelve texto.
+  Future<void> _strokesToText() async {
+    final ctl = _ctl;
+    if (ctl == null || !ctl.hasStrokeSelection) return;
+    final strokes = [
+      for (final i in ctl.selectedStrokes)
+        if (i < ctl.activeLayer.strokes.length) ctl.activeLayer.strokes[i],
+    ];
+    final bounds = ctl.selectionBounds;
+    final status = ValueNotifier<String>('Leyendo tu letra…');
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: Row(children: [
+          const CircularProgressIndicator(),
+          const SizedBox(width: 16),
+          Expanded(child: ValueListenableBuilder(valueListenable: status, builder: (_, v, __) => Text(v))),
+        ]),
+      ),
+    );
+    String text;
+    try {
+      if (!await Handwriting.instance.isReady()) {
+        status.value = 'Bajando el lector de letra (solo la primera vez)…';
+      }
+      text = await Handwriting.instance.recognize(strokes);
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    final edit = TextEditingController(text: text);
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tu letra en texto'),
+        content: TextField(
+          controller: edit,
+          maxLines: 8,
+          minLines: 2,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            helperText: 'Corrige lo que haya leído mal',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, 'copy'), child: const Text('Copiar')),
+          TextButton(onPressed: () => Navigator.pop(context, 'add'), child: const Text('Poner al lado')),
+          FilledButton(onPressed: () => Navigator.pop(context, 'replace'), child: const Text('Cambiar por texto')),
+        ],
+      ),
+    );
+    if (action == null || !mounted || edit.text.trim().isEmpty) return;
+    if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: edit.text.trim()));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Texto copiado ✓')));
+      return;
+    }
+    final b = bounds ?? Rect.fromLTWH(100, 100, 400, 100);
+    final base = _lastTextStyle;
+    final item = TextItem(
+      id: DrawingController.newItemId(),
+      x: 0,
+      y: 0,
+      text: edit.text.trim(),
+      font: base?.font ?? 'Patrick Hand',
+      size: base?.size ?? 34,
+      color: base?.color ?? 0xFF1F2328,
+      width: math.max(240, b.width + 40),
+    );
+    final size = measureTextItem(item);
+    final placed = item.copyWith(
+      x: (action == 'replace' ? b.left : b.right + 20) + size.width / 2,
+      y: b.top + size.height / 2,
+    );
+    if (action == 'replace') ctl.deleteSelection();
+    ctl.clearStrokeSelection();
+    _placeAndSelect(placed);
   }
 
   /// Grabaciones de la nota ([watch] solo dentro de build).
@@ -2186,8 +2297,9 @@ class _LassoPainter extends CustomPainter {
 
 /// Acciones para los trazos elegidos con el lazo.
 class _StrokeSelectionBar extends StatelessWidget {
-  const _StrokeSelectionBar({required this.controller});
+  const _StrokeSelectionBar({required this.controller, required this.onToText});
   final DrawingController controller;
+  final VoidCallback onToText;
 
   @override
   Widget build(BuildContext context) {
@@ -2235,6 +2347,7 @@ class _StrokeSelectionBar extends StatelessWidget {
                   if (c != null) controller.recolorSelection(c);
                 },
               ),
+              action(Icons.text_fields, 'A texto', onToText),
               action(Icons.copy_outlined, 'Duplicar', controller.duplicateSelection),
               action(Icons.delete_outline, 'Borrar', controller.deleteSelection),
               action(Icons.check, 'Listo', controller.clearStrokeSelection),
