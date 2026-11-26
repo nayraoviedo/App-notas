@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -78,6 +79,105 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   void initState() {
     super.initState();
     _load(_path);
+    _transform.addListener(_onViewChanged);
+  }
+
+  // ------------------------------------- Hojas seguidas (una bajo otra)
+
+  static const _gap = 40.0;
+  static const _footerH = 360.0;
+  Timer? _viewDebounce;
+  bool _twoFingers = false;
+  Offset _swipeLast = Offset.zero;
+  bool _scrolling = false;
+  double _overscroll = 0;
+
+  /// Hojas de la nota (para apilarlas).
+  List<DrawingBlock> get _stack => _vertical ? _pages : const [];
+
+  Size _sizeOf(DrawingBlock p) {
+    final d = _ctl?.drawing;
+    if (p.path == _path && d != null) return Size(d.width, d.height);
+    final other = ref.read(drawingFileProvider(p.path)).valueOrNull;
+    if (other != null) return Size(other.width, other.height);
+    return d == null ? const Size(Drawing.a4Width, Drawing.a4Height) : Size(d.width, d.height);
+  }
+
+  /// Distancia desde arriba del montón hasta la hoja [i].
+  double _offsetOf(int i) {
+    final pages = _stack;
+    var y = 0.0;
+    for (var k = 0; k < i && k < pages.length; k++) {
+      y += _sizeOf(pages[k]).height + _gap;
+    }
+    return y;
+  }
+
+  /// Dónde empieza la hoja activa dentro del montón.
+  double get _activeOffset {
+    if (!_vertical) return 0;
+    final i = _pageIndex;
+    return i <= 0 ? 0 : _offsetOf(i);
+  }
+
+  double get _stackHeight {
+    final pages = _stack;
+    return pages.isEmpty ? 0 : _offsetOf(pages.length) - _gap + _footerH;
+  }
+
+  /// Al desplazarse, la hoja que queda en el centro de la pantalla pasa a ser
+  /// la que se edita.
+  void _onViewChanged() {
+    if (!_vertical) return;
+    _viewDebounce?.cancel();
+    _viewDebounce = Timer(const Duration(milliseconds: 260), () {
+      if (!mounted || _drawingPointer != null || _editing != null || _viewport == Size.zero) return;
+      final pages = _stack;
+      if (pages.length < 2) return;
+      final y = _transform.toScene(Offset(_viewport.width / 2, _viewport.height * 0.45)).dy;
+      var target = pages.length - 1;
+      for (var i = 0; i < pages.length; i++) {
+        if (y < _offsetOf(i) + _sizeOf(pages[i]).height + _gap / 2) {
+          target = i;
+          break;
+        }
+      }
+      if (pages[target].path != _path) _load(pages[target].path, keepView: true);
+    });
+  }
+
+  /// Desplazar el montón (un dedo en el fondo gris). Abajo del todo, lo que
+  /// sobra cuenta como "tirar para agregar hoja".
+  void _scrollBy(double dy) {
+    final m = _transform.value;
+    final scale = m.getMaxScaleOnAxis();
+    final maxTy = 8.0;
+    final minTy = math.min(maxTy, _viewport.height - _stackHeight * scale + (_footerH * scale) * 0.35);
+    var ty = m.entry(1, 3) + dy;
+    if (ty < minTy) {
+      _overscroll += minTy - ty;
+      ty = minTy;
+    } else {
+      _overscroll = math.max(0, _overscroll - dy.abs());
+    }
+    ty = ty.clamp(minTy, maxTy);
+    _transform.value = m.clone()..setEntry(1, 3, ty);
+    final p = (_overscroll / 140).clamp(0.0, 1.25);
+    if ((p - _pull).abs() > 0.02) setState(() => _pull = p);
+  }
+
+  /// Ir a una hoja del montón (arriba de la pantalla).
+  Future<void> _scrollToPage(String path) async {
+    await _load(path);
+  }
+
+  /// Agregar hoja al final y bajar hasta ella.
+  Future<void> _addPageAtEnd() async {
+    final pages = _pages;
+    if (pages.isEmpty) return;
+    if (pages.last.path != _path) await _load(pages.last.path, keepView: true);
+    HapticFeedback.mediumImpact();
+    await _addPage(copy: false);
   }
 
   // ------------------------------------------------ Deslizar entre hojas
@@ -134,6 +234,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       return;
     }
     HapticFeedback.selectionClick();
+    if (_vertical) {
+      await _scrollToPage(pages[target].path);
+      return;
+    }
     _slideDir = dir;
     await _load(pages[target].path);
     if (mounted) _slide.forward(from: 0);
@@ -141,6 +245,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
 
   void _swipeDown(PointerDownEvent e) {
     _swipeFingers++;
+    // Con dos dedos se mueve la vista (también en el modo de dibujar).
+    if (_swipeFingers >= 2 && !_twoFingers) setState(() => _twoFingers = true);
+    _swipeLast = e.position;
+    // (En modo mano o "solo lápiz" ya mueve la vista el visor: no doble.)
+    final viewerPans = _ctl != null && (_ctl!.mode == InputMode.pan || _ctl!.stylusOnly);
+    _scrolling =
+        _vertical && !viewerPans && _swipeFingers == 1 && _outsidePage(e.position) && _editing == null;
+    _overscroll = 0;
     final ctl = _ctl;
     // Solo cuando el dedo no está dibujando: modo mano o "solo lápiz".
     final fingerFree = ctl != null &&
@@ -155,14 +267,28 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   }
 
   void _swipeMove(PointerMoveEvent e) {
-    if (e.pointer != _swipePointer || !_vertical || !_onLastPage) return;
-    final dy = e.position.dy - _swipeStart.dy;
-    final p = (-dy / 160).clamp(0.0, 1.25);
-    if ((p - _pull).abs() > 0.02) setState(() => _pull = p);
+    if (_vertical) {
+      // Un dedo en el fondo gris (o en modo mano): bajar y subir por las hojas.
+      if (_scrolling) {
+        if (_swipeFingers == 1) _scrollBy(e.position.dy - _swipeLast.dy);
+        _swipeLast = e.position;
+      }
+      return;
+    }
   }
 
   Future<void> _swipeUp(PointerEvent e) async {
     _swipeFingers = (_swipeFingers - 1).clamp(0, 10);
+    if (_swipeFingers < 2 && _twoFingers) setState(() => _twoFingers = false);
+    if (_vertical) {
+      final pulled = _pull;
+      _scrolling = false;
+      _swipePointer = null;
+      _overscroll = 0;
+      if (_pull != 0) setState(() => _pull = 0);
+      if (pulled >= 1) await _addPageAtEnd();
+      return;
+    }
     if (e.pointer != _swipePointer) return;
     _swipePointer = null;
     final d = e.position - _swipeStart;
@@ -235,7 +361,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         ),
       );
 
-  Future<void> _load(String path) async {
+  Future<void> _load(String path, {bool keepView = false}) async {
     if (_editing != null) _commitEditing();
     final old = _ctl;
     if (old != null) {
@@ -249,7 +375,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     final keepTool = old?.tool;
     setState(() {
       _path = path;
-      _fittedWidth = null; // volver a ajustar la hoja a la pantalla
+      // Volver a ajustar la hoja a la pantalla (salvo al seguir bajando por
+      // las hojas seguidas: ahí la vista queda donde está).
+      if (!keepView) _fittedWidth = null;
       _ctl = DrawingController(drawing, onSave: (d) => store.save(path, d))
         ..stylusOnly = old?.stylusOnly ?? settings.stylusOnly;
       if (keepTool != null) _ctl!.selectTool(keepTool);
@@ -259,6 +387,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
 
   @override
   void dispose() {
+    _viewDebounce?.cancel();
+    _transform.removeListener(_onViewChanged);
     _slide.dispose();
     _holdTimer?.cancel();
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -603,7 +733,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                               animation: _slide,
                               builder: (context, child) {
                                 final v = Curves.easeOutCubic.transform(_slide.value);
-                                final off = _slideDir * (1 - v) * 140;
+                                final off = _vertical ? 0.0 : _slideDir * (1 - v) * 140;
                                 return Transform.translate(
                                   offset: _vertical ? Offset(0, off) : Offset(off, 0),
                                   child: Opacity(opacity: 0.35 + 0.65 * v, child: child),
@@ -617,7 +747,6 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                           _edgeSwipe(left: true),
                           _edgeSwipe(left: false),
                         ],
-                        if (_vertical && _onLastPage && _editing == null) _pullHint(),
                         // Número de página (toca para ver miniaturas).
                         Positioned(
                           bottom: 14,
@@ -737,7 +866,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     );
   }
 
-  Widget _icon(IconData icon, String tooltip, VoidCallback? onTap, {bool selected = false}) {
+  Widget _icon(IconData icon, String tooltip, VoidCallback? onTap, {bool selected = false, Widget? glyph}) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -750,7 +879,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           backgroundColor: selected ? scheme.primaryContainer.withValues(alpha: 0.6) : null,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
-        icon: Icon(icon, size: 24),
+        icon: glyph ?? Icon(icon, size: 24),
         onPressed: onTap,
       ),
     );
@@ -918,7 +1047,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                     _closePanel();
                   }
                 }, selected: penOn),
-                _icon(Icons.highlight, 'Resaltador', () {
+                _icon(Icons.highlight, 'Resaltador', glyph: const HighlighterIcon(), () {
                   if (hlOn) {
                     _togglePanel(ToolPanel.highlighter);
                   } else {
@@ -926,7 +1055,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                     _closePanel();
                   }
                 }, selected: hlOn),
-                _icon(Icons.linear_scale, 'Cinta washi', () {
+                _icon(Icons.linear_scale, 'Cinta washi', glyph: const TapeIcon(), () {
                   if (tapeOn) {
                     _togglePanel(ToolPanel.tape);
                   } else {
@@ -934,7 +1063,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                     _closePanel();
                   }
                 }, selected: tapeOn),
-                _icon(Icons.auto_fix_normal, 'Borrador', () {
+                _icon(Icons.auto_fix_normal, 'Borrador', glyph: const EraserIcon(), () {
                   if (eraserOn) {
                     _togglePanel(ToolPanel.eraser);
                   } else {
@@ -1425,7 +1554,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                 ..setEntry(0, 0, scale)
                 ..setEntry(1, 1, scale)
                 ..setEntry(0, 3, 8)
-                ..setEntry(1, 3, 8);
+                // Con hojas seguidas: la hoja activa arriba de la pantalla.
+                ..setEntry(1, 3, 8 - _activeOffset * scale);
             }
             _viewport = Size(c.maxWidth, c.maxHeight);
             return InteractiveViewer(
@@ -1434,8 +1564,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               minScale: 0.2,
               maxScale: 8,
               boundaryMargin: const EdgeInsets.all(400),
-              panEnabled: ctl.mode == InputMode.pan || ctl.stylusOnly,
-              child: Container(
+              panEnabled: ctl.mode == InputMode.pan || ctl.stylusOnly || _twoFingers,
+              child: _stacked(ctl, Container(
                 key: _pageKey,
                 width: d.width,
                 height: d.height,
@@ -1492,11 +1622,75 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                     ],
                   ),
                 ),
-              ),
+              )),
             );
           },
         );
       },
+    );
+  }
+
+  /// En modo "tirar", la hoja activa va entre las demás hojas (que se ven
+  /// sin editar; al tocar una o llegar a ella, pasa a ser la activa), y al
+  /// final el aviso para agregar otra.
+  Widget _stacked(DrawingController ctl, Widget active) {
+    if (!_vertical) return active;
+    final pages = (ref.watch(blocksProvider(widget.noteId)).valueOrNull ?? const <NoteBlock>[])
+        .whereType<DrawingBlock>()
+        .toList();
+    final i = pages.indexWhere((p) => p.path == _path);
+    if (pages.length < 2 || i < 0) {
+      return Column(mainAxisSize: MainAxisSize.min, children: [active, _footer(ctl.drawing.width)]);
+    }
+    final fallback = Size(ctl.drawing.width, ctl.drawing.height);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (k, p) in pages.indexed) ...[
+          if (k > 0) const SizedBox(height: _gap),
+          if (k == i)
+            active
+          else
+            _StaticPage(
+              key: ValueKey(p.path),
+              path: p.path,
+              fallback: fallback,
+              detailed: (k - i).abs() <= 3,
+              onTap: () => _load(p.path, keepView: true),
+            ),
+        ],
+        _footer(ctl.drawing.width),
+      ],
+    );
+  }
+
+  /// Debajo de la última hoja: "Tira hacia arriba para agregar una página".
+  Widget _footer(double width) {
+    final ready = _pull >= 1;
+    final color = ready ? const Color(0xFF1E8CB4) : const Color(0xFF8A8F98);
+    return SizedBox(
+      width: width,
+      height: _footerH,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Transform.translate(
+            offset: Offset(0, -24 * _pull),
+            child: Icon(Icons.arrow_upward_rounded, size: 56 + 16 * _pull, color: color),
+          ),
+          Icon(Icons.note_add, size: 90, color: color),
+          const SizedBox(height: 12),
+          Text(ready ? 'Suelta para agregar la página' : 'Tira hacia arriba para agregar una página',
+              style: TextStyle(fontSize: 34, color: color)),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            style: TextButton.styleFrom(textStyle: const TextStyle(fontSize: 30)),
+            onPressed: _addPageAtEnd,
+            icon: const Icon(Icons.add, size: 36),
+            label: const Text('o toca aquí'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1575,7 +1769,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   void _revealEditing() {
     if (_viewport == Size.zero) return;
     final m = _transform.value;
-    final p = MatrixUtils.transformPoint(m, _editTopLeft);
+    final p = MatrixUtils.transformPoint(m, _editTopLeft + Offset(0, _activeOffset));
     final target = _viewport.height * 0.22;
     if (p.dy > _viewport.height * 0.4 || p.dy < 0) {
       _transform.value = m.clone()..setEntry(1, 3, m.entry(1, 3) + (target - p.dy));
@@ -1655,7 +1849,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   Offset get _visibleCenter {
     final d = _ctl!.drawing;
     if (_viewport == Size.zero) return Offset(d.width / 2, d.height / 2);
-    final p = _transform.toScene(_viewport.center(Offset.zero));
+    final p = _transform.toScene(_viewport.center(Offset.zero)) - Offset(0, _activeOffset);
     return Offset(p.dx.clamp(0, d.width).toDouble(), p.dy.clamp(0, d.height).toDouble());
   }
 
@@ -2047,6 +2241,51 @@ class _StrokeSelectionBar extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Una hoja del montón que no se está editando: se ve igual, y al tocarla
+/// pasa a ser la activa.
+class _StaticPage extends ConsumerWidget {
+  const _StaticPage({
+    super.key,
+    required this.path,
+    required this.fallback,
+    required this.detailed,
+    required this.onTap,
+  });
+
+  final String path;
+  final Size fallback;
+
+  /// Lejos de la hoja activa solo se dibuja el papel (más liviano).
+  final bool detailed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = ref.watch(drawingFileProvider(path)).valueOrNull;
+    final w = d?.width ?? fallback.width, h = d?.height ?? fallback.height;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: w,
+        height: h,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(blurRadius: 8, color: Colors.black26)],
+        ),
+        child: d == null
+            ? null
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  PaperView(paper: d.paper),
+                  if (detailed) DrawingLayersStaticView(drawing: d, painterFor: StaticLayerPainter.new),
+                ],
+              ),
       ),
     );
   }

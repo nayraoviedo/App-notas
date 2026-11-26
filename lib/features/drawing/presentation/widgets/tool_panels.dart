@@ -26,6 +26,167 @@ IconData toolIcon(ToolType t) => switch (t) {
       ToolType.tape => Icons.linear_scale,
     };
 
+/// Ícono de borrador (goma rosada de lápiz, inclinada): el de Material no
+/// existe y la varita mágica confundía.
+class EraserIcon extends StatelessWidget {
+  const EraserIcon({super.key, this.size = 24});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        size: Size.square(size),
+        painter: _EraserPainter(IconTheme.of(context).color ?? Colors.black87),
+      );
+}
+
+class _EraserPainter extends CustomPainter {
+  _EraserPainter(this.ink);
+  final Color ink;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final k = s.width / 24;
+    canvas
+      ..save()
+      ..scale(k)
+      ..translate(12, 12)
+      ..rotate(-0.75);
+    final body = RRect.fromRectAndRadius(const Rect.fromLTWH(-9, -4.5, 18, 9), const Radius.circular(2.2));
+    final tip = RRect.fromRectAndCorners(const Rect.fromLTWH(-9, -4.5, 7, 9),
+        topLeft: const Radius.circular(2.2), bottomLeft: const Radius.circular(2.2));
+    canvas.drawRRect(body, Paint()..color = ink.withValues(alpha: 0.18));
+    canvas.drawRRect(tip, Paint()..color = const Color(0xFFF48FB1));
+    final stroke = Paint()
+      ..color = ink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+    canvas
+      ..drawRRect(body, stroke)
+      ..drawLine(const Offset(-2, -4.5), const Offset(-2, 4.5), stroke)
+      ..restore();
+    // Rayita de lo borrado.
+    canvas.drawLine(Offset(3 * k, 21.5 * k), Offset(21 * k, 21.5 * k),
+        Paint()
+          ..color = ink.withValues(alpha: 0.5)
+          ..strokeWidth = 1.6 * k
+          ..strokeCap = StrokeCap.round);
+  }
+
+  @override
+  bool shouldRepaint(_EraserPainter old) => old.ink != ink;
+}
+
+/// Ícono de resaltador: marcador de punta biselada sobre un trazo amarillo.
+class HighlighterIcon extends StatelessWidget {
+  const HighlighterIcon({super.key, this.size = 24, this.color = const Color(0xFFFFE066)});
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        size: Size.square(size),
+        painter: _HighlighterPainter(IconTheme.of(context).color ?? Colors.black87, color),
+      );
+}
+
+class _HighlighterPainter extends CustomPainter {
+  _HighlighterPainter(this.ink, this.mark);
+  final Color ink;
+  final Color mark;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final k = s.width / 24;
+    canvas.scale(k);
+    // Trazo resaltado abajo.
+    canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(2, 18.5, 20, 4.5), const Radius.circular(1.5)),
+        Paint()..color = mark);
+    canvas
+      ..save()
+      ..translate(13, 10)
+      ..rotate(0.75);
+    final stroke = Paint()
+      ..color = ink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.7
+      ..strokeJoin = StrokeJoin.round;
+    // Cuerpo del marcador.
+    final body = RRect.fromRectAndRadius(const Rect.fromLTWH(-3.6, -9, 7.2, 12), const Radius.circular(1.6));
+    canvas
+      ..drawRRect(body, Paint()..color = mark)
+      ..drawRRect(body, stroke);
+    // Punta biselada.
+    final tip = Path()
+      ..moveTo(-3.6, 3)
+      ..lineTo(3.6, 3)
+      ..lineTo(2.2, 7.5)
+      ..lineTo(-1.2, 6)
+      ..close();
+    canvas
+      ..drawPath(tip, Paint()..color = ink)
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(_HighlighterPainter old) => old.ink != ink || old.mark != mark;
+}
+
+/// Ícono de cinta washi: una tira con rayitas y bordes cortados.
+class TapeIcon extends StatelessWidget {
+  const TapeIcon({super.key, this.size = 24});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+        size: Size.square(size),
+        painter: _TapePainter(IconTheme.of(context).color ?? Colors.black87),
+      );
+}
+
+class _TapePainter extends CustomPainter {
+  _TapePainter(this.ink);
+  final Color ink;
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    final k = s.width / 24;
+    canvas
+      ..save()
+      ..scale(k)
+      ..translate(12, 12)
+      ..rotate(-0.35);
+    final p = Path()..moveTo(-11, -4);
+    for (var i = 0; i < 4; i++) {
+      p.lineTo(-11 + (i.isEven ? 1.2 : 0), -4 + 8 * (i + 1) / 4);
+    }
+    p
+      ..lineTo(11, 4)
+      ..lineTo(10, 2)
+      ..lineTo(11, 0)
+      ..lineTo(10, -2)
+      ..lineTo(11, -4)
+      ..close();
+    canvas.drawPath(p, Paint()..color = const Color(0xFFF7B6C8));
+    final stripe = Paint()
+      ..color = Colors.white.withValues(alpha: 0.8)
+      ..strokeWidth = 1.4;
+    for (var x = -8.0; x < 10; x += 4) {
+      canvas.drawLine(Offset(x, 4), Offset(x + 3, -4), stripe);
+    }
+    canvas
+      ..drawPath(
+          p,
+          Paint()
+            ..color = ink
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5)
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(_TapePainter old) => old.ink != ink;
+}
+
 /// Paleta completa: neutros, tintas, pasteles, tonos tierra y neón.
 const fullPalette = <int>[
   // Neutros
