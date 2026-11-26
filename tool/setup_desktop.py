@@ -31,6 +31,9 @@ if cc.exists() and "gtk_window_set_icon_from_file" not in cc.read_text(encoding=
     )
 for cm in [Path("linux/CMakeLists.txt")]:
     sub(cm, 'set(BINARY_NAME "app_notas")', 'set(BINARY_NAME "kumo")')
+    # El json.hpp de flutter_secure_storage no compila con el clang nuevo si
+    # los avisos cuentan como errores.
+    sub(cm, "PRIVATE -Wall -Werror)", "PRIVATE -Wall -Werror -Wno-deprecated-literal-operator)")
 
 # -------------------------------------------------------------- Windows
 main = Path("windows/runner/main.cpp")
