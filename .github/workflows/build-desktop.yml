@@ -99,6 +99,29 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/salida"
           7z a -tzip "$GITHUB_WORKSPACE/salida/Kumo-windows.zip" .
 
+      - name: Captura de la app en Linux
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y xvfb imagemagick > /dev/null
+          mkdir -p capturas
+          cd build/linux/x64/release/bundle
+          xvfb-run -s "-screen 0 1280x900x24" bash -c '
+            ./kumo > /tmp/kumo.log 2>&1 &
+            sleep 25
+            import -window root "$GITHUB_WORKSPACE/capturas/escritorio_inicio.png"
+          ' || true
+          tail -40 /tmp/kumo.log || true
+
+      - name: Publicar captura
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          cd capturas && ls -la
+          git init -q && git checkout -q -b capturas-escritorio
+          git add . && git -c user.name=ci -c user.email=ci@example.com commit -qm "Captura escritorio"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" capturas-escritorio
+
       - uses: actions/upload-artifact@v4
         with:
           name: Kumo-${{ runner.os }}
