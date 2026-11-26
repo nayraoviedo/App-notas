@@ -690,6 +690,8 @@ class _SummaryTab extends ConsumerStatefulWidget {
 
 class _SummaryTabState extends ConsumerState<_SummaryTab> {
   bool _byChapters = false;
+  String get _notesKey => 'summary.notes.${widget.blockId}';
+  static String _notesPrint(List<AudioMarker> ms) => ms.map((m) => '${m.atMs}:${m.label ?? '*'}').join('|');
   String? _status;
   String? _error;
 
@@ -703,6 +705,9 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
           onStatus: (s) {
         if (mounted) setState(() => _status = s);
       });
+      // Recordar con qué notas se hizo, para avisar si agregas más después.
+      final markers = await ref.read(markersProvider(widget.blockId).future);
+      await ref.read(sharedPreferencesProvider).setString(_notesKey, _notesPrint(markers));
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -803,6 +808,21 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
         ),
         if (_error != null)
           Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        Builder(builder: (context) {
+          final saved = ref.read(sharedPreferencesProvider).getString(_notesKey);
+          final now = _notesPrint(ref.watch(markersProvider(widget.blockId)).valueOrNull ?? const []);
+          if (saved == null || saved == now) return const SizedBox.shrink();
+          return Card(
+            margin: const EdgeInsets.only(top: 8),
+            color: Theme.of(context).colorScheme.tertiaryContainer,
+            child: ListTile(
+              leading: const Icon(Icons.edit_note),
+              title: const Text('Cambiaste tus notas después de este resumen'),
+              subtitle: const Text('Vuelve a generarlo para que las tome en cuenta'),
+              trailing: FilledButton(onPressed: _generate, child: const Text('Actualizar')),
+            ),
+          );
+        }),
         const SizedBox(height: 12),
         Text(summary.title, style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 12),
