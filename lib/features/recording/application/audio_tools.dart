@@ -20,19 +20,40 @@ import '../../../core/platform_info.dart';
 class AudioTools {
   /// Comprime el WAV a M4A (mucho más liviano para enviar). Si no se puede,
   /// devuelve el WAV original.
-  static Future<String> toM4a(String wavPath) async {
-    final out = p.join((await getTemporaryDirectory()).path, '${p.basenameWithoutExtension(wavPath)}.m4a');
+  ///
+  /// Con [enhance]: quita zumbidos graves y ruido de fondo (aire, ventilador),
+  /// comprime un poco para que se oiga parejo quien habla lejos y cerca, y
+  /// sube el volumen a un nivel normal.
+  static Future<String> toM4a(String wavPath, {bool enhance = false}) async {
+    final out = p.join((await getTemporaryDirectory()).path,
+        '${p.basenameWithoutExtension(wavPath)}${enhance ? '-mejorado' : ''}.m4a');
+    final args = [
+      '-y', '-i', wavPath,
+      if (enhance) ...['-af', enhanceFilter, '-ar', '44100'],
+      '-c:a', 'aac', '-b:a', enhance ? '128k' : '96k', out,
+    ];
     if (!isPhone) {
-      return await _desktopFfmpeg(['-y', '-i', wavPath, '-c:a', 'aac', '-b:a', '96k', out]) ? out : wavPath;
+      if (await _desktopFfmpeg(args)) return out;
+      // Sin filtros si el ffmpeg de la compu no los tiene.
+      if (enhance) return toM4a(wavPath);
+      return wavPath;
     }
     try {
-      final session = await FFmpegKit.execute('-y -i "$wavPath" -c:a aac -b:a 96k "$out"');
+      final session = await FFmpegKit.executeWithArguments(args);
       if (ReturnCode.isSuccess(await session.getReturnCode()) && File(out).existsSync()) {
         return out;
       }
     } catch (_) {}
+    if (enhance) return toM4a(wavPath);
     return wavPath;
   }
+
+  /// Filtros de "audio mejorado" para voz.
+  static const enhanceFilter = 'highpass=f=90,'
+      'afftdn=nr=12:nf=-30:tn=1,'
+      'acompressor=threshold=-22dB:ratio=3:attack=10:release=200:makeup=2,'
+      'loudnorm=I=-16:TP=-1.5:LRA=11,'
+      'alimiter=limit=0.95';
 
   /// Convierte cualquier audio (mp3, m4a, ogg, opus de WhatsApp…) a WAV mono
   /// de 16 kHz, el formato que necesita Whisper.
@@ -125,7 +146,7 @@ Future<String> _writeTemp(String name, String content) async {
 
 String _safe(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim();
 
-enum AudioExport { audio, transcript, summary, all }
+enum AudioExport { audio, audioEnhanced, transcript, summary, all }
 
 /// Comparte la grabación, la transcripción y/o el resumen (WhatsApp, Drive,
 /// correo, etc.).
@@ -138,8 +159,8 @@ Future<void> shareRecording(
   final name = _safe(title.isEmpty ? 'Grabación' : title);
   final files = <XFile>[];
 
-  if (what == AudioExport.audio || what == AudioExport.all) {
-    final audio = await AudioTools.toM4a(block.path);
+  if (what == AudioExport.audio || what == AudioExport.audioEnhanced || what == AudioExport.all) {
+    final audio = await AudioTools.toM4a(block.path, enhance: what == AudioExport.audioEnhanced);
     files.add(XFile(audio, name: '$name${p.extension(audio)}'));
   }
   if (what == AudioExport.transcript || what == AudioExport.all) {

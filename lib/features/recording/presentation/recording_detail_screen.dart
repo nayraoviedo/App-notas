@@ -104,7 +104,15 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                 itemBuilder: (_) => const [
                   PopupMenuItem(
                     value: AudioExport.audio,
-                    child: ListTile(leading: Icon(Icons.graphic_eq), title: Text('Audio (m4a)')),
+                    child: ListTile(leading: Icon(Icons.graphic_eq), title: Text('Audio original (m4a)')),
+                  ),
+                  PopupMenuItem(
+                    value: AudioExport.audioEnhanced,
+                    child: ListTile(
+                      leading: Icon(Icons.auto_fix_high),
+                      title: Text('Audio mejorado'),
+                      subtitle: Text('Menos ruido y volumen parejo'),
+                    ),
                   ),
                   PopupMenuItem(
                     value: AudioExport.transcript,

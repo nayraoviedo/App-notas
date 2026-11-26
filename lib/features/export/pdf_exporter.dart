@@ -658,6 +658,23 @@ Future<void> _shareLinkFlow(BuildContext context, WidgetRef ref, List<String> no
 /// Comparte los audios de las grabaciones de esas notas (para guardarlos en
 /// Drive, Descargas, WhatsApp…).
 Future<void> shareAudiosFlow(BuildContext context, WidgetRef ref, List<String> noteIds) async {
+  final enhance = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('¿Cómo quieres los audios?'),
+      content: const Text('Mejorado: quita ruido de fondo y zumbidos, y deja el volumen parejo. '
+          'Tarda un poco más en prepararse.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Original')),
+        FilledButton.icon(
+          onPressed: () => Navigator.pop(context, true),
+          icon: const Icon(Icons.auto_fix_high),
+          label: const Text('Mejorado'),
+        ),
+      ],
+    ),
+  );
+  if (enhance == null || !context.mounted) return;
   final messenger = ScaffoldMessenger.of(context);
   messenger.showSnackBar(const SnackBar(content: Text('Preparando los audios…')));
   try {
@@ -668,9 +685,9 @@ Future<void> shareAudiosFlow(BuildContext context, WidgetRef ref, List<String> n
       final audios = (await ref.read(blocksProvider(id).future)).whereType<AudioBlock>().toList();
       for (var i = 0; i < audios.length; i++) {
         if (!File(audios[i].path).existsSync()) continue;
-        final out = await AudioTools.toM4a(audios[i].path);
+        final out = await AudioTools.toM4a(audios[i].path, enhance: enhance);
         final suffix = audios.length == 1 ? '' : ' ${i + 1}';
-        files.add(XFile(out, name: '$title - grabación$suffix${pth.extension(out)}'));
+        files.add(XFile(out, name: '$title - grabación$suffix${enhance ? ' (mejorado)' : ''}${pth.extension(out)}'));
       }
     }
     messenger.hideCurrentSnackBar();
