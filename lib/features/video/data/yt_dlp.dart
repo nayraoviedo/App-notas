@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -40,8 +41,11 @@ class YtDlp {
     return f;
   }
 
-  /// Enlace directo (video con audio, hasta 720p) de un video de YouTube.
-  static Future<String> directUrl(String url, {void Function(String)? onStatus}) async {
+  /// Enlace directo (video con audio, hasta 720p) de un video de YouTube,
+  /// junto con los encabezados que YouTube pide para entregarlo (sin ellos
+  /// a veces responde "prohibido" y el video se queda en negro).
+  static Future<({String url, Map<String, String> headers})> directUrl(String url,
+      {void Function(String)? onStatus}) async {
     final bin = await _ensure(onStatus);
     onStatus?.call('Cargando el video de YouTube…');
     final r = await Process.run(bin.path, [
@@ -49,17 +53,33 @@ class YtDlp {
       '--no-warnings',
       '-f',
       'best[acodec!=none][vcodec!=none][height<=720]/18/best',
-      '-g',
+      '-j',
       url,
-    ]).timeout(const Duration(seconds: 60));
-    final out = '${r.stdout}'.trim().split('\n').where((l) => l.startsWith('http')).toList();
-    if (r.exitCode != 0 || out.isEmpty) {
+    ]).timeout(const Duration(seconds: 90));
+    Map<String, dynamic>? info;
+    if (r.exitCode == 0) {
+      for (final line in '${r.stdout}'.split('\n')) {
+        if (!line.trimLeft().startsWith('{')) continue;
+        try {
+          info = jsonDecode(line) as Map<String, dynamic>;
+          break;
+        } catch (_) {}
+      }
+    }
+    final direct = info?['url'];
+    if (info == null || direct is! String || !direct.startsWith('http')) {
       final err = '${r.stderr}';
       if (err.contains('Private video') || err.contains('Sign in')) {
         throw Exception('Ese video es privado o pide iniciar sesión en YouTube.');
       }
       throw Exception('YouTube no dejó abrir este video. Prueba de nuevo en un rato.');
     }
-    return out.first;
+    final raw = info['http_headers'];
+    final headers = <String, String>{
+      if (raw is Map)
+        for (final e in raw.entries)
+          if (e.value != null) '${e.key}': '${e.value}',
+    };
+    return (url: direct, headers: headers);
   }
 }

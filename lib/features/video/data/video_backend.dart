@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -42,7 +43,19 @@ class MediaKitBackend implements VideoBackend {
   MediaKitBackend(this.source);
   final String source;
   late final Player _player = Player();
-  late final VideoController _video = VideoController(_player);
+  // En Linux el dibujo del video con la tarjeta gráfica deja la pantalla en
+  // negro en varias compus (sobre todo con drivers o procesadores antiguos).
+  // Ahí se dibuja con el procesador, que funciona en todas.
+  late final VideoController _video = VideoController(
+    _player,
+    configuration: VideoControllerConfiguration(
+      enableHardwareAcceleration: !Platform.isLinux,
+    ),
+  );
+  StreamSubscription<String>? _errors;
+
+  /// Para avisar si el reproductor no puede abrir o mostrar el video.
+  void Function(String message)? onError;
 
   @override
   Widget view() => Video(controller: _video);
@@ -53,8 +66,20 @@ class MediaKitBackend implements VideoBackend {
   @override
   Future<void> open({int startMs = 0}) async {
     // YouTube en la compu: primero el enlace directo del video.
-    final url = isYoutubeUrl(source) ? await YtDlp.directUrl(source, onStatus: onStatus) : source;
-    await _player.open(Media(url), play: false);
+    // mpv también avisa errores menores: solo se avisa si, un rato después,
+    // el video sigue sin imagen.
+    _errors ??= _player.stream.error.listen((e) async {
+      await Future<void>.delayed(const Duration(seconds: 4));
+      if ((_player.state.width ?? 0) == 0) onError?.call(e);
+    });
+    final Media media;
+    if (isYoutubeUrl(source)) {
+      final d = await YtDlp.directUrl(source, onStatus: onStatus);
+      media = Media(d.url, httpHeaders: d.headers);
+    } else {
+      media = Media(source);
+    }
+    await _player.open(media, play: false);
     if (startMs > 0) {
       // Esperar a que el video sepa su duración antes de saltar.
       await _player.stream.duration
@@ -121,7 +146,10 @@ class MediaKitBackend implements VideoBackend {
   }
 
   @override
-  Future<void> dispose() => _player.dispose();
+  Future<void> dispose() async {
+    await _errors?.cancel();
+    await _player.dispose();
+  }
 }
 
 /// YouTube con su reproductor oficial incrustado.
