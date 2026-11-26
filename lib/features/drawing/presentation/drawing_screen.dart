@@ -34,6 +34,8 @@ import 'widgets/tool_panels.dart';
 import '../../notes/presentation/note_editor_screen.dart' show chooseVideo;
 import '../../../core/router.dart' show VideoArgs;
 import '../../recording/application/audio_tools.dart' show confirmDeleteRecording;
+import '../../../core/screen_capture.dart';
+import '../../../core/platform_info.dart';
 
 /// Hojas para escribir a mano y dibujar, con capas. Las hojas de una nota
 /// forman un cuaderno: se puede pasar de página, ver miniaturas, marcar,
@@ -982,7 +984,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     _closePanel();
     final recording = ref.read(recordingControllerProvider).isActive;
     final items = <(IconData, String, String)>[
-      (Icons.photo_camera_outlined, 'Foto', 'photo'),
+      isDesktop
+          ? (Icons.screenshot_monitor_outlined, 'Imagen o recorte', 'photo')
+          : (Icons.photo_camera_outlined, 'Foto', 'photo'),
       (Icons.mic_none, recording ? 'Grabando…' : 'Grabar audio', 'rec'),
       (Icons.ondemand_video_outlined, 'Video y notas', 'video'),
       (Icons.table_chart_outlined, 'Tabla', 'table'),
@@ -2196,14 +2200,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     return Offset(p.dx.clamp(0, d.width).toDouble(), p.dy.clamp(0, d.height).toDouble());
   }
 
-  Future<void> _addImage({required bool camera}) async {
+  Future<void> _addImage({required bool camera, String? fromPath}) async {
     final ctl = _ctl!;
     if (!ctl.canDrawOnActiveLayer) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('La capa activa está oculta o bloqueada')));
       return;
     }
-    final path = await pickAndCropImage(context, ref, camera: camera, forNoteId: widget.noteId);
+    final path = fromPath ?? await pickAndCropImage(context, ref, camera: camera, forNoteId: widget.noteId);
     if (path == null) return;
     final buffer = await ui.ImmutableBuffer.fromFilePath(path);
     final desc = await ui.ImageDescriptor.encoded(buffer);
@@ -2225,7 +2229,43 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     ctl.selectItem(ctl.drawing.layers[ctl.activeLayerIndex].items.last.id);
   }
 
+  /// Compu: recortar un pedazo de la pantalla (un video, una página web,
+  /// una diapositiva) con la herramienta de capturas del sistema.
+  Future<void> _screenClip() async {
+    try {
+      final shot = await captureScreenRegion();
+      if (shot == null || !mounted) return;
+      final saved = await ref.read(fileStorageProvider).importFile(shot, folder: 'images');
+      await _addImage(camera: false, fromPath: saved);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
   Future<void> _chooseImageSource() async {
+    if (isDesktop) {
+      final clip = await showModalBottomSheet<bool>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.screenshot_monitor_outlined),
+              title: const Text('Recorte de pantalla'),
+              subtitle: const Text('Eliges con el mouse un pedazo de la pantalla: un video, una web, diapositivas…'),
+              onTap: () => Navigator.pop(context, true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Elegir una imagen'),
+              onTap: () => Navigator.pop(context, false),
+            ),
+          ]),
+        ),
+      );
+      if (clip == true) await _screenClip();
+      if (clip == false) await _addImage(camera: false);
+      return;
+    }
     final camera = await showModalBottomSheet<bool>(
       context: context,
       builder: (context) => SafeArea(

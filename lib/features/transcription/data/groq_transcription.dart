@@ -94,28 +94,37 @@ class GeminiTranscriber {
     String lang = 'es',
     List<String> vocabulary = const [],
   }) async {
-    final file = File(audioPath);
-    final bytes = await file.readAsBytes();
-    final mime = audioPath.toLowerCase().endsWith('.wav')
-        ? 'audio/wav'
-        : audioPath.toLowerCase().endsWith('.mp3')
-            ? 'audio/mp3'
-            : 'audio/mp4';
-    // Hasta ~14 MB va dentro del pedido; más grande se sube primero.
-    final Map<String, Object> audioPart = bytes.length < 14 * 1024 * 1024
-        ? {
-            'inline_data': {'mime_type': mime, 'data': base64Encode(bytes)}
-          }
-        : {
-            'file_data': {'mime_type': mime, 'file_uri': await _upload(bytes, mime)}
-          };
+    // Un enlace de YouTube: Gemini lo ve directamente (videos públicos).
+    final isLink = audioPath.startsWith('http://') || audioPath.startsWith('https://');
+    final Map<String, Object> audioPart;
+    if (isLink) {
+      audioPart = {
+        'file_data': {'file_uri': audioPath}
+      };
+    } else {
+      final file = File(audioPath);
+      final bytes = await file.readAsBytes();
+      final mime = audioPath.toLowerCase().endsWith('.wav')
+          ? 'audio/wav'
+          : audioPath.toLowerCase().endsWith('.mp3')
+              ? 'audio/mp3'
+              : 'audio/mp4';
+      // Hasta ~14 MB va dentro del pedido; más grande se sube primero.
+      audioPart = bytes.length < 14 * 1024 * 1024
+          ? {
+              'inline_data': {'mime_type': mime, 'data': base64Encode(bytes)}
+            }
+          : {
+              'file_data': {'mime_type': mime, 'file_uri': await _upload(bytes, mime)}
+            };
+    }
     final language = switch (lang) {
       'es' => 'español',
       'en' => 'inglés',
       'auto' => 'el idioma en que se habla',
       _ => lang,
     };
-    final prompt = 'Transcribe este audio COMPLETO, palabra por palabra, en $language. '
+    final prompt = 'Transcribe ${isLink ? 'lo que se dice en este video' : 'este audio'} COMPLETO, palabra por palabra, en $language. '
         'No resumas ni omitas partes. Divide en fragmentos de 1 o 2 oraciones con el minuto '
         'en que empieza cada uno (formato MM:SS). '
         '${vocabulary.isEmpty ? '' : 'Palabras que pueden aparecer: ${vocabulary.join(', ')}. '}'
@@ -143,7 +152,7 @@ class GeminiTranscriber {
               },
             }),
           )
-          .timeout(const Duration(minutes: 6));
+          .timeout(Duration(minutes: isLink ? 12 : 6));
     } on SocketException {
       throw TranscriptionException('Sin conexión para transcribir con Gemini.');
     }

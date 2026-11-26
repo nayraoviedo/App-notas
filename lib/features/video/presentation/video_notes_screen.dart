@@ -12,6 +12,13 @@ import '../../notes/domain/note_block.dart';
 import '../../notes/presentation/widgets/text_block_view.dart';
 import '../../settings/settings.dart';
 import '../data/video_backend.dart';
+import '../../../core/screen_capture.dart';
+import '../../../core/platform_info.dart';
+import 'package:flutter/services.dart';
+import '../application/video_transcript.dart';
+import '../../recording/application/transcript_tools.dart' show transcriptParagraphs;
+import '../../transcription/domain/transcript_segment.dart';
+import '../../transcription/domain/transcription_service.dart';
 
 /// Ver un video y tomar notas al mismo tiempo.
 ///
@@ -40,7 +47,7 @@ class VideoNotesScreen extends ConsumerStatefulWidget {
 
 class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with SingleTickerProviderStateMixin {
   late final VideoBackend _player = VideoBackend.forSource(widget.videoPath);
-  late final _tabs = TabController(length: 3, vsync: this)..addListener(() => setState(() {}));
+  late final _tabs = TabController(length: 4, vsync: this)..addListener(() => setState(() {}));
   final _text = TextEditingController();
   final _focus = FocusNode();
   int? _typingAtMs;
@@ -89,6 +96,29 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
       _aTypingAtMs = await _player.positionMs();
       if (_pauseOnType) await _player.pause();
     }
+  }
+
+  /// La transcripción del video, a los Apuntes (con sus minutos).
+  Future<void> _transcriptToApuntes(List<TranscriptSegment> segs) async {
+    final repo = ref.read(notesRepositoryProvider);
+    final block = _apuntes(ref.read(blocksProvider(widget.noteId)).valueOrNull ?? const []);
+    String id;
+    var current = '';
+    if (block == null) {
+      id = await repo.addTextBlock(widget.noteId);
+      await ref.read(sharedPreferencesProvider).setString(_prefKey, id);
+    } else {
+      id = block.id;
+      current = block.text.trimRight();
+    }
+    final text = [
+      for (final (at, _, t) in transcriptParagraphs(segs, maxChars: 500)) '[${formatMs(at)}] $t',
+    ].join('\n\n');
+    await repo.updateText(id, current.isEmpty ? text : '$current\n\n$text');
+    if (!mounted) return;
+    _tabs.animateTo(0);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Transcripción agregada a Apuntes ✓')));
   }
 
   /// Envía un mensaje a "Apuntes": se agrega como "[12:34] texto".
@@ -198,7 +228,42 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
   Future<void> _addImage() async {
     final atMs = await _player.positionMs();
     if (!mounted) return;
-    final path = await pickAndCropImage(context, ref, camera: false);
+    String? path;
+    if (isDesktop) {
+      // En la compu: recortar la pantalla (sirve también con YouTube en el
+      // navegador) o elegir una imagen.
+      final clip = await showModalBottomSheet<bool>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.screenshot_monitor_outlined),
+              title: const Text('Recorte de pantalla'),
+              subtitle: const Text('Eliges con el mouse lo que quieres guardar'),
+              onTap: () => Navigator.pop(context, true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Elegir una imagen'),
+              onTap: () => Navigator.pop(context, false),
+            ),
+          ]),
+        ),
+      );
+      if (clip == null || !mounted) return;
+      if (clip) {
+        try {
+          final shot = await captureScreenRegion();
+          if (shot == null) return;
+          path = await ref.read(fileStorageProvider).importFile(shot, folder: 'video_frames');
+        } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
+    path ??= await pickAndCropImage(context, ref, camera: false);
     if (path == null) return;
     await ref.read(notesRepositoryProvider).addImageBlock(
           widget.noteId,
@@ -282,7 +347,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
     final items = _itemsForThisVideo(blocks);
     final apuntes = _apuntes(blocks);
     final sheet = blocks.whereType<DrawingBlock>().firstOrNull;
-    final onSheet = _tabs.index == 2;
+    final onSheet = _tabs.index == 3;
 
     final videoView = AspectRatio(aspectRatio: 16 / 9, child: _player.view());
 
@@ -382,9 +447,12 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
       children: [
         TabBar(
           controller: _tabs,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: const [
             Tab(text: 'Apuntes'),
             Tab(text: 'Notas y capturas'),
+            Tab(text: 'Transcripción'),
             Tab(text: 'Hoja'),
           ],
         ),
@@ -393,7 +461,16 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
             controller: _tabs,
             // En la hoja el dedo dibuja: ahí no se desliza entre pestañas.
             physics: onSheet ? const NeverScrollableScrollPhysics() : null,
-            children: [apuntesTab, notesTab, sheetTab],
+            children: [
+              apuntesTab,
+              notesTab,
+              _TranscriptTab(
+                source: widget.videoPath,
+                onSeek: _player.seek,
+                onToApuntes: _transcriptToApuntes,
+              ),
+              sheetTab,
+            ],
           ),
         ),
       ],
@@ -582,4 +659,148 @@ class _Composer extends StatelessWidget {
           ],
         ),
       );
+}
+
+
+/// Pestaña "Transcripción": lo que se dice en el video, con sus minutos.
+class _TranscriptTab extends ConsumerStatefulWidget {
+  const _TranscriptTab({required this.source, required this.onSeek, required this.onToApuntes});
+  final String source;
+  final Future<void> Function(int ms) onSeek;
+  final Future<void> Function(List<TranscriptSegment>) onToApuntes;
+
+  @override
+  ConsumerState<_TranscriptTab> createState() => _TranscriptTabState();
+}
+
+class _TranscriptTabState extends ConsumerState<_TranscriptTab> with AutomaticKeepAliveClientMixin {
+  List<TranscriptSegment>? _segs;
+  String? _status;
+  String? _error;
+  bool _loaded = false;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    VideoTranscripts.load(widget.source).then((v) {
+      if (mounted) {
+        setState(() {
+          _segs = v;
+          _loaded = true;
+        });
+      }
+    });
+  }
+
+  Future<void> _run() async {
+    setState(() {
+      _error = null;
+      _status = 'Preparando…';
+    });
+    try {
+      final segs = await VideoTranscripts.transcribe(ref, widget.source, onStatus: (s) {
+        if (mounted) setState(() => _status = s);
+      });
+      if (mounted) setState(() => _segs = segs);
+    } catch (e) {
+      if (mounted) setState(() => _error = e is TranscriptionException ? e.message : '$e');
+    } finally {
+      if (mounted) setState(() => _status = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    if (!_loaded) return const Center(child: CircularProgressIndicator());
+    if (_status != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 12),
+            Text(_status!, textAlign: TextAlign.center),
+          ]),
+        ),
+      );
+    }
+    final segs = _segs;
+    if (segs == null || segs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.subtitles_outlined, size: 40),
+            const SizedBox(height: 12),
+            Text(
+              isYoutubeUrl(widget.source)
+                  ? 'Pasa a texto lo que se dice en el video, con el minuto de cada parte. '
+                      'Para YouTube se usa Gemini (tu clave de Ajustes).'
+                  : 'Pasa a texto lo que se dice en el video, con el minuto de cada parte.',
+              textAlign: TextAlign.center,
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _run,
+              icon: const Icon(Icons.subtitles_outlined),
+              label: const Text('Transcribir el video'),
+            ),
+          ]),
+        ),
+      );
+    }
+    final paragraphs = transcriptParagraphs(segs, maxChars: 400);
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+        child: Wrap(spacing: 4, children: [
+          TextButton.icon(
+            onPressed: () => widget.onToApuntes(segs),
+            icon: const Icon(Icons.edit_note),
+            label: const Text('Pasar a Apuntes'),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(
+                  text: [for (final (at, _, t) in paragraphs) '[${formatMs(at)}] $t'].join('\n\n')));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transcripción copiada')));
+            },
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Copiar'),
+          ),
+          TextButton.icon(
+            onPressed: _run,
+            icon: const Icon(Icons.refresh),
+            label: const Text('De nuevo'),
+          ),
+        ]),
+      ),
+      Expanded(
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+          itemCount: paragraphs.length,
+          itemBuilder: (context, i) {
+            final (at, _, t) = paragraphs[i];
+            return ListTile(
+              onTap: () => widget.onSeek(at),
+              leading: ActionChip(
+                avatar: const Icon(Icons.play_arrow, size: 16),
+                label: Text(formatMs(at)),
+                onPressed: () => widget.onSeek(at),
+              ),
+              title: Text(t),
+            );
+          },
+        ),
+      ),
+    ]);
+  }
 }
