@@ -16,6 +16,7 @@ import '../../transcription/application/segment_merger.dart';
 import '../../transcription/domain/transcript_segment.dart';
 import '../../transcription/domain/transcription_service.dart';
 import '../data/wav_writer.dart';
+import '../../../core/platform_info.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
 
@@ -140,8 +141,11 @@ class RecordingController extends Notifier<RecordingState> {
 
     // Pedir el permiso del micrófono. Si se negó "para siempre", Android ya no
     // muestra el aviso: hay que activarlo desde Ajustes.
-    var mic = await Permission.microphone.status;
-    if (!mic.isGranted) mic = await Permission.microphone.request();
+    var mic = PermissionStatus.granted;
+    if (isPhone) {
+      mic = await Permission.microphone.status;
+      if (!mic.isGranted) mic = await Permission.microphone.request();
+    }
     if (!mic.isGranted) {
       state = state.copyWith(
         status: RecordingStatus.error,

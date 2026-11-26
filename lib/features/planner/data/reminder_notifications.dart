@@ -66,6 +66,12 @@ class ReminderNotifications {
       await _plugin.initialize(
         settings: const InitializationSettings(
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          linux: LinuxInitializationSettings(defaultActionName: 'Abrir Kumo'),
+          windows: WindowsInitializationSettings(
+            appName: 'Kumo',
+            appUserModelId: 'Kumo.Notas',
+            guid: '6f1c2b8e-3a4d-4f5e-9b7a-1c2d3e4f5a6b',
+          ),
         ),
         onDidReceiveNotificationResponse: (r) => onTap?.call(r.payload),
       );

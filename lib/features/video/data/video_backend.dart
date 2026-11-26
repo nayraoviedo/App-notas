@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
+import '../../../core/platform_info.dart';
 
 /// ¿Es un enlace de YouTube (youtube.com, youtu.be, shorts…)?
 bool isYoutubeUrl(String source) => YoutubePlayerController.convertUrlToId(source) != null;
@@ -15,7 +16,9 @@ bool isWebUrl(String source) =>
 /// Reproductor de video con lo que necesita la pantalla de notas.
 abstract class VideoBackend {
   factory VideoBackend.forSource(String source) =>
-      isYoutubeUrl(source) ? YoutubeBackend(source) : MediaKitBackend(source);
+      // En la compu no hay WebView: YouTube se abre con el reproductor propio
+      // (necesita yt-dlp instalado para enlaces de YouTube).
+      isYoutubeUrl(source) && isPhone ? YoutubeBackend(source) : MediaKitBackend(source);
 
   Widget view();
   Future<void> open({int startMs = 0});

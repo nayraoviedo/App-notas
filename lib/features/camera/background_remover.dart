@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_subject_segmentation/google_mlkit_subject_segmentation.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/platform_info.dart';
 
 /// Quita el fondo de una foto: deja solo a la persona, mascota u objeto
 /// principal (ML Kit de Google, funciona en el teléfono, sin internet una vez
@@ -18,6 +19,7 @@ class BackgroundRemovalException implements Exception {
 }
 
 Future<ui.Image> removeBackground(ui.Image image) async {
+  if (!isPhone) throw Exception('Quitar el fondo solo funciona en el celular por ahora.');
   final w = image.width, h = image.height;
   // ML Kit lee desde un archivo: se guarda la imagen tal como se ve (ya
   // girada) para que la máscara coincida píxel a píxel.

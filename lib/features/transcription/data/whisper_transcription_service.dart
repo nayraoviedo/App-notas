@@ -6,12 +6,15 @@ import 'package:whisper_ggml/whisper_ggml.dart';
 
 import '../domain/transcript_segment.dart';
 import '../domain/transcription_service.dart';
+import '../../../core/platform_info.dart';
 
 /// Transcripción 100 % en el teléfono con whisper.cpp (paquete whisper_ggml).
 ///
 /// whisper_ggml NO descarga el modelo solo: si falta el archivo, la
 /// transcripción falla en silencio. Por eso aquí se descarga primero (una
 /// sola vez, ~57 MB, reanudable y con progreso) y queda guardado.
+const _desktopMsg = 'En la compu se transcribe con internet: pon tu clave de Groq o Gemini en Ajustes.';
+
 class WhisperTranscriptionService implements TranscriptionService {
   WhisperTranscriptionService({this.model = WhisperModel.base});
 
@@ -118,6 +121,7 @@ class WhisperTranscriptionService implements TranscriptionService {
     Stream<Uint8List> pcm16, {
     String lang = 'es',
   }) async {
+    if (!isPhone) throw TranscriptionException(_desktopMsg);
     // En vivo no se espera la descarga: si aún no está el modelo, se avisa y
     // se transcribe todo al terminar.
     if (!await isModelReady()) {
@@ -144,6 +148,7 @@ class WhisperTranscriptionService implements TranscriptionService {
     List<String> vocabulary = const [],
     void Function(int percent)? onProgress,
   }) async {
+    if (!isPhone) throw TranscriptionException(_desktopMsg);
     await ensureModel();
     final result = await _controller.transcribe(
       model: model,

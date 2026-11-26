@@ -3,6 +3,7 @@ import 'dart:ui' show Rect;
 import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart' as mlkit;
 
 import '../domain/drawing.dart';
+import '../../../core/platform_info.dart';
 
 /// Reconocer letra a mano (ML Kit de Google, en el teléfono). El modelo de
 /// español (~20 MB) se baja una sola vez.
@@ -14,10 +15,11 @@ class Handwriting {
   final _models = mlkit.DigitalInkRecognizerModelManager();
   mlkit.DigitalInkRecognizer? _rec;
 
-  Future<bool> isReady() => _models.isModelDownloaded(lang);
+  Future<bool> isReady() async => isPhone && await _models.isModelDownloaded(lang);
 
   /// Baja el modelo si falta (también con datos móviles).
   Future<void> ensureModel() async {
+    if (!isPhone) throw const HandwritingException('Pasar la letra a texto solo funciona en el celular por ahora.');
     if (await _models.isModelDownloaded(lang)) return;
     final ok = await _models.downloadModel(lang, isWifiRequired: false);
     if (!ok) throw const HandwritingException('No se pudo bajar el reconocedor de letra. ¿Hay internet?');

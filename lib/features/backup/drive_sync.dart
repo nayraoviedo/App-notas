@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'backup_service.dart';
+import '../../core/platform_info.dart';
 
 /// Copia de TODA la app en tu Google Drive, en la carpeta privada de la app
 /// (no se ve entre tus archivos y solo Kumo puede leerla). Usa el espacio
@@ -33,6 +34,10 @@ class DriveSync {
 
   Future<void> _init(SharedPreferences prefs) async {
     if (_ready) return;
+    if (!isPhone) {
+      throw const DriveException('Google Drive en la compu todavía no está listo. '
+          'Por ahora usa "Copia de seguridad" para guardar y pasar tus notas.');
+    }
     final saved = prefs.getString(clientIdKey)?.trim();
     final clientId = saved == null || saved.isEmpty ? defaultClientId : saved;
     await GoogleSignIn.instance.initialize(serverClientId: clientId);
@@ -240,6 +245,7 @@ class DriveSync {
 
   /// Copia diaria automática (al abrir la app), si está conectada.
   Future<void> autoUploadIfDue(SharedPreferences prefs) async {
+    if (!isPhone) return;
     if (prefs.getString(emailKey) == null || !(prefs.getBool(autoKey) ?? true)) return;
     final last = prefs.getInt(lastKey);
     if (last != null &&

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'core/widgets/cat_mascot.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,6 +18,8 @@ Future<void> main() async {
     await BackupService.applyPendingRestore();
   } catch (_) {}
   MediaKit.ensureInitialized();
+  // En la compu, just_audio suena con el mismo motor que los videos.
+  JustAudioMediaKit.ensureInitialized(linux: true, windows: true);
   final prefs = await SharedPreferences.getInstance();
   loadCatPrefs(prefs);
   await loadCustomFonts();

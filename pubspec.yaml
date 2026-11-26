@@ -25,6 +25,8 @@ dependencies:
   # Audio
   record: ^6.0.0
   just_audio: ^0.9.42
+  # Para que el audio suene en Windows y Linux
+  just_audio_media_kit: any
 
   # Transcripción en el dispositivo (whisper.cpp)
   whisper_ggml: ^2.9.0

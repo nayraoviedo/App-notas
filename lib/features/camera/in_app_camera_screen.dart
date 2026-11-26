@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+
+import '../../core/platform_info.dart';
 
 /// Toma una foto con la cámara DENTRO de la app. Devuelve la ruta temporal
 /// de la foto, o null si se canceló.
@@ -10,10 +13,16 @@ import 'package:permission_handler/permission_handler.dart';
 /// Antes se abría la app de cámara del sistema; en muchos celulares Android
 /// cerraba esta app mientras tanto (para liberar memoria) y al volver
 /// aparecía el inicio. Con la cámara propia la app nunca se va al fondo.
-Future<String?> captureWithInAppCamera(BuildContext context) =>
-    Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const InAppCameraScreen(), fullscreenDialog: true),
-    );
+Future<String?> captureWithInAppCamera(BuildContext context) async {
+  // En la compu no hay cámara de fotos para apuntes: se elige una imagen.
+  if (!isPhone) {
+    final f = await ImagePicker().pickImage(source: ImageSource.gallery);
+    return f?.path;
+  }
+  return Navigator.of(context).push<String>(
+    MaterialPageRoute(builder: (_) => const InAppCameraScreen(), fullscreenDialog: true),
+  );
+}
 
 class InAppCameraScreen extends StatefulWidget {
   const InAppCameraScreen({super.key});

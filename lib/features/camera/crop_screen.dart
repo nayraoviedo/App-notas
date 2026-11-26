@@ -9,6 +9,7 @@ import 'in_app_camera_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
+import '../../core/platform_info.dart';
 
 /// Recortar y girar una foto antes de usarla.
 /// Devuelve la ruta de la imagen recortada (o la original si no se cambió),
@@ -177,6 +178,7 @@ class _CropScreenState extends ConsumerState<CropScreen> {
         foregroundColor: Colors.white,
         title: const Text('Recortar'),
         actions: [
+          if (isPhone)
           IconButton(
             tooltip: 'Quitar fondo',
             icon: const Icon(Icons.auto_fix_high_outlined),

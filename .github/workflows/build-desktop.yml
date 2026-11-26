@@ -1,0 +1,121 @@
+# Compila Kumo para la compu (Windows y Linux) y lo publica en Releases,
+# en "Kumo para escritorio".
+name: Compilar escritorio
+
+on:
+  push:
+    branches: [esqueleto-inicial, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  escritorio:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Programas para compilar en Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+            libstdc++-12-dev libsecret-1-dev libjsoncpp-dev libmpv-dev mpv libpulse-dev \
+            libayatana-appindicator3-dev libnotify-dev
+
+      - name: Letras y portadas
+        continue-on-error: true
+        run: |
+          base=https://raw.githubusercontent.com/google/fonts/main/ofl
+          cd assets/google_fonts
+          for f in patrickhand/PatrickHand-Regular.ttf mali/Mali-Regular.ttf mali/Mali-Medium.ttf \
+                   mali/Mali-SemiBold.ttf mali/Mali-Bold.ttf itim/Itim-Regular.ttf \
+                   gaegu/Gaegu-Regular.ttf gaegu/Gaegu-Bold.ttf; do
+            curl -fsSL -o "$(basename $f)" "$base/$f" || echo "sin $f"
+          done
+          cd ../covers
+          ua="AppNotas/1.0 (https://github.com/nayraoviedo/App-notas)"
+          wiki=https://commons.wikimedia.org/wiki/Special:FilePath
+          get() { curl -fsSL -A "$ua" -o "$1" "$2" || echo "no se pudo bajar $1"; }
+          get almendro.jpg  "$wiki/Vincent_van_Gogh_-_Almond_blossom_-_Google_Art_Project.jpg?width=1000"
+          get ciruelos.jpg  "$wiki/Vincent_van_Gogh_-_Bloeiende_pruimenboomgaard-_naar_Hiroshige_-_Google_Art_Project.jpg?width=1000"
+          get huerto.jpg    "$wiki/Vincent_van_Gogh_-_Orchard_in_Blossom_(Plum_Trees)_-_Google_Art_Project.jpg?width=1000"
+          get nenufares.jpg "$wiki/Claude_Monet_-_Water_Lilies_-_1906,_Ryerson.jpg?width=1000"
+          get estanque.jpg  "$wiki/Claude_Monet_-_Pond_with_Water_Lilies_-_Google_Art_Project.jpg?width=1000"
+          get ola.jpg       "$wiki/Tsunami_by_hokusai_19th_century.jpg?width=1000"
+          get fresas.jpg    "https://openaccess-cdn.clevelandart.org/1937.696/1937.696_web.jpg"
+
+      - name: Crear carpetas de escritorio
+        run: |
+          flutter config --enable-linux-desktop --enable-windows-desktop
+          flutter create . --project-name app_notas --org com.appnotas --platforms linux,windows
+          rm -f test/widget_test.dart
+          python tool/setup_desktop.py || python3 tool/setup_desktop.py
+
+      - name: Dependencias
+        run: |
+          flutter pub get
+          dart run build_runner build
+
+      - name: Compilar Linux
+        if: runner.os == 'Linux'
+        run: |
+          flutter build linux --release
+          cd build/linux/x64/release/bundle
+          cp "$GITHUB_WORKSPACE/tool/desktop/kumo.png" .
+          cat > LEEME.txt <<'T'
+          Kumo para Linux
+          1. Descomprime esta carpeta donde quieras.
+          2. Abre "kumo" (doble clic o ./kumo en la terminal).
+          Necesita: libmpv (sudo apt install libmpv2) y, para el audio,
+          ffmpeg (sudo apt install ffmpeg).
+          T
+          mkdir -p "$GITHUB_WORKSPACE/salida"
+          tar -czf "$GITHUB_WORKSPACE/salida/Kumo-linux.tar.gz" .
+
+      - name: Compilar Windows
+        if: runner.os == 'Windows'
+        run: |
+          flutter build windows --release
+          cd build/windows/x64/runner/Release
+          mkdir -p "$GITHUB_WORKSPACE/salida"
+          7z a -tzip "$GITHUB_WORKSPACE/salida/Kumo-windows.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kumo-${{ runner.os }}
+          path: salida/*
+          retention-days: 14
+
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: escritorio
+          name: Kumo para escritorio
+          prerelease: true
+          make_latest: false
+          body: |
+            Compilado automáticamente desde `${{ github.ref_name }}`.
+
+            - **Windows:** baja `Kumo-windows.zip`, descomprímelo y abre `Kumo.exe`.
+            - **Linux:** baja `Kumo-linux.tar.gz`, descomprímelo y abre `kumo`.
+          files: salida/*
+          overwrite_files: true

@@ -14,6 +14,7 @@ import '../../notes/domain/note_block.dart';
 import '../../settings/settings.dart';
 import '../../summary/application/summary_runner.dart';
 import '../../transcription/application/segment_merger.dart';
+import '../../../core/platform_info.dart';
 
 /// Exportar e importar audios.
 class AudioTools {
@@ -21,6 +22,9 @@ class AudioTools {
   /// devuelve el WAV original.
   static Future<String> toM4a(String wavPath) async {
     final out = p.join((await getTemporaryDirectory()).path, '${p.basenameWithoutExtension(wavPath)}.m4a');
+    if (!isPhone) {
+      return await _desktopFfmpeg(['-y', '-i', wavPath, '-c:a', 'aac', '-b:a', '96k', out]) ? out : wavPath;
+    }
     try {
       final session = await FFmpegKit.execute('-y -i "$wavPath" -c:a aac -b:a 96k "$out"');
       if (ReturnCode.isSuccess(await session.getReturnCode()) && File(out).existsSync()) {
@@ -33,10 +37,25 @@ class AudioTools {
   /// Convierte cualquier audio (mp3, m4a, ogg, opus de WhatsApp…) a WAV mono
   /// de 16 kHz, el formato que necesita Whisper.
   static Future<String?> toWav16k(String input, String output) async {
+    if (!isPhone) {
+      return await _desktopFfmpeg(['-y', '-i', input, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', output])
+          ? output
+          : null;
+    }
     final session =
         await FFmpegKit.execute('-y -i "$input" -ar 16000 -ac 1 -c:a pcm_s16le "$output"');
     final ok = ReturnCode.isSuccess(await session.getReturnCode());
     return ok && File(output).existsSync() ? output : null;
+  }
+
+  /// En la compu se usa el ffmpeg instalado (si lo hay).
+  static Future<bool> _desktopFfmpeg(List<String> args) async {
+    try {
+      final r = await Process.run('ffmpeg', args);
+      return r.exitCode == 0 && File(args.last).existsSync();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Duración de un WAV PCM16 mono 16 kHz a partir de su tamaño.
