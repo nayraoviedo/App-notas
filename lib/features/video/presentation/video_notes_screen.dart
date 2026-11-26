@@ -44,6 +44,10 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
   final _text = TextEditingController();
   final _focus = FocusNode();
   int? _typingAtMs;
+  // Escribir en "Apuntes" como mensajes: cada uno con su minuto.
+  final _aText = TextEditingController();
+  final _aFocus = FocusNode();
+  int? _aTypingAtMs;
   bool _capturing = false;
   bool _creating = false;
 
@@ -56,6 +60,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
   void initState() {
     super.initState();
     _focus.addListener(_onFocus);
+    _aFocus.addListener(_onApuntesFocus);
     _open();
   }
 
@@ -79,8 +84,49 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
     }
   }
 
+  Future<void> _onApuntesFocus() async {
+    if (_aFocus.hasFocus) {
+      _aTypingAtMs = await _player.positionMs();
+      if (_pauseOnType) await _player.pause();
+    }
+  }
+
+  /// Envía un mensaje a "Apuntes": se agrega como "[12:34] texto".
+  Future<void> _sendApunte() async {
+    final text = _aText.text.trim();
+    if (text.isEmpty) return;
+    final atMs = _aTypingAtMs ?? await _player.positionMs();
+    final repo = ref.read(notesRepositoryProvider);
+    final block = _apuntes(ref.read(blocksProvider(widget.noteId)).valueOrNull ?? const []);
+    String id;
+    var current = '';
+    if (block == null) {
+      id = await repo.addTextBlock(widget.noteId);
+      await ref.read(sharedPreferencesProvider).setString(_prefKey, id);
+    } else {
+      id = block.id;
+      current = block.text.trimRight();
+    }
+    final line = '[${formatMs(atMs)}] $text';
+    await repo.updateText(id, current.isEmpty ? line : '$current\n$line');
+    _aText.clear();
+    _aTypingAtMs = null;
+    if (_pauseOnType) {
+      _aFocus.unfocus();
+      await _player.play();
+    } else {
+      // Para el siguiente mensaje, el minuto se toma de nuevo al escribir.
+      _aTypingAtMs = await _player.positionMs();
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _aFocus
+      ..removeListener(_onApuntesFocus)
+      ..dispose();
+    _aText.dispose();
     _focus
       ..removeListener(_onFocus)
       ..dispose();
@@ -121,7 +167,10 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
         }
         return;
       }
-      final path = await ref.read(fileStorageProvider).saveBytes(bytes, folder: 'video_frames', ext: '.jpg');
+      final isPng = bytes.length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50;
+      final path = await ref
+          .read(fileStorageProvider)
+          .saveBytes(bytes, folder: 'video_frames', ext: isPng ? '.png' : '.jpg');
       final id = await ref.read(notesRepositoryProvider).addImageBlock(
             widget.noteId,
             path,
@@ -256,11 +305,31 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
           onSend: _addNote,
           onCapture: _player.canScreenshot ? _capture : null,
           onImage: _addImage,
+          hint: 'Nota en este minuto…',
         ),
       ],
     );
 
-    final apuntesTab = apuntes == null
+    // Minutos escritos en los apuntes ([12:34]): tocarlos lleva a ese momento.
+    final marks = apuntes == null
+        ? const <int>[]
+        : [
+            for (final m in RegExp(r'\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]').allMatches(apuntes.text))
+              m.group(3) == null
+                  ? (int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!)) * 1000
+                  : (int.parse(m.group(1)!) * 3600 + int.parse(m.group(2)!) * 60 + int.parse(m.group(3)!)) * 1000,
+          ];
+    final apuntesComposer = _Composer(
+      controller: _aText,
+      focusNode: _aFocus,
+      capturing: false,
+      onSend: _sendApunte,
+      onCapture: null,
+      onImage: null,
+      hint: 'Escribe y envía: se anota el minuto…',
+    );
+
+    final apuntesBody = apuntes == null
         ? Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -280,9 +349,24 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
             ),
           )
         : ListView(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 80),
-            children: [TextBlockView(key: ValueKey(apuntes.id), block: apuntes)],
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+            children: [
+              if (marks.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                  child: Wrap(spacing: 6, runSpacing: 4, children: [
+                    for (final ms in marks)
+                      ActionChip(
+                        avatar: const Icon(Icons.play_arrow, size: 16),
+                        label: Text(formatMs(ms)),
+                        onPressed: () => _player.seek(ms),
+                      ),
+                  ]),
+                ),
+              TextBlockView(key: ValueKey(apuntes.id), block: apuntes),
+            ],
           );
+    final apuntesTab = Column(children: [Expanded(child: apuntesBody), apuntesComposer]);
 
     final sheetTab = sheet == null
         ? Center(
@@ -448,9 +532,11 @@ class _Composer extends StatelessWidget {
     required this.onSend,
     required this.onCapture,
     required this.onImage,
+    required this.hint,
   });
 
-  final VoidCallback onImage;
+  final VoidCallback? onImage;
+  final String hint;
 
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -470,11 +556,12 @@ class _Composer extends StatelessWidget {
                 icon: const Icon(Icons.photo_camera_outlined),
                 label: const Text('Capturar'),
               ),
-            IconButton(
-              tooltip: 'Agregar imagen (captura del celular)',
-              onPressed: onImage,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-            ),
+            if (onImage != null)
+              IconButton(
+                tooltip: 'Agregar imagen (captura del celular)',
+                onPressed: onImage,
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+              ),
             Expanded(
               child: TextField(
                 controller: controller,
@@ -484,9 +571,9 @@ class _Composer extends StatelessWidget {
                 textInputAction: TextInputAction.send,
                 textCapitalization: TextCapitalization.sentences,
                 onSubmitted: (_) => onSend(),
-                decoration: const InputDecoration(
-                  hintText: 'Nota en este minuto…',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: hint,
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
               ),

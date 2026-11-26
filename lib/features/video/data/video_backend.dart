@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
@@ -73,7 +75,44 @@ class MediaKitBackend implements VideoBackend {
   bool get canScreenshot => true;
 
   @override
-  Future<Uint8List?> screenshot() => _player.screenshot();
+  Future<Uint8List?> screenshot() async {
+    // Rápido: se piden los píxeles tal cual y se arma el PNG con el motor
+    // gráfico (el JPEG de media_kit se codifica en Dart y tarda mucho).
+    try {
+      final w = _player.state.width, h = _player.state.height;
+      final raw = await _player.screenshot(format: null);
+      if (raw != null && w != null && h != null && w > 0 && raw.length == w * h * 4) {
+        final png = await _rawToPng(raw, w, h);
+        if (png != null) return png;
+      }
+    } catch (_) {}
+    return _player.screenshot();
+  }
+
+  /// BGRA → PNG, achicado a 1600 px de ancho como máximo (para recortar
+  /// rápido y que la foto cargue entera).
+  static Future<Uint8List?> _rawToPng(Uint8List raw, int w, int h) async {
+    final done = Completer<ui.Image>();
+    ui.decodeImageFromPixels(raw, w, h, ui.PixelFormat.bgra8888, done.complete);
+    var img = await done.future;
+    const maxW = 1600;
+    if (w > maxW) {
+      final sw = maxW, sh = (h * maxW / w).round();
+      final rec = ui.PictureRecorder();
+      Canvas(rec).drawImageRect(
+        img,
+        Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+        Rect.fromLTWH(0, 0, sw.toDouble(), sh.toDouble()),
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+      final scaled = await rec.endRecording().toImage(sw, sh);
+      img.dispose();
+      img = scaled;
+    }
+    final data = await img.toByteData(format: ui.ImageByteFormat.png);
+    img.dispose();
+    return data?.buffer.asUint8List();
+  }
 
   @override
   Future<void> dispose() => _player.dispose();
