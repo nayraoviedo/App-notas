@@ -75,9 +75,21 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
 
   Future<void> _open() async {
     final p = _player;
-    if (p is MediaKitBackend && isYoutubeUrl(widget.videoPath)) {
-      p.onStatus = (s) {
-        if (mounted) setState(() => _loading = s);
+    if (p is MediaKitBackend) {
+      if (isYoutubeUrl(widget.videoPath)) {
+        p.onStatus = (s) {
+          if (mounted) setState(() => _loading = s);
+        };
+      }
+      var told = false;
+      p.onError = (e) {
+        // Un solo aviso (el reproductor puede repetir el mismo error).
+        if (told || !mounted) return;
+        told = true;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 8),
+          content: Text('El video no se pudo reproducir. Revisa tu internet y vuelve a abrirlo.'),
+        ));
       };
     }
     try {

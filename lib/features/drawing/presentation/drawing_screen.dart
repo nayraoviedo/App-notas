@@ -177,6 +177,52 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     if ((p - _pull).abs() > 0.02) setState(() => _pull = p);
   }
 
+  /// Rueda del mouse (en la compu): desplaza la hoja hacia arriba y abajo
+  /// (con Mayús, de lado). Con Ctrl, acerca o aleja.
+  void _onWheel(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    final ctl = _ctl;
+    if (ctl == null || _viewport == Size.zero) return;
+    // El touchpad ya mueve la hoja solo cuando se puede mover con la mano.
+    if (e.kind == PointerDeviceKind.trackpad && (ctl.mode == InputMode.pan || ctl.stylusOnly)) return;
+    final d = ctl.drawing;
+    final m = _transform.value;
+    final keys = HardwareKeyboard.instance;
+    if (keys.isControlPressed) {
+      if (e.scrollDelta.dy == 0) return;
+      final scale = m.getMaxScaleOnAxis();
+      final minScale = d.infinite ? 0.04 : 0.2;
+      final next = (scale * math.exp(-e.scrollDelta.dy / 200)).clamp(minScale, 8.0);
+      final f = next / scale;
+      final p = e.localPosition;
+      final zoom = Matrix4.identity()
+        ..setEntry(0, 0, f)
+        ..setEntry(1, 1, f)
+        ..setEntry(0, 3, p.dx * (1 - f))
+        ..setEntry(1, 3, p.dy * (1 - f));
+      _transform.value = zoom.multiplied(m);
+      return;
+    }
+    var dx = e.scrollDelta.dx, dy = e.scrollDelta.dy;
+    if (keys.isShiftPressed && dx == 0) {
+      dx = dy;
+      dy = 0;
+    }
+    final scale = m.getMaxScaleOnAxis();
+    final margin = d.infinite ? 400.0 : 8.0;
+    final pages = _stack;
+    final contentH = pages.isEmpty ? d.height + (_vertical ? _footerH * 0.65 : 0) : _stackHeight - _footerH * 0.35;
+    double clampT(double t, double content, double view) {
+      final min = view - content * scale - margin;
+      return min >= margin ? t : t.clamp(min, margin);
+    }
+    final tx = clampT(m.entry(0, 3) - dx, d.width, _viewport.width);
+    final ty = clampT(m.entry(1, 3) - dy, contentH, _viewport.height);
+    _transform.value = m.clone()
+      ..setEntry(0, 3, tx)
+      ..setEntry(1, 3, ty);
+  }
+
   /// Ir a una hoja del montón (arriba de la pantalla).
   Future<void> _scrollToPage(String path) async {
     await _load(path);
@@ -1899,9 +1945,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                 ..setEntry(1, 3, 8 - _activeOffset * scale);
             }
             _viewport = Size(c.maxWidth, c.maxHeight);
-            return InteractiveViewer(
+            return Listener(
+              onPointerSignal: _onWheel,
+              child: InteractiveViewer(
               transformationController: _transform,
               constrained: false,
+              // La rueda del mouse desplaza la hoja (ver _onWheel), no la agranda.
+              scaleFactor: 1e12,
               minScale: d.infinite ? 0.04 : 0.2,
               maxScale: 8,
               boundaryMargin: EdgeInsets.all(d.infinite ? 1200 : 400),
@@ -1970,6 +2020,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                   ),
                 ),
               )),
+              ),
             );
           },
         );
