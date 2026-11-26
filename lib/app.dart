@@ -104,8 +104,8 @@ class _AppNotasState extends ConsumerState<AppNotas> {
     return MaterialApp.router(
       title: 'Kumo',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppTheme.light(ref.watch(appFontProvider)),
+      darkTheme: AppTheme.dark(ref.watch(appFontProvider)),
       themeMode: ref.watch(themeModeProvider),
       routerConfig: appRouter,
     );

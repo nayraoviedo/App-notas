@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,7 +38,15 @@ class RecordingState {
     this.progressLabel,
     this.message,
     this.micBlocked = false,
+    this.savedBlockId,
+    this.levels = const [],
   });
+
+  /// Volumen reciente (0–1), para dibujar la onda mientras se graba.
+  final List<double> levels;
+
+  /// Bloque de audio ya guardado de la última grabación (para abrirlo).
+  final String? savedBlockId;
 
   final RecordingStatus status;
   final int elapsedMs;
@@ -73,6 +82,8 @@ class RecordingState {
     String? progressLabel,
     String? message,
     bool? micBlocked,
+    String? savedBlockId,
+    List<double>? levels,
   }) =>
       RecordingState(
         status: status ?? this.status,
@@ -88,6 +99,8 @@ class RecordingState {
         progressLabel: progressLabel ?? this.progressLabel,
         message: message ?? this.message,
         micBlocked: micBlocked ?? this.micBlocked,
+        savedBlockId: savedBlockId ?? this.savedBlockId,
+        levels: levels ?? this.levels,
       );
 }
 
@@ -105,6 +118,9 @@ class RecordingController extends Notifier<RecordingState> {
   Timer? _ticker;
   String? _noteId;
   String _lang = 'es';
+
+  final _levels = <double>[];
+  double _peak = 0;
 
   /// Términos que Whisper debe escribir bien (idea: vocabulario por materia).
   List<String> vocabulary = const [];
@@ -174,13 +190,20 @@ class RecordingController extends Notifier<RecordingState> {
     )))
         .asBroadcastStream();
 
+    _levels.clear();
     _pcmSub = pcm.listen((bytes) {
       _wav?.add(bytes);
       _tracker?.addPcm16(bytes);
+      _peak = math.max(_peak, pcmLevel(bytes));
     });
 
-    _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      state = state.copyWith(elapsedMs: _wav?.durationMs ?? 0);
+    _ticker = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      if (state.status == RecordingStatus.recording) {
+        _levels.add(_peak);
+        if (_levels.length > 64) _levels.removeAt(0);
+      }
+      _peak = 0;
+      state = state.copyWith(elapsedMs: _wav?.durationMs ?? 0, levels: List.of(_levels));
     });
     state = state.copyWith(status: RecordingStatus.recording);
 
@@ -273,11 +296,19 @@ class RecordingController extends Notifier<RecordingState> {
     state = state.copyWith(status: RecordingStatus.processing, clearPending: true);
 
     _ticker?.cancel();
-    await _recorder?.stop();
-    await _live?.stop();
-    await _liveSub?.cancel();
-    await _pcmSub?.cancel();
-    await _wav?.close();
+    // Cada paso con tiempo límite: si la transcripción en vivo o el
+    // micrófono se traban, igual se guarda el audio.
+    Future<void> safe(Future<void>? Function() f) async {
+      try {
+        await f()?.timeout(const Duration(seconds: 4));
+      } catch (_) {}
+    }
+
+    await safe(() => _recorder?.stop());
+    await safe(() => _pcmSub?.cancel());
+    await safe(() => _live?.stop());
+    await safe(() => _liveSub?.cancel());
+    await safe(() => _wav?.close());
 
     final wav = _wav!;
     final turns = List.of(_tracker?.turns ?? const <SpeakerTurn>[]);
@@ -288,7 +319,9 @@ class RecordingController extends Notifier<RecordingState> {
     // 1) Guardar el audio YA (con el texto en vivo, si hubo), para que nunca
     //    se pierda aunque la transcripción tarde, falle o se cierre la app.
     final repo = ref.read(notesRepositoryProvider);
-    final blockId = await repo.addAudioBlock(
+    final String blockId;
+    try {
+      blockId = await repo.addAudioBlock(
       noteId,
       path: wav.path,
       durationMs: wav.durationMs,
@@ -298,6 +331,13 @@ class RecordingController extends Notifier<RecordingState> {
       ],
       markers: markers,
     );
+    } catch (e) {
+      await _cleanupSafe();
+      state = state.copyWith(
+          status: RecordingStatus.done, message: 'No se pudo guardar la grabación: $e');
+      return;
+    }
+    state = state.copyWith(savedBlockId: blockId);
     for (final photo in photos) {
       await repo.addImageBlock(
         noteId,
@@ -305,7 +345,7 @@ class RecordingController extends Notifier<RecordingState> {
         anchor: MediaAnchor.audio(audioBlockId: blockId, atMs: photo.atMs),
       );
     }
-    await _cleanup();
+    await _cleanupSafe();
 
     // 2) Transcribir con calma y reemplazar el texto provisional.
     String? message;
@@ -332,8 +372,8 @@ class RecordingController extends Notifier<RecordingState> {
       }
     } on TranscriptionException catch (e) {
       message = '${e.message}\nEl audio quedó guardado: ábrelo y toca "Transcribir ahora".';
-    } catch (_) {
-      message = 'No se pudo transcribir, pero el audio quedó guardado.';
+    } catch (e) {
+      message = 'No se pudo transcribir ($e), pero el audio quedó guardado.';
     }
     state = state.copyWith(status: RecordingStatus.done, message: message);
   }
@@ -355,6 +395,20 @@ class RecordingController extends Notifier<RecordingState> {
     state = const RecordingState();
   }
 
+  Future<void> _cleanupSafe() async {
+    try {
+      await _cleanup().timeout(const Duration(seconds: 5));
+    } catch (_) {
+      _recorder = null;
+      _tracker = null;
+      _live = null;
+      _liveSub = null;
+      _pcmSub = null;
+      _suggestionSub = null;
+      _ticker = null;
+    }
+  }
+
   Future<void> _cleanup() async {
     await _suggestionSub?.cancel();
     await _tracker?.dispose();
@@ -367,6 +421,21 @@ class RecordingController extends Notifier<RecordingState> {
     _suggestionSub = null;
     _ticker = null;
   }
+}
+
+/// Volumen de un trozo de audio PCM16 (0 = silencio, 1 = muy fuerte).
+double pcmLevel(Uint8List bytes) {
+  if (bytes.length < 2) return 0;
+  final data = ByteData.sublistView(bytes);
+  var sum = 0.0;
+  final n = bytes.length ~/ 2;
+  for (var i = 0; i < n; i += 4) {
+    final v = data.getInt16(i * 2, Endian.little) / 32768.0;
+    sum += v * v;
+  }
+  final rms = math.sqrt(sum / ((n + 3) ~/ 4));
+  // Escala logarítmica suave para que la voz normal se vea.
+  return (math.log(1 + rms * 60) / math.log(61)).clamp(0.0, 1.0);
 }
 
 final recordingControllerProvider =

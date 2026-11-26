@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/providers.dart';
+import '../../camera/crop_screen.dart';
 
 import '../../drawing/domain/drawing.dart';
 import '../../drawing/presentation/painters/paper_painter.dart';
-import '../../notebooks/domain/notebook.dart' show CoverPattern, coverArts;
+import '../../notebooks/domain/notebook.dart' show coverArts;
 import 'note_tags_dialog.dart';
 
 /// Lo que se eligió al crear una nota.
@@ -117,21 +121,48 @@ Future<NewNoteOptions?> showCreateNoteSheet(BuildContext context) {
   );
 }
 
-class CreateNoteForm extends StatefulWidget {
+class CreateNoteForm extends ConsumerStatefulWidget {
   const CreateNoteForm({super.key});
 
   @override
-  State<CreateNoteForm> createState() => _CreateNoteFormState();
+  ConsumerState<CreateNoteForm> createState() => _CreateNoteFormState();
 }
 
-class _CreateNoteFormState extends State<CreateNoteForm> {
+class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
   final _title = TextEditingController();
   bool _withSheet = true;
   bool _withCover = true;
   bool _editingCover = false;
-  int _coverColor = Paper.coverColors.first;
+  // Tapa: una pintura de dominio público o una foto tuya.
+  int _coverColor = 0xFFB9C6B0;
   String? _coverDesign;
-  String? _coverArt;
+  String? _coverArt = coverArts.first.asset;
+  List<String> _myCovers = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMyCovers();
+  }
+
+  Future<void> _loadMyCovers() async {
+    try {
+      final l = await ref.read(fileStorageProvider).listFolder('covers');
+      if (mounted) setState(() => _myCovers = l);
+    } catch (_) {}
+  }
+
+  /// Subir una tapa propia: foto de la galería, recortada.
+  Future<void> _uploadCover() async {
+    final picked = await pickAndCropImage(context, ref, camera: false);
+    if (picked == null || !mounted) return;
+    final path = await ref.read(fileStorageProvider).importFile(picked, folder: 'covers');
+    await _loadMyCovers();
+    setState(() {
+      _coverArt = path;
+      _coverDesign = null;
+    });
+  }
 
   PaperStyle get _coverPaper => PaperStyle(
         template: PaperTemplate.cover,
@@ -401,11 +432,10 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
       );
 
   Widget _coverPicker(Color accent) {
-    // Colores lisos, tapas ilustradas y obras de arte de dominio público.
-    final options = <(int, String?, String?, String?)>[
-      for (final c in Paper.coverColors) (c, null, null, null),
-      for (final p in CoverPattern.values.where((p) => p.isIllustrated)) (p.preferredColor!, p.name, null, p.label),
-      for (final a in coverArts) (0xFFB9C6B0, null, a.asset, a.artist),
+    // Pinturas de dominio público, tus fotos y un botón para subir otra.
+    final options = <(String, String?)>[
+      for (final a in coverArts) (a.asset, a.artist),
+      for (final m in _myCovers) (m, 'Mía'),
     ];
     return GridView.builder(
       padding: const EdgeInsets.all(16),
@@ -415,15 +445,44 @@ class _CreateNoteFormState extends State<CreateNoteForm> {
         crossAxisSpacing: 16,
         childAspectRatio: 0.62,
       ),
-      itemCount: options.length,
+      itemCount: options.length + 1,
       itemBuilder: (context, i) {
-        final (color, design, art, label) = options[i];
-        final selected = color == _coverColor && design == _coverDesign && art == _coverArt;
-        final paper = PaperStyle(template: PaperTemplate.cover, background: color, design: design, imagePath: art);
+        if (i == 0) {
+          return GestureDetector(
+            onTap: _uploadCover,
+            child: Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: accent, width: 1.5),
+                      color: accent.withValues(alpha: 0.06),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_photo_alternate_outlined, color: accent, size: 30),
+                        const SizedBox(height: 4),
+                        Text('Subir\nfoto', textAlign: TextAlign.center, style: TextStyle(color: accent)),
+                      ],
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 3),
+                  child: Text('Tu tapa', style: TextStyle(fontSize: 10.5, color: Colors.black54)),
+                ),
+              ],
+            ),
+          );
+        }
+        final (art, label) = options[i - 1];
+        final selected = art == _coverArt;
+        final paper = PaperStyle(template: PaperTemplate.cover, background: _coverColor, imagePath: art);
         return GestureDetector(
           onTap: () => setState(() {
-            _coverColor = color;
-            _coverDesign = design;
+            _coverDesign = null;
             _coverArt = art;
           }),
           child: Column(

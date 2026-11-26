@@ -48,6 +48,19 @@ jobs:
 
       # Portadas con obras de dominio público (Van Gogh, Monet, Hokusai,
       # Morris). Si alguna no baja, la app simplemente no la muestra.
+      # Letras manuscritas de la app, incluidas en el APK (funcionan sin internet).
+      - name: Descargar letras de la app
+        continue-on-error: true
+        run: |
+          base=https://raw.githubusercontent.com/google/fonts/main/ofl
+          cd assets/google_fonts
+          for f in patrickhand/PatrickHand-Regular.ttf mali/Mali-Regular.ttf mali/Mali-Medium.ttf \
+                   mali/Mali-SemiBold.ttf mali/Mali-Bold.ttf itim/Itim-Regular.ttf \
+                   gaegu/Gaegu-Regular.ttf gaegu/Gaegu-Bold.ttf; do
+            curl -fsSL -o "$(basename $f)" "$base/$f" || echo "sin $f"
+          done
+          ls -la
+
       - name: Descargar portadas de dominio público
         continue-on-error: true
         run: |
@@ -94,7 +107,9 @@ jobs:
             "Great_Vibes ofl/greatvibes/GreatVibes-Regular.ttf" \
             "Satisfy apache/satisfy/Satisfy-Regular.ttf" \
             "Allura ofl/allura/Allura-Regular.ttf" \
-            "Sacramento ofl/sacramento/Sacramento-Regular.ttf"; do
+            "Sacramento ofl/sacramento/Sacramento-Regular.ttf" \
+            "Patrick_Hand ofl/patrickhand/PatrickHand-Regular.ttf" \
+            "Caveat ofl/caveat/Caveat%5Bwght%5D.ttf"; do
             set -- $pair
             curl -fsSL -o "screenshot_test/fonts/$1.ttf" "$base/$2" || echo "sin $1"
           done

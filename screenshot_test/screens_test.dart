@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:app_notas/core/fonts.dart';
 import 'package:app_notas/core/providers.dart';
+import 'package:app_notas/core/theme.dart';
 import 'package:app_notas/features/drawing/data/drawing_store.dart';
 import 'package:app_notas/features/drawing/domain/drawing.dart';
 import 'package:app_notas/features/expenses/data/expenses_repository.dart';
@@ -83,11 +84,7 @@ Future<void> _phoneSize(WidgetTester tester) async {
   addTearDown(tester.view.reset);
 }
 
-ThemeData _theme() => ThemeData(
-      colorSchemeSeed: const Color(0xFF1E8CB4),
-      useMaterial3: true,
-      fontFamily: 'Roboto',
-    );
+ThemeData _theme() => AppTheme.light();
 
 Future<void> _shot(WidgetTester tester, String name) async {
   await tester.pump(const Duration(milliseconds: 400));

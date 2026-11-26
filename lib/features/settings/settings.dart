@@ -136,8 +136,18 @@ final settingsProvider =
 /// Tema: según el teléfono, claro u oscuro.
 final themeModeProvider = StateProvider<ThemeMode>((ref) {
   final v = ref.watch(sharedPreferencesProvider).getString('app.themeMode');
-  return ThemeMode.values.where((m) => m.name == v).firstOrNull ?? ThemeMode.system;
+  // Claro por defecto: varias pantallas tienen fondo crema de cuaderno.
+  return ThemeMode.values.where((m) => m.name == v).firstOrNull ?? ThemeMode.light;
 });
+
+/// Letra de toda la app (ver appFonts en core/theme.dart).
+final appFontProvider = StateProvider<String>(
+    (ref) => ref.watch(sharedPreferencesProvider).getString('app.font') ?? 'Patrick Hand');
+
+Future<void> setAppFont(WidgetRef ref, String font) async {
+  ref.read(appFontProvider.notifier).state = font;
+  await ref.read(sharedPreferencesProvider).setString('app.font', font);
+}
 
 Future<void> setThemeMode(WidgetRef ref, ThemeMode m) async {
   ref.read(themeModeProvider.notifier).state = m;

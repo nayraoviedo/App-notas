@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/fonts.dart';
+import '../../../core/theme.dart';
 import '../../../core/widgets/cat_mascot.dart';
 import '../domain/notebook.dart';
 import 'notebook_form.dart';
@@ -125,8 +126,9 @@ class _HomeViewState extends State<HomeView> {
   Widget build(BuildContext context) {
     final list = widget.notebooks;
     // El inicio conserva su estilo crema de diario también en modo oscuro.
+    final t = Theme.of(context);
     return Theme(
-      data: ThemeData(colorSchemeSeed: HomeColors.terracotta, useMaterial3: true),
+      data: t.brightness == Brightness.light ? t : AppTheme.light(),
       child: _scaffold(list),
     );
   }

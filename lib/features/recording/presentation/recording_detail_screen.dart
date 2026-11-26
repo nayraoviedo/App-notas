@@ -9,6 +9,7 @@ import '../../notes/domain/note_block.dart';
 import '../../notes/presentation/widgets/audio_block_view.dart';
 import '../../settings/settings.dart';
 import '../application/audio_tools.dart';
+import '../application/recording_controller.dart';
 import '../../summary/application/summary_runner.dart';
 import '../../summary/domain/summary.dart';
 import '../../drawing/presentation/widgets/canvas_item_view.dart' show measureTextItem;
@@ -58,11 +59,33 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
       _player.setFilePath(audio.path);
     }
 
+    final rec = ref.watch(recordingControllerProvider);
+    final busy = rec.status == RecordingStatus.processing && rec.savedBlockId == widget.blockId;
+    final cloud = ref.watch(_groqProvider).valueOrNull ?? false;
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final created = note?.createdAt ?? DateTime.now();
+    final now = DateTime.now();
+    final hm = '${created.hour.toString().padLeft(2, '0')}:${created.minute.toString().padLeft(2, '0')}';
+    final when = created.year == now.year && created.month == now.month && created.day == now.day
+        ? 'Hoy $hm'
+        : '${created.day}/${created.month}/${created.year} $hm';
+
+    // Avisar el resultado de la transcripción (también si falló).
+    ref.listen(recordingControllerProvider, (prev, next) {
+      if (prev?.status == RecordingStatus.processing &&
+          next.status == RecordingStatus.done &&
+          next.savedBlockId == widget.blockId) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text(next.message ?? 'Transcripción lista ✓'),
+        ));
+      }
+    });
+
     return DefaultTabController(
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(note?.displayTitle ?? ''),
           actions: [
             if (audio != null)
               PopupMenuButton<AudioExport>(
@@ -97,57 +120,103 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                 ],
               ),
           ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(88),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 2),
+              child: GestureDetector(
+                onTap: note == null ? null : () => _rename(note.title),
+                child: Text(note?.displayTitle ?? '',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w700, height: 1.15)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(when, style: TextStyle(color: muted, fontSize: 16)),
+            ),
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  _Tag(text: switch (lang) {
+                    'es' => 'Español',
+                    'en' => 'Inglés',
+                    'auto' => 'Idioma automático',
+                    _ => lang.toUpperCase(),
+                  }, color: const Color(0xFF6C5CE7)),
+                  _Tag(
+                    icon: Icons.auto_awesome,
+                    text: cloud ? 'Transcripción avanzada' : 'En el teléfono',
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  _Tag(icon: Icons.schedule, text: formatMs(audio?.durationMs ?? 0), color: muted),
+                  IconButton(
+                    tooltip: 'Solo lo importante ⭐',
+                    isSelected: _onlyImportant,
+                    icon: const Icon(Icons.star_border),
+                    selectedIcon: const Icon(Icons.star, color: Colors.amber),
+                    onPressed: () => setState(() => _onlyImportant = !_onlyImportant),
+                  ),
+                ],
+              ),
+            ),
+            const TabBar(
+              tabs: [
+                Tab(text: 'Transcripción'),
+                Tab(text: 'Notas rápidas'),
+                Tab(text: 'Resumen'),
+              ],
+            ),
+            if (busy)
+              Material(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
                   child: Row(
                     children: [
-                      Chip(label: Text(lang == 'auto' ? 'Idioma automático' : lang.toUpperCase())),
-                      const SizedBox(width: 8),
-                      Chip(
-                        avatar: const Icon(Icons.schedule, size: 16),
-                        label: Text(formatMs(audio?.durationMs ?? 0)),
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.5, value: rec.progress == 0 ? null : rec.progress / 100),
                       ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Solo lo importante ⭐',
-                        isSelected: _onlyImportant,
-                        icon: const Icon(Icons.star_border),
-                        selectedIcon: const Icon(Icons.star, color: Colors.amber),
-                        onPressed: () => setState(() => _onlyImportant = !_onlyImportant),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          (rec.progressLabel ?? 'Transcribiendo…').replaceAll('Audio guardado ✔\n', ''),
+                        ),
                       ),
+                      if (rec.progress > 0) Text('${rec.progress}%'),
                     ],
                   ),
                 ),
-                const TabBar(
-                  tabs: [
-                    Tab(text: 'Transcripción'),
-                    Tab(text: 'Notas rápidas'),
-                    Tab(text: 'Resumen'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        body: audio == null
-            ? const Center(child: CircularProgressIndicator())
-            : TabBarView(
-                children: [
-                  TranscriptView(
-                    blockId: widget.blockId,
-                    audioPath: audio.path,
-                    player: _player,
-                    photos: photos,
-                    onlyImportant: _onlyImportant,
-                  ),
-                  _QuickNotesTab(blockId: widget.blockId, player: _player, onSeek: _seek),
-                  _SummaryTab(noteId: widget.noteId, blockId: widget.blockId, onSeek: _seek),
-                ],
               ),
+            Expanded(
+              child: audio == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      children: [
+                        TranscriptView(
+                          blockId: widget.blockId,
+                          audioPath: audio.path,
+                          player: _player,
+                          photos: photos,
+                          onlyImportant: _onlyImportant,
+                        ),
+                        _QuickNotesTab(blockId: widget.blockId, player: _player, onSeek: _seek),
+                        _SummaryTab(noteId: widget.noteId, blockId: widget.blockId, onSeek: _seek),
+                      ],
+                    ),
+            ),
+          ],
+        ),
         bottomNavigationBar: audio == null
             ? null
             : Material(
@@ -163,6 +232,48 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
       ),
     );
   }
+
+  Future<void> _rename(String current) async {
+    final c = TextEditingController(text: current);
+    final v = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Título de la grabación'),
+        content: TextField(controller: c, autofocus: true, textCapitalization: TextCapitalization.sentences),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (v != null) await ref.read(notesRepositoryProvider).renameNote(widget.noteId, v);
+  }
+}
+
+final _groqProvider = FutureProvider.autoDispose<bool>(
+    (ref) async => ((await ref.read(apiKeysProvider).read(AiProvider.groq)) ?? '').trim().isNotEmpty);
+
+class _Tag extends StatelessWidget {
+  const _Tag({required this.text, required this.color, this.icon});
+  final String text;
+  final Color color;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(right: 8, top: 4, bottom: 4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[Icon(icon, size: 16, color: color), const SizedBox(width: 4)],
+              Text(text, style: TextStyle(color: color, fontSize: 14)),
+            ],
+          ),
+        ),
+      );
 }
 
 // ------------------------------------------------------------ Notas rápidas

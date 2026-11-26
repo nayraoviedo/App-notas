@@ -121,7 +121,14 @@ class SmartTranscriptionService implements TranscriptionService {
     if (key != null && key.isNotEmpty) {
       onProgress?.call(10);
       try {
-        final upload = await compress(wavPath);
+        // Grabaciones cortas se suben tal cual (menos cosas que puedan
+        // fallar); las largas se comprimen para no pasar el límite de 25 MB.
+        var upload = wavPath;
+        if (File(wavPath).lengthSync() > 18 * 1024 * 1024) {
+          try {
+            upload = await compress(wavPath).timeout(const Duration(minutes: 2));
+          } catch (_) {}
+        }
         onProgress?.call(30);
         final result = await GroqTranscriber(apiKey: key)
             .transcribe(upload, lang: lang, vocabulary: vocabulary);

@@ -5,6 +5,7 @@ import 'package:ffmpeg_kit_flutter_new_min/return_code.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/providers.dart';
@@ -19,7 +20,7 @@ class AudioTools {
   /// Comprime el WAV a M4A (mucho más liviano para enviar). Si no se puede,
   /// devuelve el WAV original.
   static Future<String> toM4a(String wavPath) async {
-    final out = p.join(Directory.systemTemp.path, '${p.basenameWithoutExtension(wavPath)}.m4a');
+    final out = p.join((await getTemporaryDirectory()).path, '${p.basenameWithoutExtension(wavPath)}.m4a');
     try {
       final session = await FFmpegKit.execute('-y -i "$wavPath" -c:a aac -b:a 96k "$out"');
       if (ReturnCode.isSuccess(await session.getReturnCode()) && File(out).existsSync()) {

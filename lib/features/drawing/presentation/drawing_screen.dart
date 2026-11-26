@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../../core/providers.dart';
+import '../../../core/utils/time_format.dart';
 import '../../../core/widgets/study_timer.dart';
 import '../../notes/domain/note_block.dart';
 import '../../notes/presentation/note_tags_dialog.dart';
@@ -42,7 +42,7 @@ class DrawingScreen extends ConsumerStatefulWidget {
   ConsumerState<DrawingScreen> createState() => _DrawingScreenState();
 }
 
-class _DrawingScreenState extends ConsumerState<DrawingScreen> {
+class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTickerProviderStateMixin {
   DrawingController? _ctl;
   final _transform = TransformationController();
   double? _fittedWidth;
@@ -76,6 +76,86 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
     _load(_path);
   }
 
+  // ------------------------------------------------ Deslizar entre hojas
+
+  /// Animación al pasar de hoja (la nueva entra deslizándose).
+  late final _slide = AnimationController(vsync: this, duration: const Duration(milliseconds: 260), value: 1);
+  int _slideDir = 1;
+
+  // Seguimiento de un deslizamiento con un dedo (cuando el dedo no dibuja).
+  int? _swipePointer;
+  Offset _swipeStart = Offset.zero;
+  DateTime _swipeTime = DateTime(0);
+  int _swipeFingers = 0;
+
+  bool get _atFit => _transform.value.getMaxScaleOnAxis() <= _fitScale * 1.08;
+
+  /// Pasar a la hoja siguiente (+1) o anterior (-1).
+  Future<void> _turn(int dir) async {
+    final i = _pageIndex;
+    final pages = _pages;
+    final target = i + dir;
+    if (i < 0 || target < 0 || target >= pages.length) {
+      HapticFeedback.lightImpact();
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          duration: const Duration(seconds: 2),
+          content: Text(target < 0 ? 'Es la primera hoja' : 'Es la última hoja'),
+          action: target < 0
+              ? null
+              : SnackBarAction(label: 'Agregar hoja', onPressed: () => _addPage(copy: false)),
+        ));
+      return;
+    }
+    HapticFeedback.selectionClick();
+    _slideDir = dir;
+    await _load(pages[target].path);
+    if (mounted) _slide.forward(from: 0);
+  }
+
+  void _swipeDown(PointerDownEvent e) {
+    _swipeFingers++;
+    final ctl = _ctl;
+    // Solo cuando el dedo no está dibujando: modo mano o "solo lápiz".
+    final fingerFree = ctl != null &&
+        (ctl.mode == InputMode.pan || (ctl.stylusOnly && e.kind != PointerDeviceKind.stylus));
+    if (_swipeFingers == 1 && fingerFree && _atFit && _editing == null) {
+      _swipePointer = e.pointer;
+      _swipeStart = e.position;
+      _swipeTime = DateTime.now();
+    } else {
+      _swipePointer = null;
+    }
+  }
+
+  void _swipeUp(PointerEvent e) {
+    _swipeFingers = (_swipeFingers - 1).clamp(0, 10);
+    if (e.pointer != _swipePointer) return;
+    _swipePointer = null;
+    final d = e.position - _swipeStart;
+    final fast = DateTime.now().difference(_swipeTime) < const Duration(milliseconds: 700);
+    if (fast && d.dx.abs() > 70 && d.dy.abs() < d.dx.abs() * 0.6) _turn(d.dx < 0 ? 1 : -1);
+  }
+
+  /// Franja en el borde: deslizar desde ahí cambia de hoja aunque estés
+  /// dibujando con el dedo.
+  Widget _edgeSwipe({required bool left}) => Positioned(
+        left: left ? 0 : null,
+        right: left ? null : 0,
+        top: 0,
+        bottom: 0,
+        width: 18,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (d) {
+            final v = d.primaryVelocity ?? 0;
+            if (left && v > 150) _turn(-1);
+            if (!left && v < -150) _turn(1);
+          },
+        ),
+      );
+
   Future<void> _load(String path) async {
     if (_editing != null) _commitEditing();
     final old = _ctl;
@@ -100,6 +180,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 
   @override
   void dispose() {
+    _slide.dispose();
     _holdTimer?.cancel();
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _editCtl.dispose();
@@ -129,11 +210,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 
   int get _pageIndex => _pages.indexWhere((p) => p.path == _path);
 
-  void _goTo(int index) {
-    final pages = _pages;
-    if (index < 0 || index >= pages.length) return;
-    _load(pages[index].path);
-  }
+
 
   Future<void> _addPage({required bool copy}) async {
     final ctl = _ctl;
@@ -436,7 +513,29 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                   Expanded(
                     child: Stack(
                       children: [
-                        Positioned.fill(child: _canvas(ctl)),
+                        Positioned.fill(
+                          child: Listener(
+                            behavior: HitTestBehavior.translucent,
+                            onPointerDown: _swipeDown,
+                            onPointerUp: _swipeUp,
+                            onPointerCancel: _swipeUp,
+                            child: AnimatedBuilder(
+                              animation: _slide,
+                              builder: (context, child) {
+                                final v = Curves.easeOutCubic.transform(_slide.value);
+                                return Transform.translate(
+                                  offset: Offset(_slideDir * (1 - v) * 140, 0),
+                                  child: Opacity(opacity: 0.35 + 0.65 * v, child: child),
+                                );
+                              },
+                              child: _canvas(ctl),
+                            ),
+                          ),
+                        ),
+                        if (_editing == null) ...[
+                          _edgeSwipe(left: true),
+                          _edgeSwipe(left: false),
+                        ],
                         // Número de página (toca para ver miniaturas).
                         Positioned(
                           bottom: 14,
@@ -473,7 +572,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                                 IconButton(
                                   tooltip: 'Página anterior',
                                   icon: const Icon(Icons.keyboard_arrow_up),
-                                  onPressed: index > 0 ? () => _goTo(index - 1) : null,
+                                  onPressed: index > 0 ? () => _turn(-1) : null,
                                 ),
                                 IconButton(
                                   tooltip: index >= 0 && index < pages.length - 1
@@ -483,7 +582,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                                       ? Icons.keyboard_arrow_down
                                       : Icons.add),
                                   onPressed: index >= 0 && index < pages.length - 1
-                                      ? () => _goTo(index + 1)
+                                      ? () => _turn(1)
                                       : () => _addPage(copy: false),
                                 ),
                               ],
@@ -592,9 +691,16 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
                     _chooseImageSource();
                   }),
                   if (rec.isActive || rec.status == RecordingStatus.processing)
-                    _RecordingPill(state: rec, onStop: _stopRecording)
+                    _RecordingPill(state: rec, onStop: _openRecorder)
                   else
                     _icon(Icons.mic_none, 'Grabar audio mientras escribes', _startRecording),
+                  // Grabaciones de esta nota (con su transcripción y resumen).
+                  if (_audios(watch: true).isNotEmpty)
+                    Badge(
+                      label: Text('${_audios().length}'),
+                      offset: const Offset(-4, 4),
+                      child: _icon(Icons.graphic_eq, 'Grabaciones y transcripciones', _showRecordings),
+                    ),
                   const SizedBox(width: 6),
                   _icon(Icons.auto_stories_outlined, 'Páginas', _showThumbnails),
                   _icon(Icons.layers_outlined, 'Capas', () {
@@ -844,29 +950,74 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> {
 
   // ------------------------------------------------- Grabar mientras escribes
 
+  /// El micrófono abre la pantalla de grabación (con el texto en vivo);
+  /// se puede minimizar y seguir escribiendo en la hoja.
   Future<void> _startRecording() async {
-    final rec = ref.read(recordingControllerProvider.notifier);
-    await rec.start(widget.noteId);
-    final st = ref.read(recordingControllerProvider);
-    if (!mounted || st.status != RecordingStatus.error) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(st.message ?? 'No se pudo empezar a grabar'),
-      action: st.micBlocked
-          ? SnackBarAction(label: 'Abrir ajustes', onPressed: openAppSettings)
-          : null,
-    ));
+    _closePanel();
+    await _ctl?.flush();
+    if (!mounted) return;
+    context.push('/notes/${widget.noteId}/record');
   }
 
-  Future<void> _stopRecording() async {
-    final rec = ref.read(recordingControllerProvider);
-    if (!rec.isActive) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Guardando y transcribiendo… el audio queda en la nota')));
-    await ref.read(recordingControllerProvider.notifier).stop();
-    final msg = ref.read(recordingControllerProvider).message;
-    if (mounted && msg != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  /// Tocar la pastilla roja: volver a la grabación (o a su transcripción).
+  void _openRecorder() {
+    final st = ref.read(recordingControllerProvider);
+    if (st.status == RecordingStatus.processing && st.savedBlockId != null) {
+      context.push('/notes/${widget.noteId}/audio/${st.savedBlockId}');
+    } else {
+      context.push('/notes/${widget.noteId}/record');
     }
+  }
+
+  /// Grabaciones de la nota ([watch] solo dentro de build).
+  List<AudioBlock> _audios({bool watch = false}) =>
+      ((watch ? ref.watch(blocksProvider(widget.noteId)) : ref.read(blocksProvider(widget.noteId)))
+                  .valueOrNull ??
+              const <NoteBlock>[])
+          .whereType<AudioBlock>()
+          .toList();
+
+  /// Lista de grabaciones de la nota: tocar una abre su transcripción,
+  /// resumen y el botón "Transcribir ahora".
+  Future<void> _showRecordings() async {
+    _closePanel();
+    final blocks = _audios();
+    final id = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Grabaciones de esta nota', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text('Toca una para ver la transcripción, el resumen o transcribirla'),
+            ),
+            for (final (i, b) in blocks.indexed)
+              Consumer(builder: (context, ref, _) {
+                final segs = ref.watch(segmentsProvider(b.id)).valueOrNull ?? const [];
+                final preview = segs.take(2).map((s) => s.text).join(' ');
+                final busy = ref.watch(recordingControllerProvider).status == RecordingStatus.processing &&
+                    ref.watch(recordingControllerProvider).savedBlockId == b.id;
+                return ListTile(
+                  leading: CircleAvatar(child: Text('${i + 1}')),
+                  title: Text('Grabación ${i + 1} · ${formatMs(b.durationMs)}'),
+                  subtitle: Text(
+                    busy ? 'Transcribiendo…' : (preview.isEmpty ? 'Sin transcripción (toca para transcribir)' : preview),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: busy
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.pop(context, b.id),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+    if (id != null && mounted) context.push('/notes/${widget.noteId}/audio/$id');
   }
 
   // ---------------------------------------------------- Stickers y formas
@@ -1534,7 +1685,7 @@ class _RecordingPill extends StatelessWidget {
         shape: const StadiumBorder(side: BorderSide(color: Color(0x22000000))),
         child: InkWell(
           customBorder: const StadiumBorder(),
-          onTap: processing ? null : onStop,
+          onTap: onStop,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(

@@ -427,7 +427,7 @@ class _SegmentTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
           color: isCurrent ? highlight : null,
           borderRadius: BorderRadius.circular(8),
@@ -437,23 +437,26 @@ class _SegmentTile extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(formatMs(segment.startMs), style: muted),
-                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: onSpeakerTap,
-                  child: Text(
-                    speaker?.name ?? '¿Quién?',
-                    style: muted?.copyWith(decoration: TextDecoration.underline),
+                  child: Text.rich(
+                    TextSpan(children: [
+                      TextSpan(text: '${speaker?.name ?? 'Hablante 1'} '),
+                      const WidgetSpan(child: Icon(Icons.edit_outlined, size: 15)),
+                    ]),
+                    style: muted?.copyWith(fontSize: 15),
                   ),
                 ),
+                const SizedBox(width: 10),
+                Text(formatMs(segment.startMs), style: muted?.copyWith(fontSize: 15)),
                 if (isImportant) ...[
                   const SizedBox(width: 6),
                   const Icon(Icons.star, size: 14, color: Colors.amber),
                 ],
               ],
             ),
-            const SizedBox(height: 4),
-            Text(segment.text, style: Theme.of(context).textTheme.bodyLarge),
+            const SizedBox(height: 6),
+            Text(segment.text, style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 19, height: 1.35)),
           ],
         ),
       ),

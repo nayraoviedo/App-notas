@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/fonts.dart';
+import '../../core/theme.dart';
 import '../backup/backup_service.dart';
 import 'settings.dart';
 
@@ -117,6 +119,33 @@ class SettingsScreen extends ConsumerWidget {
               selected: {ref.watch(themeModeProvider)},
               onSelectionChanged: (v) => setThemeMode(ref, v.first),
             ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.font_download_outlined),
+            title: const Text('Letra de la app'),
+            subtitle: Text(appFonts[ref.watch(appFontProvider)] ?? ref.watch(appFontProvider)),
+            onTap: () async {
+              final f = await showModalBottomSheet<String>(
+                context: context,
+                builder: (context) => SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final e in appFonts.entries)
+                        ListTile(
+                          title: Text(e.value,
+                              style: e.key == 'Normal' ? null : fontStyle(e.key, size: 20)),
+                          subtitle: Text(e.key == 'Normal' ? 'La letra del sistema' : 'Hoy aprendí algo nuevo ✏️',
+                              style: e.key == 'Normal' ? null : fontStyle(e.key, size: 16)),
+                          trailing: ref.read(appFontProvider) == e.key ? const Icon(Icons.check) : null,
+                          onTap: () => Navigator.pop(context, e.key),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+              if (f != null) await setAppFont(ref, f);
+            },
           ),
           const _Header('Copia de seguridad'),
           ListTile(
