@@ -144,13 +144,12 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Compilar APK
-        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64
 
       - name: Nombrar los APK
         run: |
           mkdir -p salida
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk salida/AppNotas-arm64.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk salida/AppNotas-arm32.apk
           ls -lh salida
 
       # Copia descargable desde la pestaña Actions (zip).
@@ -171,7 +170,6 @@ jobs:
           body: |
             Compilado automáticamente desde `${{ github.ref_name }}` (${{ github.sha }}).
 
-            **¿Cuál descargo?** Casi todos los celulares de los últimos años usan
-            **AppNotas-arm64.apk**. Si no se instala, prueba **AppNotas-arm32.apk**.
+            Descarga **AppNotas-arm64.apk** (celulares de los últimos años).
           files: salida/*.apk
           overwrite_files: true

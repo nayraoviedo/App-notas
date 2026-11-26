@@ -17,6 +17,9 @@ class AppTheme {
   static const ink = Color(0xFF3B2A22);
 
   static TextTheme _text(TextTheme base, String font, Color color) {
+    // El tema base no trae tamaños: se toman los de Material 3 para poder
+    // agrandar la letra manuscrita.
+    base = base.merge(Typography.englishLike2021);
     final t = font == 'Normal' ? base : _safe(font, base);
     // Las manuscritas se ven más chicas: un poco más grandes.
     final scaled = font == 'Normal' ? t : t.apply(fontSizeFactor: 1.1);

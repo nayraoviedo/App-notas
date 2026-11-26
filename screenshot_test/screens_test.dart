@@ -95,7 +95,7 @@ Future<void> _phoneSize(WidgetTester tester) async {
 ThemeData _theme() {
   final t = AppTheme.light('Normal');
   return t.copyWith(
-    textTheme: t.textTheme.apply(fontFamily: 'Patrick Hand', fontSizeFactor: 1.1),
+    textTheme: t.textTheme.merge(Typography.englishLike2021).apply(fontFamily: 'Patrick Hand', fontSizeFactor: 1.1),
     primaryTextTheme: t.primaryTextTheme.apply(fontFamily: 'Patrick Hand'),
   );
 }

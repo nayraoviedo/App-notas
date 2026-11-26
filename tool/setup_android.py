@@ -105,3 +105,15 @@ print("Android listo: permisos, nombre, minSdk y compileSdk")
 ICON_RES = Path(__file__).parent / "android_icon" / "res"
 if ICON_RES.exists():
     shutil.copytree(ICON_RES, Path("android/app/src/main/res"), dirs_exist_ok=True)
+
+# Menos memoria para Gradle: con todas las librerías nativas el servidor de
+# GitHub se quedaba sin memoria y cortaba la compilación.
+PROPS = Path("android/gradle.properties")
+props = PROPS.read_text() if PROPS.exists() else ""
+lines = [l for l in props.splitlines() if not l.startswith(("org.gradle.jvmargs", "org.gradle.workers.max", "kotlin.daemon.jvmargs"))]
+lines += [
+    "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError",
+    "kotlin.daemon.jvmargs=-Xmx2g",
+    "org.gradle.workers.max=3",
+]
+PROPS.write_text("\n".join(lines) + "\n")

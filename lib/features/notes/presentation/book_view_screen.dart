@@ -15,9 +15,9 @@ const tabColors = <int>[
   0xFF3E6A80, 0xFF8FB3C6, 0xFFD9CBB4, 0xFFE8C17A, 0xFFE59C8B, 0xFF9DB58A, 0xFFB7A3D6, 0xFF2F3F4F,
 ];
 
-/// Leer una nota como un cuaderno: se hojea pasando el dedo (la hoja gira
-/// sobre el lomo), con pestañas de colores al costado para saltar a una
-/// sección y pestañas abajo para agregar hojas o editar.
+/// Leer una nota como un cuaderno: la hoja grande, se hojea deslizando; al
+/// costado los separadores que pone cada uno (tocar uno lleva a su hoja);
+/// abajo ◀ n/N ▶ y "+ Hoja"; arriba el índice con miniaturas.
 class BookViewScreen extends ConsumerStatefulWidget {
   const BookViewScreen({super.key, required this.noteId, this.initialPage = 0});
   final String noteId;
@@ -67,19 +67,25 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
     ref.invalidate(drawingFileProvider(pages[_current].path));
   }
 
-  Future<void> _addPage(PaperTemplate template) async {
+  /// Hoja nueva después de la actual, del mismo tipo (después de la tapa:
+  /// rayada).
+  Future<void> _addPage() async {
     final pages = _pages;
     if (pages.isEmpty) return;
     final cur = pages[_current];
     final store = ref.read(drawingStoreProvider);
     final base = await store.load(cur.path);
+    final template =
+        base.paper.template == PaperTemplate.cover ? PaperTemplate.lined : base.paper.template;
     final path = await ref.read(fileStorageProvider).newDrawingPath();
     await store.save(
       path,
       Drawing(
         width: base.paper.template == PaperTemplate.cover ? Drawing.a4Width : base.width,
         height: base.paper.template == PaperTemplate.cover ? Drawing.a4Height : base.height,
-        paper: PaperStyle(template: template),
+        paper: base.paper.template == PaperTemplate.cover
+            ? PaperStyle(template: template)
+            : base.paper.copyWith(clearImage: true),
         layers: const [DrawingLayer(id: 'l1', name: 'Capa 1')],
       ),
     );
@@ -116,22 +122,34 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
     final drawings = [for (final p in pages) ref.watch(drawingFileProvider(p.path)).valueOrNull];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFD5E0E6),
+      backgroundColor: const Color(0xFFF3EEE6),
       appBar: AppBar(
-        backgroundColor: const Color(0xFFD5E0E6),
+        backgroundColor: const Color(0xFFF3EEE6),
         title: Text(note?.displayTitle ?? ''),
         actions: [
           IconButton(
-            tooltip: 'Ver bloques (audios, textos, videos)',
-            icon: const Icon(Icons.view_agenda_outlined),
-            onPressed: () => context.push('/notes/${widget.noteId}'),
+            tooltip: 'Índice de hojas',
+            icon: const Icon(Icons.format_list_numbered),
+            onPressed: pages.isEmpty ? null : () => _index(pages, drawings),
           ),
-          IconButton(
-            tooltip: 'Exportar a PDF o Word',
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            onPressed: () => exportNoteFlow(context, ref, widget.noteId),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'blocks') context.push('/notes/${widget.noteId}');
+              if (v == 'export') exportNoteFlow(context, ref, widget.noteId);
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: ListTile(leading: Icon(Icons.ios_share), title: Text('Exportar a PDF o Word')),
+              ),
+              PopupMenuItem(
+                value: 'blocks',
+                child: ListTile(
+                    leading: Icon(Icons.view_agenda_outlined), title: Text('Audios, textos y videos de la nota')),
+              ),
+            ],
           ),
-          IconButton(tooltip: 'Editar esta página', icon: const Icon(Icons.edit_outlined), onPressed: _edit),
+          IconButton(tooltip: 'Escribir en esta hoja', icon: const Icon(Icons.edit_outlined), onPressed: _edit),
         ],
       ),
       body: pages.isEmpty
@@ -142,7 +160,7 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
                 children: [
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 4, 0, 0),
+                      padding: const EdgeInsets.fromLTRB(12, 4, 0, 0),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -158,7 +176,7 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
                       ),
                     ),
                   ),
-                  _bottomTabs(pages),
+                  _bottomBar(pages),
                 ],
               ),
             ),
@@ -189,14 +207,12 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
         },
         onTap: _edit,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF2F5363),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: const [BoxShadow(blurRadius: 10, offset: Offset(0, 4), color: Color(0x33000000))],
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: const [BoxShadow(blurRadius: 12, offset: Offset(0, 4), color: Color(0x26000000))],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             child: ColoredBox(
               color: const Color(0xFFF8F6F1),
               child: _flipper(pages),
@@ -254,91 +270,134 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
             ],
           ),
         ),
-        // Número de página.
-        Positioned(
-          bottom: 8,
-          right: 12,
-          child: Text('${_current + 1} / ${pages.length}',
-              style: const TextStyle(fontSize: 12, color: Colors.black38)),
-        ),
+
       ],
     );
   }
 
-  Widget _bottomTabs(List<DrawingBlock> pages) {
-    Widget tab(String label, Color color, VoidCallback onTap, {Color text = Colors.white}) => Padding(
-          padding: const EdgeInsets.only(right: 4),
-          child: Material(
-            color: color,
-            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
-            child: InkWell(
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                child: Text(label.toUpperCase(),
-                    style: TextStyle(
-                        color: text, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
-              ),
-            ),
-          ),
-        );
-    return SizedBox(
-      height: 46,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+  /// Abajo: ◀ 5 / 12 ▶ (tocar el número abre el índice) y "+ Hoja".
+  Widget _bottomBar(List<DrawingBlock> pages) {
+    final ink = Theme.of(context).colorScheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 12, 8),
+      child: Row(
         children: [
-          tab('Índice', const Color(0xFF3E6A80), () => _index(pages)),
-          tab('Pestaña', const Color(0xFF8FB3C6), () => _editTab(pages[_current])),
-          tab('Editar', const Color(0xFFD9CBB4), _edit, text: const Color(0xFF3B2A22)),
-          const SizedBox(width: 14),
-          tab('Blanca', const Color(0xFF3E6A80), () => _addPage(PaperTemplate.blank)),
-          tab('Puntos', const Color(0xFF8FB3C6), () => _addPage(PaperTemplate.dots)),
-          tab('Cuadrícula', const Color(0xFF5E8AA0), () => _addPage(PaperTemplate.grid)),
-          tab('Rayada', const Color(0xFFD9CBB4), () => _addPage(PaperTemplate.lined),
-              text: const Color(0xFF3B2A22)),
+          IconButton(
+            tooltip: 'Hoja anterior',
+            icon: const Icon(Icons.chevron_left),
+            onPressed: _current > 0 ? () => _goTo(_current - 1) : null,
+          ),
+          TextButton(
+            onPressed: () => _index(pages, [for (final p in pages) ref.read(drawingFileProvider(p.path)).valueOrNull]),
+            child: Text('${_current + 1} / ${pages.length}', style: TextStyle(fontSize: 17, color: ink)),
+          ),
+          IconButton(
+            tooltip: 'Hoja siguiente',
+            icon: const Icon(Icons.chevron_right),
+            onPressed: _current < pages.length - 1 ? () => _goTo(_current + 1) : null,
+          ),
+          const Spacer(),
+          FilledButton.tonalIcon(
+            onPressed: _addPage,
+            icon: const Icon(Icons.add),
+            label: const Text('Hoja'),
+          ),
         ],
       ),
     );
   }
 
-  Future<void> _index(List<DrawingBlock> pages) async {
+  /// Índice: miniaturas numeradas, agrupadas por separador.
+  Future<void> _index(List<DrawingBlock> pages, List<Drawing?> drawings) async {
+    // Secciones: cada separador empieza una; lo de antes es "Inicio".
+    final sections = <(String, int?, List<int>)>[];
+    for (var i = 0; i < pages.length; i++) {
+      final tab = drawings.length > i ? drawings[i]?.tab : null;
+      if (tab != null || sections.isEmpty) {
+        sections.add((tab ?? 'Inicio', tab == null ? null : drawings[i]?.tabColor ?? tabColors[1], []));
+      }
+      sections.last.$3.add(i);
+    }
     final chosen = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.75,
-        child: GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 130,
-            mainAxisSpacing: 14,
-            crossAxisSpacing: 14,
-            childAspectRatio: 0.62,
-          ),
-          itemCount: pages.length,
-          itemBuilder: (context, i) => Column(
-            children: [
-              Expanded(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                        color: i == _current ? const Color(0xFF2F5363) : Colors.black12,
-                        width: i == _current ? 2.5 : 1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: DrawingBlockView(block: pages[i], onOpen: () => Navigator.pop(context, i)),
+        height: MediaQuery.sizeOf(context).height * 0.8,
+        child: CustomScrollView(
+          slivers: [
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text('Índice', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            for (final (name, color, idx) in sections) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: color == null ? Colors.black12 : Color(color),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 6),
+                      Text('· ${idx.length} ${idx.length == 1 ? 'hoja' : 'hojas'}',
+                          style: const TextStyle(color: Colors.black45)),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text('${i + 1}'),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 100,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.66,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    childCount: idx.length,
+                    (context, k) {
+                      final i = idx[k];
+                      return GestureDetector(
+                        onTap: () => Navigator.pop(context, i),
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                      color: i == _current ? Theme.of(context).colorScheme.primary : Colors.black12,
+                                      width: i == _current ? 2.5 : 1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(2),
+                                  child: IgnorePointer(child: DrawingBlockView(block: pages[i], onOpen: () {})),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text('${i + 1}', style: const TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
             ],
-          ),
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ],
         ),
       ),
     );
@@ -374,7 +433,7 @@ class _SideTabs extends StatelessWidget {
         if (drawings[i]?.tab != null) i,
     ];
     return SizedBox(
-      width: 34,
+      width: 36,
       child: ListView(
         padding: const EdgeInsets.only(top: 18, bottom: 18),
         children: [
@@ -396,14 +455,13 @@ class _SideTabs extends StatelessWidget {
                   child: RotatedBox(
                     quarterTurns: 1,
                     child: Text(
-                      drawings[i]!.tab!.toUpperCase(),
+                      drawings[i]!.tab!,
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                         color: _onColor(i == section ? 0xFF1F3440 : (drawings[i]!.tabColor ?? tabColors[1])),
                       ),
                     ),
@@ -413,7 +471,7 @@ class _SideTabs extends StatelessWidget {
             ),
           // Agregar pestaña a la página actual.
           Tooltip(
-            message: 'Poner pestaña en esta página',
+            message: 'Poner un separador en esta hoja',
             child: GestureDetector(
               onTap: () => onLongPress(pages[current]),
               child: Container(
@@ -455,7 +513,7 @@ class _TabDialogState extends State<_TabDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Pestaña de la página'),
+        title: const Text('Separador de esta hoja'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,8 +521,8 @@ class _TabDialogState extends State<_TabDialog> {
             TextField(
               controller: _name,
               autofocus: true,
-              maxLength: 14,
-              decoration: const InputDecoration(hintText: 'NOV, Biología, Tareas…'),
+              maxLength: 18,
+              decoration: const InputDecoration(hintText: 'Redes lógicas, Parcial 1, Tareas…'),
             ),
             Wrap(
               spacing: 8,
