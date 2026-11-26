@@ -55,6 +55,9 @@ final cameraServiceProvider = Provider<CameraService>((ref) => CameraService(
 final transcriptionServiceProvider = Provider<TranscriptionService>((ref) => SmartTranscriptionService(
       local: WhisperTranscriptionService(),
       groqKey: () => ref.read(apiKeysProvider).read(AiProvider.groq),
+      // Respaldo: si Groq llega al límite, transcribe con Gemini.
+      geminiKey: () => ref.read(apiKeysProvider).read(AiProvider.gemini),
+      geminiModel: ref.watch(settingsProvider).geminiModel,
       compress: AudioTools.toM4a,
     ));
 
