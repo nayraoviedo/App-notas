@@ -337,7 +337,6 @@ class DrawingLayersStaticView extends StatelessWidget {
       children: [
         for (final layer in drawing.layers)
           if (layer.visible) ...[
-            CustomPaint(painter: painterFor(layer)),
             if (layer.items.isNotEmpty)
               Opacity(
                 opacity: layer.opacity,
@@ -349,6 +348,8 @@ class DrawingLayersStaticView extends StatelessWidget {
                   ],
                 ),
               ),
+            // Los trazos van encima de fotos y textos.
+            CustomPaint(painter: painterFor(layer)),
           ],
       ],
     );

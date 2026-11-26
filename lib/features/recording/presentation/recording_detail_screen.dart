@@ -168,13 +168,17 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                 ],
               ),
             ),
-            const TabBar(
-              tabs: [
-                Tab(text: 'Transcripción'),
-                Tab(text: 'Notas rápidas'),
-                Tab(text: 'Resumen'),
-              ],
-            ),
+            Builder(builder: (context) {
+              final n = ref.watch(markersProvider(widget.blockId)).valueOrNull?.length ?? 0;
+              return TabBar(
+                tabs: [
+                  const Tab(text: 'Transcripción'),
+                  // Las notas escritas al grabar (y las ⭐) están aquí.
+                  Tab(text: n == 0 ? 'Mis notas' : 'Mis notas ($n)'),
+                  const Tab(text: 'Resumen'),
+                ],
+              );
+            }),
             if (busy)
               Material(
                 color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5),

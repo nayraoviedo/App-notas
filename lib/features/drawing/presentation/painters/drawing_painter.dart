@@ -32,10 +32,11 @@ void paintLayers(
   canvas.clipRect(Offset.zero & size);
   for (var i = 0; i < d.layers.length; i++) {
     final layer = d.layers[i];
-    paintLayer(canvas, size, layer, live: i == activeIndex ? live : null);
+    // Primero fotos y textos; los trazos encima.
     if (paintItems != null && layer.visible && layer.items.isNotEmpty) {
       paintItems(canvas, layer);
     }
+    paintLayer(canvas, size, layer, live: i == activeIndex ? live : null);
   }
   canvas.restore();
 }

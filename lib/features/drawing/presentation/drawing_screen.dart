@@ -1856,12 +1856,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                       RepaintBoundary(
                         child: PaperView(paper: d.paper),
                       ),
-                      // Cada capa: sus trazos y encima sus textos y fotos.
+                      // Cada capa: sus fotos, textos y stickers, y ENCIMA sus
+                      // trazos (así se puede dibujar y resaltar sobre una foto).
                       for (var i = 0; i < d.layers.length; i++)
                         if (d.layers[i].visible) ...[
-                          RepaintBoundary(
-                            child: CustomPaint(painter: LayerPainter(ctl, i)),
-                          ),
                           if (d.layers[i].items.isNotEmpty)
                             Opacity(
                               opacity: d.layers[i].opacity,
@@ -1889,6 +1887,12 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                                 ),
                               ),
                             ),
+                          // Los trazos no tapan los toques a fotos y textos.
+                          IgnorePointer(
+                            child: RepaintBoundary(
+                              child: CustomPaint(painter: LayerPainter(ctl, i)),
+                            ),
+                          ),
                         ],
                       if (ctl.lasso != null || ctl.hasStrokeSelection)
                         IgnorePointer(child: CustomPaint(painter: _LassoPainter(ctl.lasso, ctl.selectionBounds))),
