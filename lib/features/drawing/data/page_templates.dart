@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../domain/drawing.dart';
 import 'drawing_store.dart';
+import '../../../core/files/app_dirs.dart';
 
 /// Una plantilla propia: una hoja guardada para empezar otras iguales
 /// (horario, planner, hoja de ejercicios…).
@@ -18,7 +18,7 @@ class PageTemplate {
 /// la copia de seguridad junto con lo demás).
 class PageTemplates {
   static Future<Directory> _dir() async {
-    final d = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'plantillas'));
+    final d = Directory(p.join((await appDataDir()).path, 'plantillas'));
     if (!await d.exists()) await d.create(recursive: true);
     return d;
   }

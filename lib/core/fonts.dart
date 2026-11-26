@@ -6,7 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'files/app_dirs.dart';
 
 /// Fuentes disponibles para los bloques de texto.
 ///
@@ -173,7 +173,7 @@ List<AppFont> allFonts() => [
     ];
 
 Future<Directory> _fontsDir() async {
-  final d = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'fuentes'));
+  final d = Directory(p.join((await appDataDir()).path, 'fuentes'));
   if (!d.existsSync()) d.createSync(recursive: true);
   return d;
 }

@@ -1,8 +1,13 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quick_actions/quick_actions.dart';
 
 import 'core/home_widget.dart';
+import 'core/platform_info.dart';
 import 'core/providers.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
@@ -20,10 +25,17 @@ class AppNotas extends ConsumerStatefulWidget {
   ConsumerState<AppNotas> createState() => _AppNotasState();
 }
 
-class _AppNotasState extends ConsumerState<AppNotas> {
+class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver {
+  Timer? _syncTimer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // En la compu se sube cada 30 min mientras está abierta.
+    if (isDesktop) {
+      _syncTimer = Timer.periodic(const Duration(minutes: 30), (_) => _syncUp());
+    }
     _recoverLostPhoto();
     _setupShortcuts();
     _autoBackup();
@@ -52,17 +64,92 @@ class _AppNotasState extends ConsumerState<AppNotas> {
     } catch (_) {}
   }
 
-  /// Copia de seguridad automática semanal (en segundo plano, al abrir).
-  Future<void> _autoBackup() async {
-    await Future<void>.delayed(const Duration(seconds: 20)); // que la app abra rápido
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _syncTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Al salir de la app (celular), subir los cambios a Drive.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) _syncUp();
+  }
+
+  bool _syncing = false;
+  Future<void> _syncUp() async {
+    if (_syncing) return;
+    _syncing = true;
     try {
-      await BackupService.autoBackupIfDue(ref.read(sharedPreferencesProvider));
-    } catch (_) {}
-    try {
-      // Y la copia diaria en Google Drive, si está conectada.
-      await DriveSync.instance.autoUploadIfDue(ref.read(sharedPreferencesProvider));
+      await DriveSync.instance.syncUpIfDue(ref.read(sharedPreferencesProvider));
     } catch (_) {
-      // Sin espacio o sin permiso: se intenta la próxima vez.
+      // Sin internet, sin espacio o sin permiso: se intenta la próxima vez.
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  /// Copia de seguridad automática semanal y sincronización (al abrir).
+  Future<void> _autoBackup() async {
+    await Future<void>.delayed(const Duration(seconds: 6)); // que la app abra rápido
+    final prefs = ref.read(sharedPreferencesProvider);
+    // ¿Hay cambios más nuevos desde el otro aparato? Preguntar si traerlos.
+    try {
+      final newer = await DriveSync.instance.newerFromOtherDevice(prefs);
+      if (newer != null) {
+        await _offerPull(newer.$1, newer.$2);
+        return;
+      }
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(seconds: 14));
+    try {
+      await BackupService.autoBackupIfDue(prefs);
+    } catch (_) {}
+    await _syncUp();
+  }
+
+  Future<void> _offerPull(DateTime when, String from) async {
+    final context = appRouter.routerDelegate.navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    final hm = '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hay cambios nuevos ☁️'),
+        content: Text('Tu $from guardó cambios en Google Drive (${when.day}/${when.month} $hm).\n\n'
+            '¿Traerlos a este aparato? Lo que hay aquí se reemplaza por esa versión '
+            '(antes se guarda una copia de seguridad, por si acaso).'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ahora no')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Traer cambios')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(const SnackBar(content: Text('Trayendo los cambios…'), duration: Duration(minutes: 5)));
+    try {
+      await DriveSync.instance.restoreLatest(ref.read(sharedPreferencesProvider));
+      messenger?.hideCurrentSnackBar();
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Cambios listos ✓'),
+          content: const Text('Kumo se tiene que cerrar para terminar. Vuelve a abrirlo y verás todo al día.'),
+          actions: [
+            FilledButton(
+              onPressed: () => isDesktop ? exit(0) : SystemNavigator.pop(),
+              child: const Text('Cerrar Kumo'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      messenger?.hideCurrentSnackBar();
+      messenger?.showSnackBar(SnackBar(content: Text('No se pudieron traer los cambios: $e')));
     }
   }
 

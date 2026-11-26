@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/files/app_dirs.dart';
+import '../../core/platform_info.dart';
 
 /// Copia de seguridad de TODA la app (base de datos, hojas, audios, fotos,
 /// stickers y ajustes) en un solo archivo `.appnotas` que se puede guardar
@@ -17,8 +19,9 @@ class BackupService {
   static const _magic = 'APPNOTAS1';
   static const _restoreDir = '_restore_pendiente';
   static const _prefsName = '__prefs.json';
+  static const _rootName = '.ruta_origen';
 
-  static Future<Directory> _docs() => getApplicationDocumentsDirectory();
+  static Future<Directory> _docs() => appDataDir();
 
   // ------------------------------------------------- Copia automática
 
@@ -30,10 +33,28 @@ class BackupService {
   /// Android/data/…/files/Copias). Ojo: se borra si desinstalas la app, por
   /// eso conviene compartir una copia a Drive de vez en cuando.
   static Future<Directory> autoDir() async {
-    final base = await getExternalStorageDirectory() ?? await _docs();
-    final d = Directory(p.join(base.path, 'Copias'));
+    // En la compu, al lado de la carpeta de datos (no adentro: si no, cada
+    // copia incluiría las anteriores y restaurar las borraría).
+    final base = isPhone
+        ? (await getExternalStorageDirectory() ?? await _docs())
+        : await getApplicationSupportDirectory();
+    final d = Directory(p.join(base.path, isPhone ? 'Copias' : 'kumo-copias'));
     if (!d.existsSync()) d.createSync(recursive: true);
     return d;
+  }
+
+  /// Copia de seguridad de lo que hay ahora, antes de reemplazarlo con lo de
+  /// otro aparato. Queda junto a las copias automáticas.
+  static Future<String> safetyCopy(SharedPreferences prefs) async {
+    final tmp = await create(prefs);
+    final dest = File(p.join((await autoDir()).path, 'Antes-de-sincronizar-${p.basename(tmp)}'));
+    await File(tmp).copy(dest.path);
+    await File(tmp).delete();
+    final all = await autoCopies();
+    for (final old in all.where((f) => p.basename(f.path).startsWith('Antes-de-sincronizar')).skip(2)) {
+      await old.delete();
+    }
+    return dest.path;
   }
 
   /// Copias automáticas, de la más nueva a la más vieja.
@@ -95,12 +116,14 @@ class BackupService {
       for (final k in prefs.getKeys()) k: prefs.get(k),
     };
     await addFile(_prefsName, utf8.encode(jsonEncode(prefsMap)));
+    // De qué carpeta vienen (para corregir las rutas en otro aparato).
+    await addFile(_rootName, utf8.encode(docs.path));
 
     // Archivos de la app.
     for (final e in docs.listSync(recursive: true, followLinks: false)) {
       if (e is! File) continue;
       final rel = p.relative(e.path, from: docs.path);
-      if (rel.startsWith(_restoreDir) || rel.endsWith('.tmp')) continue;
+      if (rel.startsWith(_restoreDir) || rel.endsWith('.tmp') || rel.startsWith('.ruta_')) continue;
       await addFile(rel, await e.readAsBytes());
     }
     sink.close();
@@ -137,8 +160,19 @@ class BackupService {
       i += 8;
       final content = data.sublist(i, i + size);
       i += size;
+      if (rel == _rootName) {
+        File(p.join(target.path, '.ruta_anterior')).writeAsStringSync(utf8.decode(content));
+        continue;
+      }
       if (rel == _prefsName) {
         final map = (jsonDecode(utf8.decode(content)) as Map).cast<String, Object?>();
+        // Lo propio de este aparato (cuenta de Google, sincronización) se queda.
+        final keep = {
+          for (final k in prefs.getKeys())
+            if (k.startsWith('drive.') || k.startsWith('google.') || k.startsWith('sync.')) k: prefs.get(k),
+        };
+        map.removeWhere((k, _) => k.startsWith('drive.') || k.startsWith('google.') || k.startsWith('sync.'));
+        map.addAll(keep);
         await prefs.clear();
         for (final MapEntry(:key, :value) in map.entries) {
           switch (value) {

@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
 import 'tables.dart';
+import '../files/app_dirs.dart';
 
 export 'tables.dart';
 
@@ -24,7 +25,11 @@ part 'app_database.g.dart';
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
-      : super(executor ?? driftDatabase(name: 'app_notas'));
+      : super(executor ??
+            driftDatabase(
+              name: 'app_notas',
+              native: const DriftNativeOptions(databaseDirectory: appDataDir),
+            ));
 
   @override
   int get schemaVersion => 8;

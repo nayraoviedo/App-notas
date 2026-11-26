@@ -9,6 +9,7 @@ import '../../notebooks/domain/notebook.dart';
 import '../../settings/settings.dart';
 import '../data/reminder_notifications.dart';
 import '../../../core/home_widget.dart';
+import '../data/calendar_sync.dart';
 import '../domain/planner.dart';
 
 class PlannerController extends Notifier<PlannerState> {
@@ -19,7 +20,12 @@ class PlannerController extends Notifier<PlannerState> {
 
   void _save(PlannerState s) {
     state = s;
-    ref.read(sharedPreferencesProvider).setString(_key, s.encode()).then((_) => HomeWidget.refresh());
+    final prefs = ref.read(sharedPreferencesProvider);
+    prefs.setString(_key, s.encode()).then((_) => HomeWidget.refresh());
+    // Y a Google Calendar, si está activado (en segundo plano).
+    if (CalendarSync.instance.isOn(prefs)) {
+      CalendarSync.instance.sync(prefs, s.reminders).catchError((_) => 0);
+    }
   }
 
   void saveClass(ClassSlot c) => _save(state.copyWith(classes: [

@@ -15,6 +15,10 @@ import '../backup/backup_service.dart';
 import '../backup/drive_sync.dart';
 import '../planner/data/reminder_notifications.dart';
 import 'settings.dart';
+import '../../core/google_auth.dart';
+import '../../core/platform_info.dart';
+import '../planner/data/calendar_sync.dart';
+import '../planner/presentation/planner_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -195,7 +199,7 @@ class SettingsScreen extends ConsumerWidget {
               },
             );
           }),
-          const _Header('Google Drive'),
+          const _Header('Google: Drive y Calendar'),
           const _DriveTiles(),
           const _Header('Copia de seguridad'),
           ListTile(
@@ -551,6 +555,63 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
     }
   }
 
+  Future<void> _restartNotice(int n) => showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Listo ✓'),
+          content: Text('Se trajeron $n archivos. Kumo se tiene que cerrar para terminar: '
+              'vuelve a abrirlo y verás todo al día.'),
+          actions: [
+            FilledButton(
+              onPressed: () => isDesktop ? exit(0) : SystemNavigator.pop(),
+              child: const Text('Cerrar Kumo'),
+            ),
+          ],
+        ),
+      );
+
+  /// Compu: ID y secreto del cliente "App de escritorio" de Google Cloud.
+  Future<void> _setDesktopClient() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    final id = TextEditingController(text: prefs.getString(GoogleAuth.desktopIdKey) ?? '');
+    final secret = TextEditingController(text: prefs.getString(GoogleAuth.desktopSecretKey) ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cliente de escritorio'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('En Google Cloud (el mismo proyecto de Kumo): APIs y servicios → Credenciales → '
+                  'Crear credenciales → ID de cliente de OAuth → tipo "App de escritorio". '
+                  'Copia aquí el ID y el secreto que te muestra.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: id,
+                decoration: const InputDecoration(labelText: 'ID de cliente', hintText: '…apps.googleusercontent.com'),
+              ),
+              TextField(
+                controller: secret,
+                decoration: const InputDecoration(labelText: 'Secreto de cliente', hintText: 'GOCSPX-…'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await prefs.setString(GoogleAuth.desktopIdKey, id.text.trim());
+    await prefs.setString(GoogleAuth.desktopSecretKey, secret.text.trim());
+    setState(() {});
+  }
+
   Future<void> _setClientId() async {
     final prefs = ref.read(sharedPreferencesProvider);
     final c = TextEditingController(text: prefs.getString(DriveSync.clientIdKey) ?? '');
@@ -595,18 +656,33 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
             leading: const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
             title: Text(_busy!),
           ),
-        ListTile(
-          leading: const Icon(Icons.key_outlined),
-          title: const Text('ID de cliente web (Google Cloud)'),
-          subtitle: Text(clientId == null || clientId.isEmpty ? 'El de Kumo (ya viene puesto)' : clientId,
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-          onTap: _setClientId,
-        ),
+        if (isPhone)
+          ListTile(
+            leading: const Icon(Icons.key_outlined),
+            title: const Text('ID de cliente web (Google Cloud)'),
+            subtitle: Text(clientId == null || clientId.isEmpty ? 'El de Kumo (ya viene puesto)' : clientId,
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: _setClientId,
+          )
+        else
+          ListTile(
+            leading: const Icon(Icons.key_outlined),
+            title: const Text('Cliente de escritorio (Google Cloud)'),
+            subtitle: Text(
+              GoogleAuth.instance.desktopConfigured(prefs)
+                  ? prefs.getString(GoogleAuth.desktopIdKey)!
+                  : 'Falta: en la compu Google pide un cliente "App de escritorio". Toca para ponerlo.',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: _setDesktopClient,
+          ),
         if (email == null)
           ListTile(
             leading: const Icon(Icons.add_to_drive),
-            title: const Text('Conectar con Google Drive'),
-            subtitle: const Text('Guarda todo en una carpeta privada de tu Drive (15 GB gratis)'),
+            title: const Text('Conectar con Google'),
+            subtitle: const Text('Guarda y sincroniza todo entre tu celular y tu compu, en una carpeta '
+                'privada de tu Drive (15 GB gratis)'),
             enabled: _busy == null,
             onTap: () => _run((_) async {
               final e = await drive.connect(prefs);
@@ -624,14 +700,52 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
                 : 'Última copia: ${d.day}/${d.month}/${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'),
           ),
           SwitchListTile(
-            secondary: const Icon(Icons.autorenew),
-            title: const Text('Copia diaria automática'),
-            subtitle: const Text('Al abrir la app, si pasó un día'),
+            secondary: const Icon(Icons.sync),
+            title: const Text('Sincronizar celular y compu'),
+            subtitle: const Text('Sube tus cambios cada 30 min (y al salir de la app). Al abrir, avisa si '
+                'hay cambios más nuevos del otro aparato para traerlos.'),
             value: prefs.getBool(DriveSync.autoKey) ?? true,
             onChanged: (v) async {
               await prefs.setBool(DriveSync.autoKey, v);
               setState(() {});
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.sync_alt),
+            title: const Text('Sincronizar ahora'),
+            subtitle: const Text('Trae lo del otro aparato si es más nuevo; si no, sube lo de aquí'),
+            enabled: _busy == null,
+            onTap: () => _run((status) async {
+              status('Revisando Drive…');
+              final newer = await drive.newerFromOtherDevice(prefs);
+              if (!mounted) return;
+              if (newer == null) {
+                await drive.upload(prefs, onStatus: status);
+                if (!mounted) return;
+                setState(() {});
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('Todo al día ✓ Tus cambios están en Drive')));
+                return;
+              }
+              final (when, from) = newer;
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Hay cambios más nuevos'),
+                  content: Text('Tu $from guardó cambios el ${when.day}/${when.month} a las '
+                      '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}. '
+                      '¿Traerlos? Lo de aquí se reemplaza (antes se guarda una copia de seguridad).'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                    FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Traer')),
+                  ],
+                ),
+              );
+              if (ok != true) return;
+              final n = await drive.restoreLatest(prefs, onStatus: status);
+              if (!mounted) return;
+              await _restartNotice(n);
+            }),
           ),
           ListTile(
             leading: const Icon(Icons.cloud_upload_outlined),
@@ -665,17 +779,30 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
               await _run((status) async {
                 final n = await drive.restoreLatest(prefs, onStatus: status);
                 if (!mounted) return;
-                await showDialog<void>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Copia lista ✓'),
-                    content: Text('Se recuperaron $n archivos. Cierra Kumo por completo y vuelve a abrirlo '
-                        'para terminar.'),
-                    actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Entendido'))],
-                  ),
-                );
+                await _restartNotice(n);
               });
             },
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.event_outlined),
+            title: const Text('Pasar pendientes a Google Calendar'),
+            subtitle: const Text('Exámenes y entregas aparecen en tu calendario, con sus avisos. '
+                'Si los cambias o borras en Kumo, también allá.'),
+            value: CalendarSync.instance.isOn(prefs),
+            onChanged: _busy != null
+                ? null
+                : (v) => _run((status) async {
+                      if (v) {
+                        status('Pasando tus pendientes a Calendar…');
+                        final n = await CalendarSync.instance.enable(prefs, ref.read(plannerProvider).reminders);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Listo ✓ $n ${n == 1 ? 'pendiente' : 'pendientes'} en tu calendario')));
+                      } else {
+                        await CalendarSync.instance.disable(prefs);
+                      }
+                      if (mounted) setState(() {});
+                    }),
           ),
           ListTile(
             leading: const Icon(Icons.link_off),
@@ -714,6 +841,14 @@ class _HandwritingTileState extends ConsumerState<_HandwritingTile> {
 
   @override
   Widget build(BuildContext context) {
+    if (!isPhone) {
+      return const ListTile(
+        leading: Icon(Icons.draw_outlined),
+        title: Text('Buscar y pasar a texto tu letra'),
+        subtitle: Text('Por ahora solo en el celular. Lo que se reconoce allá también se encuentra aquí '
+            'al sincronizar.'),
+      );
+    }
     final prefs = ref.watch(sharedPreferencesProvider);
     final on = prefs.getBool('hw.enabled') ?? true;
     return Column(children: [

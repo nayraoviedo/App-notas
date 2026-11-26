@@ -3,13 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'backup_service.dart';
-import '../../core/platform_info.dart';
+import '../../core/google_auth.dart';
 
 /// Copia de TODA la app en tu Google Drive, en la carpeta privada de la app
 /// (no se ve entre tus archivos y solo Kumo puede leerla). Usa el espacio
@@ -25,63 +24,33 @@ class DriveSync {
   static const lastKey = 'drive.last';
   static const autoKey = 'drive.auto';
 
-  /// ID de cliente web del proyecto "Kumo" en Google Cloud (es público, no
-  /// es una clave). Se puede cambiar en Ajustes.
-  static const defaultClientId = '529008696542-89313m0rasquf8tp43nfa4h0kc6vnecb.apps.googleusercontent.com';
+  static const defaultClientId = GoogleAuth.defaultWebClientId;
 
-  bool _ready = false;
-  GoogleSignInAccount? _user;
-
-  Future<void> _init(SharedPreferences prefs) async {
-    if (_ready) return;
-    if (!isPhone) {
-      throw const DriveException('Google Drive en la compu todavía no está listo. '
-          'Por ahora usa "Copia de seguridad" para guardar y pasar tus notas.');
+  final _auth = GoogleAuth.instance;
+  Future<String> _tok(SharedPreferences prefs, {bool interactive = false}) async {
+    try {
+      return await _auth.token(prefs, scopes, interactive: interactive);
+    } on GoogleAuthException catch (e) {
+      throw DriveException(e.message);
     }
-    final saved = prefs.getString(clientIdKey)?.trim();
-    final clientId = saved == null || saved.isEmpty ? defaultClientId : saved;
-    await GoogleSignIn.instance.initialize(serverClientId: clientId);
-    _ready = true;
   }
 
-  /// Iniciar sesión (con la ventana de Google). Devuelve el correo.
+  /// Iniciar sesión (ventana de Google en el celular; navegador en la
+  /// compu). Devuelve el correo.
   Future<String> connect(SharedPreferences prefs) async {
-    await _init(prefs);
     try {
-      _user = await GoogleSignIn.instance.authenticate(scopeHint: scopes);
-    } on GoogleSignInException catch (e) {
-      throw DriveException(e.code == GoogleSignInExceptionCode.canceled
-          ? 'Se canceló. Si elegiste tu cuenta y igual sale esto, revisa en Google Cloud '
-              'el nombre de paquete y la huella SHA-1.'
-          : 'No se pudo iniciar sesión: ${e.description ?? e.code.name}');
+      final email = await _auth.signIn(prefs, scopes);
+      await _auth.token(prefs, scopes, interactive: true);
+      await prefs.setString(emailKey, email);
+      return email;
+    } on GoogleAuthException catch (e) {
+      throw DriveException(e.message);
     }
-    await _token(interactive: true);
-    await prefs.setString(emailKey, _user!.email);
-    return _user!.email;
   }
 
   Future<void> disconnect(SharedPreferences prefs) async {
-    try {
-      await GoogleSignIn.instance.disconnect();
-    } catch (_) {}
-    _user = null;
+    await _auth.signOut(prefs);
     await prefs.remove(emailKey);
-  }
-
-  Future<String> _token({bool interactive = false}) async {
-    var user = _user;
-    if (user == null) {
-      final silent = GoogleSignIn.instance.attemptLightweightAuthentication();
-      user = await silent;
-      if (user == null) throw const DriveException('Vuelve a conectar tu cuenta de Google en Ajustes.');
-      _user = user;
-    }
-    var auth = await user.authorizationClient.authorizationForScopes(scopes);
-    if (auth == null) {
-      if (!interactive) throw const DriveException('Falta dar permiso de Drive: toca "Conectar" en Ajustes.');
-      auth = await user.authorizationClient.authorizeScopes(scopes);
-    }
-    return auth.accessToken;
   }
 
   Map<String, String> _h(String token) => {'Authorization': 'Bearer $token'};
@@ -92,20 +61,12 @@ class DriveSync {
   /// link que cualquiera puede abrir para verlo (no para editarlo).
   Future<String> shareFile(SharedPreferences prefs, Uint8List bytes, String fileName,
       {String mime = 'application/pdf', void Function(String)? onStatus}) async {
-    await _init(prefs);
-    var user = _user ?? await GoogleSignIn.instance.attemptLightweightAuthentication();
-    if (user == null) {
-      try {
-        user = await GoogleSignIn.instance.authenticate(scopeHint: shareScopes);
-      } on GoogleSignInException catch (e) {
-        throw DriveException('No se pudo iniciar sesión: ${e.description ?? e.code.name}');
-      }
-      await prefs.setString(emailKey, user.email);
+    final String token;
+    try {
+      token = await _auth.token(prefs, shareScopes, interactive: true);
+    } on GoogleAuthException catch (e) {
+      throw DriveException(e.message);
     }
-    _user = user;
-    var auth = await user.authorizationClient.authorizationForScopes(shareScopes);
-    auth ??= await user.authorizationClient.authorizeScopes(shareScopes);
-    final token = auth.accessToken;
 
     onStatus?.call('Subiendo a tu Google Drive…');
     final folder = await _shareFolder(token);
@@ -159,8 +120,7 @@ class DriveSync {
 
   /// Copias guardadas en Drive (la más nueva primero): (id, fecha, bytes).
   Future<List<(String, DateTime, int)>> list(SharedPreferences prefs) async {
-    await _init(prefs);
-    final token = await _token();
+    final token = await _tok(prefs);
     final res = await http.get(
       Uri.https('www.googleapis.com', '/drive/v3/files', {
         'spaces': 'appDataFolder',
@@ -183,8 +143,7 @@ class DriveSync {
 
   /// Sube una copia nueva y borra las viejas (deja las 2 más recientes).
   Future<void> upload(SharedPreferences prefs, {void Function(String)? onStatus}) async {
-    await _init(prefs);
-    final token = await _token();
+    final token = await _tok(prefs);
     onStatus?.call('Preparando la copia…');
     final path = await BackupService.create(prefs);
     final file = File(path);
@@ -203,6 +162,8 @@ class DriveSync {
       body: jsonEncode({
         'name': _name,
         'parents': ['appDataFolder'],
+        // Qué aparato la subió (para avisar en el otro que hay cambios).
+        'appProperties': {'device': deviceId(prefs), 'from': _deviceName},
       }),
     );
     _check(start);
@@ -219,16 +180,16 @@ class DriveSync {
 
     // Limpiar copias viejas.
     final all = await list(prefs);
-    for (final (id, _, _) in all.skip(2)) {
+    for (final (id, _, _) in all.skip(3)) {
       await http.delete(Uri.https('www.googleapis.com', '/drive/v3/files/$id'), headers: _h(token));
     }
     await prefs.setInt(lastKey, DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt(syncLastKey, DateTime.now().millisecondsSinceEpoch);
   }
 
   /// Baja la copia más reciente y la deja lista para aplicar al reiniciar.
   Future<int> restoreLatest(SharedPreferences prefs, {void Function(String)? onStatus}) async {
-    await _init(prefs);
-    final token = await _token();
+    final token = await _tok(prefs);
     final all = await list(prefs);
     if (all.isEmpty) throw const DriveException('Todavía no hay copias en tu Drive.');
     onStatus?.call('Descargando la copia…');
@@ -240,12 +201,84 @@ class DriveSync {
     final out = File('${(await getTemporaryDirectory()).path}/$_name');
     await res.stream.pipe(out.openWrite());
     onStatus?.call('Preparando…');
-    return BackupService.prepareRestore(out.path, prefs);
+    // Antes de reemplazar, una copia de lo que hay aquí (por si acaso).
+    try {
+      await BackupService.safetyCopy(prefs);
+    } catch (_) {}
+    final n = await BackupService.prepareRestore(out.path, prefs);
+    await prefs.setInt(syncLastKey, all.first.$2.millisecondsSinceEpoch);
+    return n;
+  }
+
+  // ------------------------------------------------- Celular ⇄ compu
+
+  static const deviceKey = 'sync.device';
+  static const syncLastKey = 'sync.last';
+
+  static String get _deviceName => Platform.isAndroid
+      ? 'celular'
+      : Platform.isIOS
+          ? 'iPhone'
+          : Platform.isWindows
+              ? 'compu (Windows)'
+              : Platform.isMacOS
+                  ? 'Mac'
+                  : 'compu (Linux)';
+
+  /// Identificador de este aparato (al azar, se crea una vez).
+  String deviceId(SharedPreferences prefs) {
+    var id = prefs.getString(deviceKey);
+    if (id == null) {
+      id = '${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(this)}';
+      prefs.setString(deviceKey, id);
+    }
+    return id;
+  }
+
+  /// La copia más nueva de Drive si la subió OTRO aparato después de la
+  /// última vez que este sincronizó: (fecha, desde qué aparato). Si no, null.
+  Future<(DateTime, String)?> newerFromOtherDevice(SharedPreferences prefs) async {
+    if (prefs.getString(emailKey) == null) return null;
+    final token = await _tok(prefs);
+    final res = await http.get(
+      Uri.https('www.googleapis.com', '/drive/v3/files', {
+        'spaces': 'appDataFolder',
+        'q': "name = '$_name' and trashed = false",
+        'fields': 'files(id,modifiedTime,appProperties)',
+        'orderBy': 'modifiedTime desc',
+        'pageSize': '1',
+      }),
+      headers: _h(token),
+    );
+    _check(res);
+    final files = (jsonDecode(res.body)['files'] as List?) ?? const [];
+    if (files.isEmpty) return null;
+    final f = files.first as Map;
+    final props = (f['appProperties'] as Map?) ?? const {};
+    if (props['device'] == deviceId(prefs)) return null;
+    final when = DateTime.tryParse(f['modifiedTime'] as String? ?? '')?.toLocal();
+    if (when == null) return null;
+    final last = prefs.getInt(syncLastKey) ?? 0;
+    if (when.millisecondsSinceEpoch <= last + 60000) return null;
+    return (when, (props['from'] as String?) ?? 'otro aparato');
+  }
+
+  /// Sube lo de aquí si pasó [every] desde la última vez, salvo que en Drive
+  /// haya algo más nuevo de otro aparato (eso hay que traerlo primero).
+  /// Devuelve true si subió.
+  Future<bool> syncUpIfDue(SharedPreferences prefs, {Duration every = const Duration(minutes: 30)}) async {
+    if (prefs.getString(emailKey) == null || !(prefs.getBool(autoKey) ?? true)) return false;
+    final last = prefs.getInt(lastKey);
+    if (last != null && DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(last)) < every) {
+      return false;
+    }
+    if (await newerFromOtherDevice(prefs) != null) return false;
+    await upload(prefs);
+    return true;
   }
 
   /// Copia diaria automática (al abrir la app), si está conectada.
   Future<void> autoUploadIfDue(SharedPreferences prefs) async {
-    if (!isPhone) return;
     if (prefs.getString(emailKey) == null || !(prefs.getBool(autoKey) ?? true)) return;
     final last = prefs.getInt(lastKey);
     if (last != null &&
