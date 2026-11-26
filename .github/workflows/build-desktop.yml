@@ -103,17 +103,21 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: |
-          sudo apt-get install -y xvfb imagemagick gnome-keyring dbus-x11 > /dev/null
+          sudo apt-get install -y xvfb imagemagick gnome-keyring dbus-x11 gdb pulseaudio libasound2-plugins > /dev/null
+          grep -o 'list([^)]*)' linux/flutter/generated_plugins.cmake || true
           mkdir -p capturas
           cd build/linux/x64/release/bundle
-          # Las claves se guardan en el llavero del sistema (como en Ubuntu).
-          xvfb-run -s "-screen 0 1200x860x24" dbus-run-session -- bash -c '
-            echo "kumo" | gnome-keyring-daemon --unlock --components=secrets > /dev/null
-            ./kumo > /tmp/kumo.log 2>&1 &
-            sleep 30
-            import -window root "$GITHUB_WORKSPACE/capturas/escritorio_inicio.png"
-          ' || true
-          tail -40 /tmp/kumo.log || true
+          cat > /tmp/abrir.sh <<'T'
+          set -x
+          pulseaudio --start --exit-idle-time=-1 || true
+          eval "$(printf 'kumo' | gnome-keyring-daemon --unlock --components=secrets)" || true
+          eval "$(gnome-keyring-daemon --start --components=secrets)" || true
+          gdb -batch -ex run -ex bt -ex "thread apply all bt 8" ./kumo > /tmp/kumo.log 2>&1 &
+          sleep 40
+          import -window root "$GITHUB_WORKSPACE/capturas/escritorio_inicio.png"
+          T
+          xvfb-run -s "-screen 0 1200x860x24" dbus-run-session -- bash /tmp/abrir.sh || true
+          grep -v "^\[New Thread\|^\[Thread" /tmp/kumo.log | tail -80 || true
 
       - name: Publicar captura
         if: runner.os == 'Linux'
