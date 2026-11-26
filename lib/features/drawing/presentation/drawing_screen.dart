@@ -33,6 +33,7 @@ import 'widgets/table_equation.dart';
 import 'widgets/tool_panels.dart';
 import '../../notes/presentation/note_editor_screen.dart' show chooseVideo;
 import '../../../core/router.dart' show VideoArgs;
+import '../../recording/application/audio_tools.dart' show confirmDeleteRecording;
 
 /// Hojas para escribir a mano y dibujar, con capas. Las hojas de una nota
 /// forman un cuaderno: se puede pasar de página, ver miniaturas, marcar,
@@ -1633,7 +1634,15 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                   ),
                   trailing: busy
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.chevron_right),
+                      : IconButton(
+                          tooltip: 'Borrar grabación',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () async {
+                            if (await confirmDeleteRecording(context, ref, b) && context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                        ),
                   onTap: () => Navigator.pop(context, b.id),
                 );
               }),

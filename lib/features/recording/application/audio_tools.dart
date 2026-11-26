@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:ffmpeg_kit_flutter_new_min/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_min/return_code.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -226,4 +227,43 @@ Future<String?> importAudio(
         segments: paragraphs,
         markers: const [],
       );
+}
+
+
+/// Pregunta y borra una grabación: el audio, su transcripción, notas,
+/// resumen y versiones guardadas. Las fotos tomadas al grabar se quedan en
+/// la nota. Devuelve true si se borró.
+Future<bool> confirmDeleteRecording(BuildContext context, WidgetRef ref, AudioBlock block) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('¿Borrar esta grabación?'),
+      content: const Text('Se borran el audio, la transcripción, tus notas de la grabación y el resumen. '
+          'Las fotos que tomaste se quedan en la nota. No se puede deshacer.\n\n'
+          'Si quieres guardar el audio, primero expórtalo.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Borrar'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  await ref.read(notesRepositoryProvider).deleteBlock(block.id);
+  final storage = ref.read(fileStorageProvider);
+  for (final f in [
+    block.path,
+    '${block.path}.original.json',
+    '${block.path}.ia.json',
+    '${block.path}.usando-ia',
+    '${block.path}.antes.json',
+  ]) {
+    try {
+      await storage.deleteIfExists(f);
+    } catch (_) {}
+  }
+  return true;
 }

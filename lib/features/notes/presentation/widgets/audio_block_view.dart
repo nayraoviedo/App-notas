@@ -13,6 +13,7 @@ import '../../../transcription/domain/transcript_segment.dart';
 import '../../../study/presentation/study_screen.dart' show showNewFlashcard;
 import '../../../transcription/domain/transcription_service.dart';
 import '../../domain/note_block.dart';
+import '../../../recording/application/audio_tools.dart' show confirmDeleteRecording;
 
 /// Tarjeta compacta de una grabación dentro de la nota: reproductor, los
 /// primeros párrafos y un botón para abrir la vista completa
@@ -78,6 +79,14 @@ class _AudioBlockViewState extends ConsumerState<AudioBlockView> {
                   if (notes > 0) Text('📝 $notes   '),
                   if (widget.photoCount > 0) Text('📷 ${widget.photoCount}'),
                   const Spacer(),
+                  IconButton(
+                    tooltip: 'Borrar grabación',
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: () async {
+                      await _player.stop();
+                      if (context.mounted) await confirmDeleteRecording(context, ref, widget.block);
+                    },
+                  ),
                   TextButton.icon(
                     icon: const Icon(Icons.open_in_full, size: 18),
                     label: const Text('Transcripción y resumen'),

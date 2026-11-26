@@ -96,6 +96,20 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
         appBar: AppBar(
           actions: [
             if (audio != null)
+              IconButton(
+                tooltip: 'Borrar grabación',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () async {
+                  await _player.stop();
+                  if (!context.mounted) return;
+                  if (await confirmDeleteRecording(context, ref, audio) && context.mounted) {
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('Grabación borrada')));
+                  }
+                },
+              ),
+            if (audio != null)
               PopupMenuButton<AudioExport>(
                 tooltip: 'Exportar',
                 icon: const Icon(Icons.ios_share),
