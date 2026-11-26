@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
@@ -79,6 +79,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           flutter build linux --release
+          # Que funcione en computadoras sin las instrucciones nuevas (x86-64-v3).
+          readelf -n build/linux/x64/release/bundle/kumo | grep -i "ISA" || true
           cd build/linux/x64/release/bundle
           cp "$GITHUB_WORKSPACE/tool/desktop/kumo.png" .
           cat > LEEME.txt <<'T'
