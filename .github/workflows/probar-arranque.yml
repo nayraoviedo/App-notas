@@ -51,6 +51,7 @@ jobs:
           flutter pub deps --style=compact | grep -i "mlkit\|notification" || true
       - name: Compilar APK x86_64
         run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           echo "org.gradle.jvmargs=-Xmx4g" >> android/gradle.properties
           flutter build apk --release --split-per-abi --target-platform android-x64
       - name: KVM
