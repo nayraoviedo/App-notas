@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/fonts.dart';
 import '../../core/theme.dart';
 import '../backup/backup_service.dart';
+import '../backup/drive_sync.dart';
 import 'settings.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -174,6 +175,8 @@ class SettingsScreen extends ConsumerWidget {
               style: TextStyle(fontSize: 13, color: Colors.black54),
             ),
           ),
+          const _Header('Google Drive'),
+          const _DriveTiles(),
           const _Header('Copia de seguridad'),
           ListTile(
             leading: const Icon(Icons.cloud_upload_outlined),
@@ -485,6 +488,170 @@ class _AutoBackupTilesState extends ConsumerState<_AutoBackupTiles> {
             title: Text('${_copies.length} ${_copies.length == 1 ? 'copia guardada' : 'copias guardadas'} en el teléfono'),
             subtitle: Text(_copies.map((f) => f.uri.pathSegments.last.replaceAll('.appnotas', '')).join(' · ')),
           ),
+      ],
+    );
+  }
+}
+
+/// Conectar Google Drive y guardar/restaurar la copia de toda la app.
+class _DriveTiles extends ConsumerStatefulWidget {
+  const _DriveTiles();
+
+  @override
+  ConsumerState<_DriveTiles> createState() => _DriveTilesState();
+}
+
+class _DriveTilesState extends ConsumerState<_DriveTiles> {
+  String? _busy;
+
+  Future<void> _run(Future<void> Function(void Function(String)) job) async {
+    setState(() => _busy = 'Un momento…');
+    try {
+      await job((m) {
+        if (mounted) setState(() => _busy = m);
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _setClientId() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    final c = TextEditingController(text: prefs.getString(DriveSync.clientIdKey) ?? '');
+    final v = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ID de cliente web'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Cópialo de Google Cloud → APIs y servicios → Credenciales → '
+                'el cliente de tipo "Aplicación web". Termina en .apps.googleusercontent.com'),
+            TextField(
+              controller: c,
+              decoration: const InputDecoration(hintText: '1234…apps.googleusercontent.com'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (v == null) return;
+    await prefs.setString(DriveSync.clientIdKey, v);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    final email = prefs.getString(DriveSync.emailKey);
+    final clientId = prefs.getString(DriveSync.clientIdKey);
+    final last = prefs.getInt(DriveSync.lastKey);
+    final d = last == null ? null : DateTime.fromMillisecondsSinceEpoch(last);
+    final drive = DriveSync.instance;
+    return Column(
+      children: [
+        if (_busy != null)
+          ListTile(
+            leading: const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
+            title: Text(_busy!),
+          ),
+        ListTile(
+          leading: const Icon(Icons.key_outlined),
+          title: const Text('ID de cliente web (Google Cloud)'),
+          subtitle: Text(clientId == null || clientId.isEmpty ? 'Falta: tócalo para pegarlo' : clientId,
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          onTap: _setClientId,
+        ),
+        if (email == null)
+          ListTile(
+            leading: const Icon(Icons.add_to_drive),
+            title: const Text('Conectar con Google Drive'),
+            subtitle: const Text('Guarda todo en una carpeta privada de tu Drive (15 GB gratis)'),
+            enabled: _busy == null,
+            onTap: () => _run((_) async {
+              final e = await drive.connect(prefs);
+              if (!mounted) return;
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Conectado: $e ✓')));
+            }),
+          )
+        else ...[
+          ListTile(
+            leading: const Icon(Icons.cloud_done_outlined),
+            title: Text(email),
+            subtitle: Text(d == null
+                ? 'Todavía no hay copia en Drive'
+                : 'Última copia: ${d.day}/${d.month}/${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}'),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.autorenew),
+            title: const Text('Copia diaria automática'),
+            subtitle: const Text('Al abrir la app, si pasó un día'),
+            value: prefs.getBool(DriveSync.autoKey) ?? true,
+            onChanged: (v) async {
+              await prefs.setBool(DriveSync.autoKey, v);
+              setState(() {});
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.cloud_upload_outlined),
+            title: const Text('Guardar en Drive ahora'),
+            enabled: _busy == null,
+            onTap: () => _run((status) async {
+              await drive.upload(prefs, onStatus: status);
+              if (!mounted) return;
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copia guardada en Drive ✓')));
+            }),
+          ),
+          ListTile(
+            leading: const Icon(Icons.cloud_download_outlined),
+            title: const Text('Restaurar desde Drive'),
+            subtitle: const Text('Trae la copia más reciente (reemplaza lo de ahora)'),
+            enabled: _busy == null,
+            onTap: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('¿Restaurar desde Drive?'),
+                  content: const Text('Lo que hay ahora en este celular se reemplaza por la copia de Drive.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                    FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restaurar')),
+                  ],
+                ),
+              );
+              if (ok != true) return;
+              await _run((status) async {
+                final n = await drive.restoreLatest(prefs, onStatus: status);
+                if (!mounted) return;
+                await showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Copia lista ✓'),
+                    content: Text('Se recuperaron $n archivos. Cierra Kumo por completo y vuelve a abrirlo '
+                        'para terminar.'),
+                    actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Entendido'))],
+                  ),
+                );
+              });
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.link_off),
+            title: const Text('Desconectar cuenta'),
+            onTap: () async {
+              await drive.disconnect(prefs);
+              setState(() {});
+            },
+          ),
+        ],
       ],
     );
   }

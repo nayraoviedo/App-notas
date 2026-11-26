@@ -79,6 +79,22 @@ jobs:
           for f in *.jpg; do file "$f" | grep -q JPEG || rm -f "$f"; done
           ls -la
 
+      # Firma fija del APK desde los secretos del repositorio (KUMO_KEYSTORE en
+      # base64 y KUMO_KEY_PASSWORD). Sin ellos se firma con una llave de prueba.
+      - name: Firma del APK
+        env:
+          KS: ${{ secrets.KUMO_KEYSTORE }}
+          PW: ${{ secrets.KUMO_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$PW" ]; then
+            mkdir -p tool/firma
+            echo "$KS" | base64 -d > tool/firma/kumo.jks
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=kumo\nstoreFile=kumo.jks\n' "$PW" "$PW" > tool/firma/key.properties
+            echo "Firma fija lista"
+          else
+            echo "Sin secretos de firma: se usa la llave de prueba"
+          fi
+
       - name: Crear carpetas de Android
         run: |
           flutter create . --project-name app_notas --org com.appnotas --platforms android

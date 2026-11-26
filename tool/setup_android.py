@@ -122,3 +122,37 @@ lines += [
     "org.gradle.workers.max=3",
 ]
 PROPS.write_text("\n".join(lines) + "\n")
+
+# Firma fija del APK (tool/firma): así las actualizaciones se instalan
+# encima sin perder datos, y el inicio de sesión con Google reconoce la app
+# (Google Cloud registra la huella SHA-1 de esta firma).
+FIRMA = Path(__file__).parent / "firma"
+if (FIRMA / "kumo.jks").exists():
+    shutil.copy(FIRMA / "kumo.jks", Path("android/app/kumo.jks"))
+    shutil.copy(FIRMA / "key.properties", Path("android/key.properties"))
+    g = GRADLE.read_text()
+    if "signingConfigs.getByName(\"kumo\")" not in g:
+        if not g.startswith("import java.util.Properties"):
+            g = "import java.util.Properties\n" + g
+        props = (
+            '\nval kumoKeys = Properties().apply {\n'
+            '    val f = rootProject.file("key.properties")\n'
+            '    if (f.exists()) f.inputStream().use { load(it) }\n'
+            '}\n'
+        )
+        i = g.index("android {")
+        g = g[:i] + props + "\n" + g[i:]
+        signing = (
+            '    signingConfigs {\n'
+            '        create("kumo") {\n'
+            '            keyAlias = kumoKeys["keyAlias"] as String\n'
+            '            keyPassword = kumoKeys["keyPassword"] as String\n'
+            '            storeFile = file(kumoKeys["storeFile"] as String)\n'
+            '            storePassword = kumoKeys["storePassword"] as String\n'
+            '        }\n'
+            '    }\n\n'
+        )
+        j = g.index("    buildTypes {")
+        g = g[:j] + signing + g[j:]
+        g = g.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("kumo")')
+        GRADLE.write_text(g)

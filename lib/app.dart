@@ -7,6 +7,7 @@ import 'core/router.dart';
 import 'core/theme.dart';
 import 'features/drawing/presentation/painters/stroke_renderer.dart';
 import 'features/backup/backup_service.dart';
+import 'features/backup/drive_sync.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
 
@@ -31,6 +32,10 @@ class _AppNotasState extends ConsumerState<AppNotas> {
     await Future<void>.delayed(const Duration(seconds: 20)); // que la app abra rápido
     try {
       await BackupService.autoBackupIfDue(ref.read(sharedPreferencesProvider));
+    } catch (_) {}
+    try {
+      // Y la copia diaria en Google Drive, si está conectada.
+      await DriveSync.instance.autoUploadIfDue(ref.read(sharedPreferencesProvider));
     } catch (_) {
       // Sin espacio o sin permiso: se intenta la próxima vez.
     }
