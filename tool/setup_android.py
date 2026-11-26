@@ -192,3 +192,29 @@ if WIDGET.exists():
         s = s[:i] + receiver + s[i:]
         MANIFEST.write_text(s)
     print("Widget de inicio listo")
+
+# Reglas para R8: el lector de letra trae WorkManager, que crea su base de
+# datos (Room) por reflexión. Sin esto, la app se cierra al abrir con
+# "Failed to create an instance of androidx.work.impl.WorkDatabase".
+PROGUARD = Path("android/app/proguard-rules.pro")
+rules = """
+-keep class androidx.work.** { *; }
+-keep class androidx.room.** { *; }
+-keep class * extends androidx.room.RoomDatabase { <init>(...); }
+-keep class **_Impl { <init>(...); }
+-dontwarn androidx.work.**
+"""
+old = PROGUARD.read_text() if PROGUARD.exists() else ""
+if "androidx.work" not in old:
+    PROGUARD.write_text(old + rules)
+g = GRADLE.read_text()
+if "proguard-rules.pro" not in g:
+    import re
+    g = re.sub(
+        r'(signingConfig = signingConfigs\.getByName\("(?:kumo|debug)"\))',
+        r'\1\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")',
+        g,
+        count=1,
+    )
+    GRADLE.write_text(g)
+print("Reglas de R8 listas")

@@ -43,7 +43,7 @@ jobs:
           python3 tool/setup_android.py
           echo "== archivos kotlin =="; find android/app/src -name "*.kt" -o -name "*.java" | xargs ls -la
           echo "== manifiesto =="; grep -n "Kumo\|activity\|receiver" android/app/src/main/AndroidManifest.xml
-          echo "== gradle =="; cat android/app/build.gradle.kts
+          echo "== gradle =="; cat android/app/build.gradle.kts; cat android/app/proguard-rules.pro
       - name: Dependencias
         run: |
           flutter pub get
