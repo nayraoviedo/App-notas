@@ -1510,6 +1510,19 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   /// grosor…) se abren dejándola apretada.
   void _tapTool(DrawingController c, ToolType tool, {required bool on}) {
     _closePanel();
+    // Lazo primero y borrador después: se borra todo lo elegido de una vez.
+    if (tool == ToolType.eraser && c.hasStrokeSelection) {
+      c.deleteSelection();
+      HapticFeedback.selectionClick();
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          duration: const Duration(seconds: 3),
+          content: const Text('Se borró lo que elegiste con el lazo'),
+          action: SnackBarAction(label: 'Deshacer', onPressed: c.undo),
+        ));
+      return;
+    }
     if (!on) {
       c.selectTool(tool);
       return;
@@ -1818,7 +1831,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       const SingleActivator(LogicalKeyboardKey.keyP): guard(() => tool(ToolType.pen)),
       const SingleActivator(LogicalKeyboardKey.keyB): guard(() => tool(ToolType.pen)),
       const SingleActivator(LogicalKeyboardKey.keyH): guard(() => tool(ToolType.highlighter)),
-      const SingleActivator(LogicalKeyboardKey.keyE): guard(() => tool(ToolType.eraser)),
+      const SingleActivator(LogicalKeyboardKey.keyE): guard(() =>
+          c.hasStrokeSelection ? _tapTool(c, ToolType.eraser, on: false) : tool(ToolType.eraser)),
       const SingleActivator(LogicalKeyboardKey.keyL): guard(() {
         c.selectMode(InputMode.select);
         _closePanel();
