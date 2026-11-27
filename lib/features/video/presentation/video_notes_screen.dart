@@ -372,7 +372,11 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
     final blocks = ref.watch(blocksProvider(widget.noteId)).valueOrNull ?? const <NoteBlock>[];
     final items = _itemsForThisVideo(blocks);
     final apuntes = _apuntes(blocks);
-    final sheet = blocks.whereType<DrawingBlock>().firstOrNull;
+    // La hoja para escribir: la primera que no sea la portada.
+    final sheets = blocks.whereType<DrawingBlock>().toList();
+    final firstIsCover = sheets.isNotEmpty &&
+        ref.watch(drawingFileProvider(sheets.first.path)).valueOrNull?.paper.template == PaperTemplate.cover;
+    final sheet = firstIsCover && sheets.length > 1 ? sheets[1] : sheets.firstOrNull;
     final onSheet = _tabs.index == 3;
 
     final videoView = AspectRatio(

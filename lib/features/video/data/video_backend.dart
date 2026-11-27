@@ -73,13 +73,27 @@ class MediaKitBackend implements VideoBackend {
       if ((_player.state.width ?? 0) == 0) onError?.call(e);
     });
     final Media media;
+    String? audioUrl;
     if (isYoutubeUrl(source)) {
       final d = await YtDlp.directUrl(source, onStatus: onStatus);
       media = Media(d.url, httpHeaders: d.headers);
+      audioUrl = d.audioUrl;
     } else {
       media = Media(source);
     }
     await _player.open(media, play: false);
+    if (audioUrl != null) {
+      // YouTube dio el video y el sonido por separado: se suma el sonido.
+      await _player.stream.duration
+          .firstWhere((d) => d > Duration.zero)
+          .timeout(const Duration(seconds: 15), onTimeout: () => Duration.zero);
+      final native = _player.platform;
+      if (native is NativePlayer) {
+        try {
+          await native.command(['audio-add', audioUrl, 'select']);
+        } catch (_) {}
+      }
+    }
     if (startMs > 0) {
       // Esperar a que el video sepa su duración antes de saltar.
       await _player.stream.duration
