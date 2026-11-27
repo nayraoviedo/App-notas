@@ -98,6 +98,14 @@ class BackupService {
     } catch (_) {}
   }
 
+  /// Saca una foto completa y al día de la base de datos abierta en el
+  /// archivo indicado (la pone la app al abrir; ver app.dart). Copiar el
+  /// archivo .sqlite mientras está abierto puede dejar afuera los últimos
+  /// cambios, que todavía están en el .sqlite-wal.
+  static Future<void> Function(String dest)? databaseSnapshot;
+
+  static const _dbFiles = {'app_notas.sqlite', 'app_notas.sqlite-wal', 'app_notas.sqlite-shm'};
+
   /// Crea la copia y devuelve la ruta del archivo.
   static Future<String> create(SharedPreferences prefs) async {
     final docs = await _docs();
@@ -109,6 +117,18 @@ class BackupService {
     // semanal y la de Drive), no escriben en el mismo archivo.
     final tmpDir = await (await getTemporaryDirectory()).createTemp('kumo-copia-');
     final out = File(p.join(tmpDir.path, name));
+    // La base de datos, de una sola vez y sin cambios a medias.
+    File? dbCopy;
+    final snapshot = databaseSnapshot;
+    if (snapshot != null) {
+      final f = File(p.join(tmpDir.path, 'base.sqlite'));
+      try {
+        await snapshot(f.path);
+        if (f.existsSync() && f.lengthSync() > 0) dbCopy = f;
+      } catch (_) {
+        // Si no se pudo, se copia el archivo como antes.
+      }
+    }
     final raw = out.openWrite();
     final sink = gzip.encoder.startChunkedConversion(raw);
 
@@ -141,10 +161,15 @@ class BackupService {
           rel.startsWith(_preparingDir) ||
           rel.startsWith(_oldDir) ||
           rel.endsWith('.tmp') ||
-          rel.startsWith('.ruta_')) {
+          rel.startsWith('.ruta_') ||
+          (dbCopy != null && _dbFiles.contains(rel))) {
         continue;
       }
       await addFile(rel, await e.readAsBytes());
+    }
+    if (dbCopy != null) {
+      await addFile('app_notas.sqlite', await dbCopy.readAsBytes());
+      await dbCopy.delete();
     }
     sink.close();
     await raw.done;

@@ -304,14 +304,18 @@ class DrawingController extends ChangeNotifier {
 
   /// Quita de esta hoja lo elegido con el lazo y lo devuelve (para llevarlo
   /// a otra hoja). Se puede deshacer.
-  (List<Stroke>, List<CanvasItem>) takeSelection() {
-    if (!hasStrokeSelection) return (const [], const []);
+  ///
+  /// Con [afterDrag], va en el mismo paso de "deshacer" que el arrastre
+  /// (que ya guardó uno con [beginItemChange]): así deshacer lo devuelve a
+  /// donde estaba antes de arrastrarlo, no fuera del borde de la hoja.
+  (List<Stroke>, List<CanvasItem>) takeSelection({bool afterDrag = false}) {
+    if (!hasStrokeSelection || !canDrawOnActiveLayer) return (const [], const []);
     final strokes = [
       for (final k in selectedStrokes)
         if (k < activeLayer.strokes.length) activeLayer.strokes[k],
     ];
     final items = _selItems.toList();
-    deleteSelection();
+    _removeSelection(undoable: !(afterDrag && canUndo));
     return (strokes, items);
   }
 
@@ -642,7 +646,7 @@ class DrawingController extends ChangeNotifier {
   }
 
   void beginLasso(Offset at) {
-    if (readOnly) return;
+    if (!canDrawOnActiveLayer) return;
     lasso = [at];
     selectedStrokes = {};
     selectedItems = {};
@@ -667,7 +671,10 @@ class DrawingController extends ChangeNotifier {
   void endLasso() {
     final l = lasso;
     lasso = null;
-    if (l == null || l.length < 3) {
+    // Una capa con candado u oculta no se toca: ni sus trazos ni lo demás.
+    if (l == null || l.length < 3 || !canDrawOnActiveLayer) {
+      selectedStrokes = {};
+      selectedItems = {};
       notifyListeners();
       return;
     }
@@ -683,7 +690,6 @@ class DrawingController extends ChangeNotifier {
     selectedStrokes = sel;
     // Y los textos, fotos, stickers y figuras cuyo centro queda adentro.
     selectedItems = {
-      if (!activeLayer.locked)
         for (final it in activeLayer.items)
           if (poly.contains(Offset(it.x, it.y))) it.id,
     };
@@ -709,7 +715,7 @@ class DrawingController extends ChangeNotifier {
 
   void _changeSelected(Stroke Function(Stroke) f,
       {bool undoable = true, CanvasItem Function(CanvasItem)? items}) {
-    if (!hasStrokeSelection) return;
+    if (!hasStrokeSelection || !canDrawOnActiveLayer) return;
     void apply() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];
@@ -750,9 +756,11 @@ class DrawingController extends ChangeNotifier {
         },
       );
 
-  void deleteSelection() {
-    if (!hasStrokeSelection) return;
-    _commit(() {
+  void deleteSelection() => _removeSelection(undoable: true);
+
+  void _removeSelection({required bool undoable}) {
+    if (!hasStrokeSelection || !canDrawOnActiveLayer) return;
+    void apply() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];
       final keep = <Stroke>[
@@ -766,12 +774,19 @@ class DrawingController extends ChangeNotifier {
       layers[i] = layers[i].copyWith(strokes: keep, items: keepItems);
       _drawing = _drawing.copyWith(layers: layers);
       selectedStrokes = {};
-    selectedItems = {};
-    });
+      selectedItems = {};
+    }
+
+    if (undoable) {
+      _commit(apply);
+    } else {
+      apply();
+      _changed();
+    }
   }
 
   void duplicateSelection() {
-    if (readOnly || !hasStrokeSelection) return;
+    if (!canDrawOnActiveLayer || !hasStrokeSelection) return;
     _commit(() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];

@@ -96,6 +96,15 @@ class GoogleAuth {
   Future<String> token(SharedPreferences prefs, List<String> scopes, {bool interactive = false}) async {
     if (isPhone) {
       await _initPhone(prefs);
+      // Primero, sin mostrar nada: si ya diste permiso antes, Google entrega
+      // el acceso en silencio. (Antes se usaba el "inicio rápido", que en
+      // Android a veces abre la lista de cuentas al abrir la app.)
+      try {
+        final silent = await (_user?.authorizationClient ?? GoogleSignIn.instance.authorizationClient)
+            .authorizationForScopes(scopes);
+        if (silent != null) return silent.accessToken;
+      } catch (_) {}
+      if (!interactive) throw const GoogleAuthException('Falta dar permiso: toca "Conectar" en Ajustes.');
       var user = _user ?? await GoogleSignIn.instance.attemptLightweightAuthentication();
       if (user == null) {
         if (!interactive) throw const GoogleAuthException('Conecta tu cuenta de Google en Ajustes.');
@@ -132,7 +141,8 @@ class GoogleAuth {
     });
     if (res.statusCode != 200) {
       await _secure.delete(key: _refreshKey);
-      throw const GoogleAuthException('Se venció el permiso de Google: vuelve a conectar en Ajustes.');
+      throw const GoogleAuthException('Se venció el permiso de Google: vuelve a conectar en Ajustes. '
+          '(Si tu proyecto de Google Cloud está "En prueba", Google lo vence cada 7 días.)');
     }
     final j = jsonDecode(res.body) as Map;
     _access = j['access_token'] as String;
