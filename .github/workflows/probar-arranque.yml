@@ -78,6 +78,19 @@ jobs:
             if grep -q "Error registering plugin" logcat.txt; then echo "HAY PLUGINS SIN REGISTRAR"; exit 1; fi
             adb shell pidof com.appnotas.app_notas && echo "SIGUE ABIERTA" || echo "SE CERRO"
             adb exec-out screencap -p > pantalla.png || true
+            # Abrir una nota nueva (como el botón "Nota" del widget) y ver si se cierra.
+            adb logcat -c
+            adb shell am start -n com.appnotas.app_notas/.MainActivity --es kumo_action nota
+            sleep 20
+            adb exec-out screencap -p > pantalla_nota.png || true
+            adb shell pidof com.appnotas.app_notas && echo "NOTA: SIGUE ABIERTA" || echo "NOTA: SE CERRO"
+            adb logcat -d > logcat_nota.txt || true
+            echo "== al abrir una nota =="
+            grep -n -B5 -A60 "FATAL EXCEPTION\|AndroidRuntime\|SIGSEGV\|SIGABRT\|Fatal signal\|backtrace:\|F/libc\|F DEBUG" logcat_nota.txt | head -250 || true
+            grep -n "flutter\|Kumo\|lowmemory\|Process com.appnotas" logcat_nota.txt | head -80 || true
+            # Lo que se ve en la pantalla (para tocar botones).
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml ui_nota.xml || true
+            grep -o 'content-desc="[^"]*"\|text="[^"]*"\|bounds="[^"]*"' ui_nota.xml | paste - - | head -60 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -85,3 +98,6 @@ jobs:
           path: |
             logcat.txt
             pantalla.png
+            logcat_nota.txt
+            pantalla_nota.png
+            ui_nota.xml
