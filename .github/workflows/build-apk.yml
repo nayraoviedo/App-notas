@@ -125,7 +125,8 @@ jobs:
             "Allura ofl/allura/Allura-Regular.ttf" \
             "Sacramento ofl/sacramento/Sacramento-Regular.ttf" \
             "Patrick_Hand ofl/patrickhand/PatrickHand-Regular.ttf" \
-            "Caveat ofl/caveat/Caveat%5Bwght%5D.ttf"; do
+            "Caveat ofl/caveat/Caveat%5Bwght%5D.ttf" \
+            "Noto_Color_Emoji ofl/notocoloremoji/NotoColorEmoji-Regular.ttf"; do
             set -- $pair
             curl -fsSL -o "screenshot_test/fonts/$1.ttf" "$base/$2" || echo "sin $1"
           done
