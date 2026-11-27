@@ -1,9 +1,13 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/platform_info.dart';
 import '../../../core/providers.dart';
 import '../../drawing/domain/drawing.dart';
 import '../../export/pdf_exporter.dart';
@@ -19,26 +23,40 @@ const tabColors = <int>[
 /// costado los separadores que pone cada uno (tocar uno lleva a su hoja);
 /// abajo ◀ n/N ▶ y "+ Hoja"; arriba el índice con miniaturas.
 class BookViewScreen extends ConsumerStatefulWidget {
-  const BookViewScreen({super.key, required this.noteId, this.initialPage = 0});
+  const BookViewScreen({super.key, required this.noteId, this.initialPage});
   final String noteId;
-  final int initialPage;
+  /// Hoja que se abre; sin elegir, la primera hoja después de la tapa.
+  final int? initialPage;
 
   @override
   ConsumerState<BookViewScreen> createState() => _BookViewScreenState();
 }
 
 class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTickerProviderStateMixin {
-  /// Posición de lectura: 2.4 = pasando de la página 3 a la 4 (base 0).
-  late double _pos = widget.initialPage.toDouble();
+  /// Posición de lectura en "vistas": 2.4 = pasando de la vista 3 a la 4
+  /// (base 0). Una vista es una hoja, o dos hojas juntas en la compu.
+  double _pos = 0;
   late final AnimationController _anim = AnimationController(vsync: this)
     ..addListener(() => setState(() => _pos = _tween?.evaluate(_anim) ?? _pos));
   Tween<double>? _tween;
   double _dragStart = 0;
   double _dragPos = 0;
+  double _wheel = 0;
+  final _strip = ScrollController();
+
+  /// Las vistas: [[0], [1], …] o, con dos hojas a la vez, [[0], [1, 2], …]
+  /// (la tapa va sola, como en un cuaderno de verdad).
+  List<List<int>> _units = const [];
+  bool _hasCover = false;
+
+  /// Hoja que hay que mostrar en cuanto se sepa cómo se agrupan.
+  late int? _wantPage = widget.initialPage ?? 0;
+  bool _coverChecked = false;
 
   @override
   void dispose() {
     _anim.dispose();
+    _strip.dispose();
     super.dispose();
   }
 
@@ -47,24 +65,71 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
           .whereType<DrawingBlock>()
           .toList();
 
-  int get _current => _pos.round();
+  int get _unit => _units.isEmpty ? 0 : _pos.round().clamp(0, _units.length - 1);
 
-  void _animateTo(double target, {double velocity = 0}) {
-    final n = _pages.length;
+  /// Primera y última hoja de la vista actual.
+  int get _current => _units.isEmpty ? 0 : _units[_unit].first;
+  int get _currentLast => _units.isEmpty ? 0 : _units[_unit].last;
+
+  int _unitOf(int page) {
+    final i = _units.indexWhere((u) => u.contains(page));
+    if (i >= 0) return i;
+    return page <= 0 ? 0 : math.max(0, _units.length - 1);
+  }
+
+  static List<List<int>> _makeUnits(int n, bool cover, bool spread) {
+    if (!spread) return [for (var i = 0; i < n; i++) [i]];
+    final u = <List<int>>[];
+    var i = 0;
+    if (cover && n > 0) {
+      u.add([0]);
+      i = 1;
+    }
+    for (; i < n; i += 2) {
+      u.add([i, if (i + 1 < n) i + 1]);
+    }
+    return u;
+  }
+
+  static bool _sameUnits(List<List<int>> a, List<List<int>> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!listEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  /// Dos hojas a la vez: en la compu, con la ventana ancha.
+  bool _spreadFor(Size size) => isDesktop && size.width >= 1000 && size.width > size.height;
+
+  void _animateTo(double target) {
+    final n = _units.length;
     target = target.clamp(0, math.max(0, n - 1)).toDouble();
     _tween = Tween(begin: _pos, end: target);
     final dist = (target - _pos).abs();
     _anim.duration = Duration(milliseconds: (220 + 260 * math.min(dist, 3)).round());
     _anim.forward(from: 0);
+    _scrollStripTo(_units.isEmpty ? 0 : _units[target.round()].first);
   }
 
-  void _goTo(int page) => _animateTo(page.toDouble());
+  void _goTo(int page) => _animateTo(_unitOf(page).toDouble());
+  void _step(int dir) => _animateTo((_unit + dir).toDouble());
 
-  Future<void> _edit() async {
+  /// Mantener a la vista, en la tira de abajo, la hoja que se está leyendo.
+  void _scrollStripTo(int page) {
+    if (!_strip.hasClients) return;
+    final pos = _strip.position;
+    final target = (page * _thumbExtent - (pos.viewportDimension - _thumbExtent) / 2)
+        .clamp(pos.minScrollExtent, pos.maxScrollExtent);
+    _strip.animateTo(target, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+  }
+
+  Future<void> _edit([int? page]) async {
     final pages = _pages;
     if (pages.isEmpty) return;
-    await context.push('/notes/${widget.noteId}/drawing', extra: pages[_current].path);
-    ref.invalidate(drawingFileProvider(pages[_current].path));
+    final i = (page ?? _current).clamp(0, pages.length - 1);
+    await context.push('/notes/${widget.noteId}/drawing', extra: pages[i].path);
+    ref.invalidate(drawingFileProvider(pages[i].path));
   }
 
   /// Hoja nueva después de la actual, del mismo tipo (después de la tapa:
@@ -72,7 +137,8 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
   Future<void> _addPage() async {
     final pages = _pages;
     if (pages.isEmpty) return;
-    final cur = pages[_current];
+    final at = _currentLast.clamp(0, pages.length - 1);
+    final cur = pages[at];
     final store = ref.read(drawingStoreProvider);
     final base = await store.load(cur.path);
     final template =
@@ -86,13 +152,15 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
         paper: base.paper.template == PaperTemplate.cover
             ? PaperStyle(template: template)
             : base.paper.copyWith(clearImage: true),
+        infinite: base.paper.template != PaperTemplate.cover && base.infinite,
+        grow: base.grow,
         layers: const [DrawingLayer(id: 'l1', name: 'Capa 1')],
       ),
     );
     await ref.read(notesRepositoryProvider).insertDrawingBlockAfter(widget.noteId, cur.id, path);
     // Esperar a que la lista se actualice y pasar a la hoja nueva.
     await Future<void>.delayed(const Duration(milliseconds: 250));
-    if (mounted) _goTo(_current + 1);
+    if (mounted) _goTo(at + 1);
   }
 
   Future<void> _editTab(DrawingBlock page) async {
@@ -112,14 +180,50 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
     ref.invalidate(drawingFileProvider(page.path));
   }
 
+  /// Rueda del mouse o touchpad: pasa de hoja.
+  void _onWheel(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    if (HardwareKeyboard.instance.isControlPressed) return;
+    _wheel += e.scrollDelta.dy.abs() >= e.scrollDelta.dx.abs() ? e.scrollDelta.dy : e.scrollDelta.dx;
+    if (_anim.isAnimating) return;
+    if (_wheel.abs() >= 60) {
+      final dir = _wheel > 0 ? 1 : -1;
+      _wheel = 0;
+      _step(dir);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final note = ref.watch(noteProvider(widget.noteId)).valueOrNull;
     final pages = (ref.watch(blocksProvider(widget.noteId)).valueOrNull ?? const <NoteBlock>[])
         .whereType<DrawingBlock>()
         .toList();
-    if (pages.isNotEmpty && _pos > pages.length - 1) _pos = (pages.length - 1).toDouble();
     final drawings = [for (final p in pages) ref.watch(drawingFileProvider(p.path)).valueOrNull];
+    final spread = _spreadFor(MediaQuery.sizeOf(context));
+
+    // Agrupar las hojas en vistas; si cambia (se agregó una hoja, se agrandó
+    // la ventana…), seguir en la misma hoja.
+    _hasCover = drawings.isNotEmpty && drawings.first?.paper.template == PaperTemplate.cover;
+    final units = _makeUnits(pages.length, _hasCover, spread);
+    if (!_sameUnits(units, _units)) {
+      final anchor = _units.isEmpty ? (_wantPage ?? 0) : _units[_unit].first;
+      _units = units;
+      if (_anim.isAnimating) _anim.stop();
+      _pos = _unitOf(anchor).toDouble();
+    }
+    if (_wantPage != null && pages.isNotEmpty) {
+      _pos = _unitOf(_wantPage!).toDouble();
+      _wantPage = null;
+    }
+    // Al abrir la nota se pasa directo a la primera hoja, no a la tapa.
+    if (!_coverChecked && drawings.isNotEmpty && drawings.first != null) {
+      _coverChecked = true;
+      if (widget.initialPage == null && _hasCover && pages.length > 1) {
+        _pos = _unitOf(1).toDouble();
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollStripTo(1));
+      }
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3EEE6),
@@ -154,68 +258,84 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
       ),
       body: pages.isEmpty
           ? const Center(child: Text('Esta nota todavía no tiene hojas.'))
-          : SafeArea(
-              top: false,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 0, 0),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(child: _binder(pages)),
-                          _SideTabs(
-                            pages: pages,
-                            drawings: drawings,
-                            current: _current,
-                            onTap: _goTo,
-                            onLongPress: _editTab,
+          : CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.arrowRight): () => _step(1),
+                const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _step(-1),
+                const SingleActivator(LogicalKeyboardKey.pageDown): () => _step(1),
+                const SingleActivator(LogicalKeyboardKey.pageUp): () => _step(-1),
+                const SingleActivator(LogicalKeyboardKey.home): () => _animateTo(0),
+                const SingleActivator(LogicalKeyboardKey.end): () => _animateTo((_units.length - 1).toDouble()),
+              },
+              child: Focus(
+                autofocus: true,
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 0, 0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: _binder(pages, spread)),
+                              _SideTabs(
+                                pages: pages,
+                                drawings: drawings,
+                                current: _current,
+                                onTap: _goTo,
+                                onLongPress: _editTab,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                      _thumbStrip(pages),
+                      _bottomBar(pages),
+                    ],
                   ),
-                  _bottomBar(pages),
-                ],
+                ),
               ),
             ),
     );
   }
 
-  /// La carpeta del cuaderno con la hoja que se hojea.
-  Widget _binder(List<DrawingBlock> pages) {
+  /// La carpeta del cuaderno con la hoja (o las dos hojas) que se hojea.
+  Widget _binder(List<DrawingBlock> pages, bool spread) {
     return LayoutBuilder(builder: (context, c) {
       final width = c.maxWidth;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: (d) {
-          _anim.stop();
-          _dragStart = d.localPosition.dx;
-          _dragPos = _pos;
-        },
-        onHorizontalDragUpdate: (d) {
-          final delta = (_dragStart - d.localPosition.dx) / (width * 0.8);
-          setState(() => _pos = (_dragPos + delta).clamp(0, pages.length - 1).toDouble());
-        },
-        onHorizontalDragEnd: (d) {
-          final v = -(d.primaryVelocity ?? 0) / width;
-          final target = v.abs() > 0.6
-              ? (v > 0 ? _pos.floorToDouble() + 1 : _pos.ceilToDouble() - 1)
-              : _pos.roundToDouble();
-          _animateTo(target);
-        },
-        onTap: _edit,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [BoxShadow(blurRadius: 12, offset: Offset(0, 4), color: Color(0x26000000))],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: ColoredBox(
-              color: const Color(0xFFF8F6F1),
-              child: _flipper(pages),
+      return Listener(
+        onPointerSignal: _onWheel,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (d) {
+            _anim.stop();
+            _dragStart = d.localPosition.dx;
+            _dragPos = _pos;
+          },
+          onHorizontalDragUpdate: (d) {
+            final delta = (_dragStart - d.localPosition.dx) / (width * 0.8);
+            setState(() => _pos = (_dragPos + delta).clamp(0, _units.length - 1).toDouble());
+          },
+          onHorizontalDragEnd: (d) {
+            final v = -(d.primaryVelocity ?? 0) / width;
+            final target = v.abs() > 0.6
+                ? (v > 0 ? _pos.floorToDouble() + 1 : _pos.ceilToDouble() - 1)
+                : _pos.roundToDouble();
+            _animateTo(target);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: const [BoxShadow(blurRadius: 12, offset: Offset(0, 4), color: Color(0x26000000))],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ColoredBox(
+                color: const Color(0xFFF8F6F1),
+                child: spread ? _spreadFlipper(pages) : _flipper(pages),
+              ),
             ),
           ),
         ),
@@ -223,13 +343,22 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
     });
   }
 
+  /// Una hoja; tocarla la abre para escribir.
+  Widget _page(List<DrawingBlock> pages, int i) => GestureDetector(
+        onTap: () => _edit(i),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: IgnorePointer(child: DrawingBlockView(block: pages[i], onOpen: () {})),
+        ),
+      );
+
   Widget _flipper(List<DrawingBlock> pages) {
     final base = _pos.floor().clamp(0, pages.length - 1);
     final t = (_pos - base).clamp(0.0, 1.0);
     Widget page(int i) => Center(
           child: Padding(
             padding: const EdgeInsets.all(6),
-            child: IgnorePointer(child: DrawingBlockView(block: pages[i], onOpen: () {})),
+            child: _page(pages, i),
           ),
         );
     return Stack(
@@ -270,8 +399,163 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
             ],
           ),
         ),
-
       ],
+    );
+  }
+
+  /// Dos hojas a la vez, como un cuaderno abierto: la hoja de la derecha
+  /// gira sobre el lomo del centro.
+  Widget _spreadFlipper(List<DrawingBlock> pages) {
+    if (_units.isEmpty) return const SizedBox.shrink();
+    final base = _pos.floor().clamp(0, _units.length - 1);
+    final t = (_pos - base).clamp(0.0, 1.0);
+
+    // Hoja de la izquierda y de la derecha de una vista (la tapa va a la
+    // derecha; la última hoja suelta, a la izquierda).
+    (int?, int?) sides(List<int> u) {
+      if (u.length == 2) return (u[0], u[1]);
+      if (_hasCover && u.first == 0) return (null, 0);
+      return (u.first, null);
+    }
+
+    Widget half(int? i, {required bool left}) => i == null
+        ? const SizedBox.expand()
+        : Padding(
+            padding: EdgeInsets.fromLTRB(left ? 14 : 0, 14, left ? 0 : 14, 14),
+            child: Align(
+              alignment: left ? Alignment.centerRight : Alignment.centerLeft,
+              child: _page(pages, i),
+            ),
+          );
+
+    Widget pair(Widget l, Widget r) => Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [Expanded(child: l), Expanded(child: r)],
+        );
+
+    // Sombrita del lomo en el centro.
+    final spine = IgnorePointer(
+      child: Center(
+        child: Container(
+          width: 18,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [Color(0x00000000), Color(0x22000000), Color(0x00000000)]),
+          ),
+        ),
+      ),
+    );
+
+    final (aL, aR) = sides(_units[base]);
+    if (t == 0 || base + 1 >= _units.length) {
+      return Stack(fit: StackFit.expand, children: [
+        pair(half(aL, left: true), half(aR, left: false)),
+        spine,
+      ]);
+    }
+    final (bL, bR) = sides(_units[base + 1]);
+    final shade = IgnorePointer(child: ColoredBox(color: Colors.black.withValues(alpha: 0.12 * (1 - (2 * t - 1).abs()))));
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Abajo: lo que queda a la izquierda y la hoja que aparece a la derecha.
+        pair(half(aL, left: true), half(bR, left: false)),
+        shade,
+        // La hoja que gira: primero el frente (derecha), luego el dorso (izquierda).
+        pair(
+          t >= 0.5
+              ? Transform(
+                  alignment: Alignment.centerRight,
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0008)
+                    ..rotateY((1 - t) * math.pi),
+                  child: half(bL, left: true),
+                )
+              : const SizedBox.shrink(),
+          t < 0.5
+              ? Transform(
+                  alignment: Alignment.centerLeft,
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0008)
+                    ..rotateY(-t * math.pi),
+                  child: half(aR, left: false),
+                )
+              : const SizedBox.shrink(),
+        ),
+        spine,
+      ],
+    );
+  }
+
+  static const _thumbExtent = 58.0;
+
+  /// Tira de miniaturas para pasar y elegir hojas (se desliza con la rueda
+  /// del mouse, arrastrando o con el dedo).
+  Widget _thumbStrip(List<DrawingBlock> pages) {
+    final scheme = Theme.of(context).colorScheme;
+    final shown = _units.isEmpty ? const <int>[] : _units[_unit];
+    return SizedBox(
+      height: 84,
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(dragDevices: PointerDeviceKind.values.toSet()),
+        child: Listener(
+          // La rueda (hacia arriba o abajo) mueve la tira de lado.
+          onPointerSignal: (e) {
+            if (e is! PointerScrollEvent || !_strip.hasClients) return;
+            if (e.scrollDelta.dx != 0 || HardwareKeyboard.instance.isShiftPressed) return;
+            final pos = _strip.position;
+            _strip.jumpTo((pos.pixels + e.scrollDelta.dy).clamp(pos.minScrollExtent, pos.maxScrollExtent));
+          },
+          child: Scrollbar(
+            controller: _strip,
+            child: ListView.builder(
+              controller: _strip,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              itemExtent: _thumbExtent,
+              itemCount: pages.length,
+              itemBuilder: (context, i) {
+                final on = shown.contains(i);
+                return GestureDetector(
+                  onTap: () => _goTo(i),
+                  onDoubleTap: () => _edit(i),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: on ? scheme.primary : Colors.black12,
+                                  width: on ? 2.5 : 1,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              padding: const EdgeInsets.all(1.5),
+                              child: Center(
+                                child: IgnorePointer(child: DrawingBlockView(block: pages[i], onOpen: () {})),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text('${i + 1}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: on ? FontWeight.w700 : FontWeight.normal,
+                                color: on ? scheme.primary : Colors.black54,
+                              )),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -285,16 +569,20 @@ class _BookViewScreenState extends ConsumerState<BookViewScreen> with SingleTick
           IconButton(
             tooltip: 'Hoja anterior',
             icon: const Icon(Icons.chevron_left),
-            onPressed: _current > 0 ? () => _goTo(_current - 1) : null,
+            onPressed: _unit > 0 ? () => _step(-1) : null,
           ),
           TextButton(
             onPressed: () => _index(pages, [for (final p in pages) ref.read(drawingFileProvider(p.path)).valueOrNull]),
-            child: Text('${_current + 1} / ${pages.length}', style: TextStyle(fontSize: 17, color: ink)),
+            child: Text(
+                _current == _currentLast
+                    ? '${_current + 1} / ${pages.length}'
+                    : '${_current + 1}–${_currentLast + 1} / ${pages.length}',
+                style: TextStyle(fontSize: 17, color: ink)),
           ),
           IconButton(
             tooltip: 'Hoja siguiente',
             icon: const Icon(Icons.chevron_right),
-            onPressed: _current < pages.length - 1 ? () => _goTo(_current + 1) : null,
+            onPressed: _unit < _units.length - 1 ? () => _step(1) : null,
           ),
           const Spacer(),
           FilledButton.tonalIcon(

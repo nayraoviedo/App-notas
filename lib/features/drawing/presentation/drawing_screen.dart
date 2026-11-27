@@ -223,6 +223,65 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       ..setEntry(1, 3, ty);
   }
 
+  /// Lupa + / − (en la compu): acerca o aleja desde el centro de la vista.
+  void _zoomBy(double factor) {
+    final ctl = _ctl;
+    if (ctl == null || _viewport == Size.zero) return;
+    final m = _transform.value;
+    final scale = m.getMaxScaleOnAxis();
+    final minScale = ctl.drawing.infinite ? 0.04 : 0.2;
+    final next = (scale * factor).clamp(minScale, 8.0);
+    final f = next / scale;
+    final p = Offset(_viewport.width / 2, _viewport.height / 2);
+    final zoom = Matrix4.identity()
+      ..setEntry(0, 0, f)
+      ..setEntry(1, 1, f)
+      ..setEntry(0, 3, p.dx * (1 - f))
+      ..setEntry(1, 3, p.dy * (1 - f));
+    _transform.value = zoom.multiplied(m);
+  }
+
+  /// Volver al tamaño normal (la hoja al ancho de la ventana).
+  void _zoomFit() => setState(() => _fittedWidth = null);
+
+  Widget _zoomControls(ColorScheme scheme) => Material(
+        color: scheme.surface.withValues(alpha: 0.9),
+        shape: const StadiumBorder(),
+        elevation: 2,
+        child: ValueListenableBuilder<Matrix4>(
+          valueListenable: _transform,
+          builder: (context, m, _) {
+            final pct = (m.getMaxScaleOnAxis() / (_fitScale <= 0 ? 1 : _fitScale) * 100).round();
+            return Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(
+                tooltip: 'Alejar (Ctrl −)',
+                icon: const Icon(Icons.zoom_out),
+                onPressed: () => _zoomBy(1 / 1.25),
+              ),
+              Tooltip(
+                message: 'Tamaño normal (Ctrl 0)',
+                child: InkWell(
+                  customBorder: const StadiumBorder(),
+                  onTap: _zoomFit,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    child: SizedBox(
+                      width: 46,
+                      child: Text('$pct %', textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Acercar (Ctrl +)',
+                icon: const Icon(Icons.zoom_in),
+                onPressed: () => _zoomBy(1.25),
+              ),
+            ]);
+          },
+        ),
+      );
+
   /// Ir a una hoja del montón (arriba de la pantalla).
   Future<void> _scrollToPage(String path) async {
     await _load(path);
@@ -875,6 +934,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                             ),
                           ),
                         ),
+                        // Lupa + / − (solo en la compu).
+                        if (isDesktop)
+                          Positioned(left: 12, bottom: 10, child: _zoomControls(scheme)),
                         // Pasar de página.
                         Positioned(
                           right: 8,
@@ -1557,6 +1619,12 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       const SingleActivator(LogicalKeyboardKey.backspace): guard(c.deleteSelection),
       const SingleActivator(LogicalKeyboardKey.keyD, control: true): guard(c.duplicateSelection),
       const SingleActivator(LogicalKeyboardKey.escape): guard(c.clearStrokeSelection),
+      const SingleActivator(LogicalKeyboardKey.equal, control: true): guard(() => _zoomBy(1.25)),
+      const SingleActivator(LogicalKeyboardKey.add, control: true): guard(() => _zoomBy(1.25)),
+      const SingleActivator(LogicalKeyboardKey.numpadAdd, control: true): guard(() => _zoomBy(1.25)),
+      const SingleActivator(LogicalKeyboardKey.minus, control: true): guard(() => _zoomBy(1 / 1.25)),
+      const SingleActivator(LogicalKeyboardKey.numpadSubtract, control: true): guard(() => _zoomBy(1 / 1.25)),
+      const SingleActivator(LogicalKeyboardKey.digit0, control: true): guard(_zoomFit),
       const SingleActivator(LogicalKeyboardKey.pageDown): guard(() => _turn(1)),
       const SingleActivator(LogicalKeyboardKey.pageUp): guard(() => _turn(-1)),
     };

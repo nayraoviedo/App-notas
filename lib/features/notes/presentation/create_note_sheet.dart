@@ -16,6 +16,7 @@ class NewNoteOptions {
     required this.withSheet,
     required this.paper,
     required this.landscape,
+    this.infinite = false,
     this.withCover = true,
     this.coverColor = 0xFFC5CDD6,
     this.coverDesign,
@@ -35,6 +36,9 @@ class NewNoteOptions {
   final PaperStyle paper;
   final bool landscape;
 
+  /// Papel infinito: la hoja crece sola al escribir cerca del borde.
+  final bool infinite;
+
   /// Primera página como tapa del cuaderno.
   final bool withCover;
   final int coverColor;
@@ -44,9 +48,10 @@ class NewNoteOptions {
   double get _h => landscape ? Drawing.a4Width : Drawing.a4Height;
 
   Drawing firstPage() => Drawing(
-        width: _w,
-        height: _h,
+        width: infinite ? Drawing.infiniteStart : _w,
+        height: infinite ? Drawing.infiniteStart : _h,
         paper: paper,
+        infinite: infinite,
         layers: const [DrawingLayer(id: 'l1', name: 'Capa 1')],
       );
 
@@ -172,6 +177,7 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
       );
   PaperStyle _paper = const PaperStyle(template: PaperTemplate.blank);
   bool _landscape = false;
+  bool _infinite = false;
   List<String> _tags = const [];
   String _group = Paper.groups.first.$1;
   final _groupKeys = {for (final (g, _) in Paper.groups) g: GlobalKey()};
@@ -263,6 +269,7 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
                       withSheet: _withSheet,
                       paper: _paper,
                       landscape: _landscape,
+                      infinite: _infinite,
                       withCover: _withSheet && _withCover,
                       coverColor: _coverColor,
                       coverDesign: _coverDesign,
@@ -403,15 +410,20 @@ class _CreateNoteFormState extends ConsumerState<CreateNoteForm> {
                                 ),
                               row(
                                 'Hoja',
-                                DropdownButton<bool>(
-                                  value: _landscape,
+                                DropdownButton<String>(
+                                  value: _infinite ? 'inf' : (_landscape ? 'h' : 'v'),
                                   underline: const SizedBox.shrink(),
                                   isDense: true,
                                   items: const [
-                                    DropdownMenuItem(value: false, child: Text('Vertical')),
-                                    DropdownMenuItem(value: true, child: Text('Horizontal')),
+                                    DropdownMenuItem(value: 'v', child: Text('Vertical')),
+                                    DropdownMenuItem(value: 'h', child: Text('Horizontal')),
+                                    DropdownMenuItem(value: 'inf', child: Text('Papel infinito')),
                                   ],
-                                  onChanged: (v) => setState(() => _landscape = v ?? false),
+                                  onChanged: (v) => setState(() {
+                                    _infinite = v == 'inf';
+                                    _landscape = v == 'h';
+                                    if (_infinite) _withSheet = true;
+                                  }),
                                 ),
                               ),
                               row(

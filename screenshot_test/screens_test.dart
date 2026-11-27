@@ -32,6 +32,7 @@ import 'package:app_notas/features/study/presentation/study_screen.dart';
 import 'package:app_notas/features/study/presentation/exam_screen.dart';
 import 'package:app_notas/features/planner/domain/planner.dart';
 import 'package:app_notas/features/planner/presentation/planner_screen.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -343,6 +344,57 @@ void main() {
     await _shot(tester, '15_hojeando');
     await g.up();
     await tester.pump(const Duration(seconds: 1));
+  });
+
+  Future<void> openBookDesktop(WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final now = DateTime(2026, 11, 25);
+    await tester.pumpWidget(_app(
+      const BookViewScreen(noteId: 'n1'),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        drawingStoreProvider.overrideWithValue(_FakeStore()),
+        noteProvider.overrideWith((ref, id) => Stream.value(
+            Note(id: 'n1', title: 'Biología', createdAt: now, updatedAt: now))),
+        blocksProvider.overrideWith((ref, id) => Stream.value(const [
+              DrawingBlock(id: 'b0', position: 0, path: 'cover'),
+              DrawingBlock(id: 'b1', position: 1, path: 'p1'),
+              DrawingBlock(id: 'b2', position: 2, path: 'p2'),
+              DrawingBlock(id: 'b3', position: 3, path: 'p3'),
+              DrawingBlock(id: 'b4', position: 4, path: 'p4'),
+            ])),
+      ],
+    ));
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  testWidgets('cuaderno abierto en la compu (dos hojas)', (tester) async {
+    await openBookDesktop(tester);
+    // Se abre directo en las hojas 2 y 3, no en la tapa.
+    expect(find.text('2–3 / 5'), findsOneWidget);
+    await _shot(tester, '14b_cuaderno_compu');
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('hojeando en la compu', (tester) async {
+    await openBookDesktop(tester);
+    final g = await tester.startGesture(const Offset(900, 380));
+    await g.moveBy(const Offset(-30, 0));
+    await tester.pump();
+    await g.moveBy(const Offset(-260, 0));
+    await tester.pump();
+    await _shot(tester, '15b_hojeando_compu');
+    await g.up();
+    await tester.pump(const Duration(seconds: 1));
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('gastos', (tester) async {
