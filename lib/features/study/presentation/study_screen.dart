@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -351,7 +350,7 @@ class _AskNotesState extends ConsumerState<_AskNotes> {
       for (final llm in llms) {
         try {
           final raw = await llm.completeJson(system: system, user: user);
-          final json = jsonDecode(raw) as Map<String, Object?>;
+          final json = decodeJsonObject(raw);
           final idx = [for (final v in (json['sources'] as List? ?? const [])) if (v is int && v < top.length) v];
           setState(() {
             _answer = json['answer'] as String? ?? raw;

@@ -84,7 +84,28 @@ class GroqClient implements LlmClient {
 
   @override
   Future<String> completeJson({required String system, required String user}) async {
-    final res = await _http
+    var res = await _send(system: system, user: user, strictJson: true);
+    // El "modo JSON" de Groq rechaza la respuesta entera (400
+    // json_validate_failed) si el modelo se equivoca en una coma o se corta.
+    // Pasa sobre todo con textos largos: se reintenta sin el modo estricto y
+    // el JSON se saca del texto (decodeJsonObject).
+    if (res.statusCode == 400 && utf8.decode(res.bodyBytes).contains('json_validate_failed')) {
+      res = await _send(system: system, user: user, strictJson: false);
+    }
+    _check(res, 'Groq');
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    final text =
+        (body['choices'] as List?)?.firstOrNull?['message']?['content'] as String? ?? '';
+    if (text.isEmpty) throw const LlmException('Groq no devolvió texto');
+    return text;
+  }
+
+  Future<http.Response> _send({required String system, required String user, required bool strictJson}) {
+    // Los modelos gpt-oss "piensan" antes de responder y ese pensamiento
+    // gasta del mismo límite de salida: con poco esfuerzo queda espacio para
+    // la respuesta completa.
+    final reasoning = model.startsWith('openai/gpt-oss');
+    return _http
         .post(
           Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
           headers: {
@@ -94,7 +115,9 @@ class GroqClient implements LlmClient {
           body: jsonEncode({
             'model': model,
             'temperature': 0.3,
-            'response_format': {'type': 'json_object'},
+            'max_completion_tokens': 8192,
+            if (reasoning) 'reasoning_effort': 'low',
+            if (strictJson) 'response_format': {'type': 'json_object'},
             'messages': [
               {'role': 'system', 'content': system},
               {'role': 'user', 'content': user},
@@ -102,12 +125,6 @@ class GroqClient implements LlmClient {
           }),
         )
         .timeout(const Duration(minutes: 3));
-    _check(res, 'Groq');
-    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
-    final text =
-        (body['choices'] as List?)?.firstOrNull?['message']?['content'] as String? ?? '';
-    if (text.isEmpty) throw const LlmException('Groq no devolvió texto');
-    return text;
   }
 }
 

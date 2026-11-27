@@ -10,6 +10,7 @@ import '../../drawing/domain/canvas_item.dart';
 import '../../drawing/domain/drawing.dart';
 import '../../study/presentation/study_screen.dart' show availableLlms;
 import '../../settings/settings.dart';
+import '../../summary/data/llm_clients.dart';
 import '../../transcription/application/segment_merger.dart';
 import '../../transcription/domain/transcript_segment.dart';
 import 'audio_tools.dart';
@@ -66,30 +67,57 @@ Future<int> correctTranscriptWithAi(
       'NO resumas, NO agregues ni quites ideas, NO cambies el orden. Devuelve JSON: '
       '{"segments": [{"i": número, "text": "texto corregido"}]} con TODOS los fragmentos recibidos.';
   final corrected = <int, String>{};
-  const chunk = 30;
-  for (var start = 0; start < segments.length; start += chunk) {
-    final part = segments.skip(start).take(chunk).toList();
+  Object? lastError;
+
+  // Pide la corrección de unos pocos fragmentos. Si ningún servicio responde
+  // bien, prueba con la mitad (las respuestas largas son las que fallan) y,
+  // si ni así, deja esos fragmentos como estaban en vez de cancelar todo.
+  Future<void> fix(List<TranscriptSegment> part) async {
     final user = [for (final (k, s) in part.indexed) '[$k] ${s.text}'].join('\n');
     Map<String, Object?>? json;
-    Object? lastError;
     for (final llm in llms) {
-      try {
-        json = jsonDecode(await llm.completeJson(system: system, user: user)) as Map<String, Object?>;
-        break;
-      } catch (e) {
-        lastError = e;
+      for (var attempt = 0; attempt < 2 && json == null; attempt++) {
+        try {
+          json = decodeJsonObject(await llm.completeJson(system: system, user: user));
+        } on LlmException catch (e) {
+          lastError = e;
+          // Límite por minuto del plan gratis: esperar un poco y reintentar.
+          if (e.rateLimited && attempt == 0) {
+            await Future<void>.delayed(const Duration(seconds: 20));
+            continue;
+          }
+          break;
+        } catch (e) {
+          lastError = e;
+          break;
+        }
       }
+      if (json != null) break;
     }
-    if (json == null) throw Exception('La IA no respondió: $lastError');
+    if (json == null) {
+      if (part.length > 4) {
+        final half = part.length ~/ 2;
+        await fix(part.sublist(0, half));
+        await fix(part.sublist(half));
+      }
+      return;
+    }
     for (final item in (json['segments'] as List? ?? const [])) {
       if (item is! Map) continue;
       final i = item['i'], t = item['text'];
-      if (i is int && i >= 0 && i < part.length && t is String && t.trim().isNotEmpty) {
-        corrected[part[i].id!] = t.trim();
+      final k = i is int ? i : (i is String ? int.tryParse(i) : null);
+      if (k != null && k >= 0 && k < part.length && t is String && t.trim().isNotEmpty) {
+        corrected[part[k].id!] = t.trim();
       }
     }
-    onProgress?.call(((start + part.length) * 100 / segments.length).round());
   }
+
+  const chunk = 20;
+  for (var start = 0; start < segments.length; start += chunk) {
+    await fix(segments.skip(start).take(chunk).toList());
+    onProgress?.call(((start + chunk).clamp(0, segments.length) * 100 / segments.length).round());
+  }
+  if (corrected.isEmpty) throw Exception('La IA no respondió: $lastError');
   await _writeMap(_correctedFile(audioPath), corrected);
   await showTranscriptVersion(ref, audioPath: audioPath, version: TranscriptVersion.corrected);
   return corrected.length;
