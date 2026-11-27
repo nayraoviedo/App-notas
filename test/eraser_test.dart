@@ -36,6 +36,36 @@ void main() {
     expect(c.activeLayer.strokes.length, 2);
   });
 
+  test('el borrador borra en otras capas, pero no en las bloqueadas', () {
+    final c = DrawingController(Drawing.blank());
+    c.startStroke(const Offset(0, 100), null);
+    c.extendStroke(const Offset(300, 100), null);
+    c.endStroke();
+    c.addLayer(); // ahora la activa es la capa 2, vacía
+    expect(c.activeLayerIndex, 1);
+
+    c.selectTool(ToolType.eraser);
+    c.setSize(20);
+    c.startStroke(const Offset(150, 60), null);
+    c.extendStroke(const Offset(150, 140), null);
+    c.endStroke();
+    expect(c.drawing.layers[0].strokes.length, 2, reason: 'se cortó la línea de la capa 1');
+
+    c.undo();
+    c.updateLayer(0, (l) => l.copyWith(locked: true));
+    c.startStroke(const Offset(150, 60), null);
+    c.extendStroke(const Offset(150, 140), null);
+    c.endStroke();
+    expect(c.drawing.layers[0].strokes.length, 1, reason: 'con candado no se borra');
+
+    // Borrar trazos enteros también llega a otras capas.
+    c.updateLayer(0, (l) => l.copyWith(locked: false));
+    c.selectMode(InputMode.eraseStrokes);
+    c.beginEraseStrokes();
+    c.eraseStrokesAt(const Offset(10, 100));
+    expect(c.drawing.layers[0].strokes, isEmpty);
+  });
+
   test('el lienzo infinito crece al dibujar cerca del borde', () {
     final c = DrawingController(Drawing.blank())..setInfinite(true);
     expect(c.drawing.infinite, isTrue);

@@ -696,7 +696,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       _coverTap = e.localPosition;
       return;
     }
-    if (!ctl.canDrawOnActiveLayer) {
+    // El borrador funciona en todas las capas sin candado.
+    final erasing = ctl.mode == InputMode.eraseStrokes || ctl.tool == ToolType.eraser;
+    if (!erasing && !ctl.canDrawOnActiveLayer) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
@@ -2797,8 +2799,12 @@ class _StaticPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final d = ref.watch(drawingFileProvider(path)).valueOrNull;
     final w = d?.width ?? fallback.width, h = d?.height ?? fallback.height;
-    return GestureDetector(
-      onTap: onTap,
+    // Basta con apoyar el dedo (o el lápiz) para que la hoja pase a ser la
+    // que se edita; antes había que dar un toque limpio, y al arrastrar el
+    // borrador sobre otra hoja no pasaba nada.
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => onTap(),
       child: Container(
         width: w,
         height: h,
