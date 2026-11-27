@@ -74,7 +74,7 @@ final appRouter = GoRouter(
               path: 'book',
               builder: (context, state) => BookViewScreen(
                 noteId: state.pathParameters['id']!,
-                initialPage: state.extra as int? ?? 0,
+                initialPage: state.extra as int?,
               ),
             ),
             GoRoute(
