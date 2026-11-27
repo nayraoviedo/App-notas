@@ -267,7 +267,20 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
 
   /// ¿El dedo tocó fuera de la hoja (en el fondo gris)? Ahí siempre se puede
   /// tirar o deslizar, aunque se esté dibujando con el dedo.
+  /// La portada del cuaderno no se raya: ahí el dedo o el mouse solo
+  /// desplazan, como en el fondo gris.
+  bool get _onCover => _ctl?.drawing.paper.template == PaperTemplate.cover;
+
+  void _coverHint() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('La portada no se puede rayar. Escribe en la hoja siguiente.')));
+  }
+
   bool _outsidePage(Offset global) {
+    if (_onCover) return true;
     final box = _pageKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return false;
     final r = Rect.fromPoints(box.localToGlobal(Offset.zero), box.localToGlobal(box.size.bottomRight(Offset.zero)));
@@ -580,6 +593,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         max: e.pressureMax,
       );
 
+  /// Dónde se tocó la portada (para avisar que no se raya).
+  Offset? _coverTap;
+
   void _onDown(PointerDownEvent e) {
     final ctl = _ctl!;
     _pointers.add(e.pointer);
@@ -587,7 +603,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       _tapStart = _pointers.length == 1 ? e.localPosition : null;
       // Lazo: en "Seleccionar", tocar fuera de textos/fotos dibuja el lazo
       // o, si se toca dentro de lo ya seleccionado, lo mueve.
-      if (ctl.mode == InputMode.select && !_pointerOnItem) {
+      if (ctl.mode == InputMode.select && !_pointerOnItem && !_onCover) {
         if (_pointers.length > 1) {
           ctl.cancelLasso();
           _lassoing = false;
@@ -615,6 +631,12 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       return;
     }
     if (!_accepts(e)) return;
+    if (_onCover) {
+      // Arrastrar para desplazarse no es un intento de escribir: avisar
+      // solo con un toque.
+      _coverTap = e.localPosition;
+      return;
+    }
     if (!ctl.canDrawOnActiveLayer) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -711,10 +733,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       if (ctl.selectedItemId != null) {
         ctl.selectItem(null);
       } else if (ctl.mode == InputMode.text) {
-        _newText(e.localPosition);
+        _onCover ? _coverHint() : _newText(e.localPosition);
       }
       return;
     }
+    final tap = _coverTap;
+    _coverTap = null;
+    if (tap != null && (e.localPosition - tap).distance < 12 && _onCover) _coverHint();
     if (e.pointer != _drawingPointer) return;
     _drawingPointer = null;
     _ctl!.endStroke();
