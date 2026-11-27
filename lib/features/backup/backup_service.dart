@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -20,6 +21,7 @@ class BackupService {
   static const _restoreDir = '_restore_pendiente';
   static const _prefsName = '__prefs.json';
   static const _rootName = '.ruta_origen';
+  static const _readyName = '.restauracion_lista';
 
   static Future<Directory> _docs() => appDataDir();
 
@@ -124,7 +126,20 @@ class BackupService {
       if (e is! File) continue;
       final rel = p.relative(e.path, from: docs.path);
       if (rel.startsWith(_restoreDir) || rel.endsWith('.tmp') || rel.startsWith('.ruta_')) continue;
-      await addFile(rel, await e.readAsBytes());
+      // Por partes, sin cargar el archivo entero (audios largos).
+      final path = utf8.encode(rel);
+      final length = await e.length();
+      addInt(path.length, 4);
+      addBytes(path);
+      addInt(length, 8);
+      var written = 0;
+      await for (final chunk in e.openRead(0, length)) {
+        addBytes(chunk);
+        written += chunk.length;
+      }
+      // Si se achicó mientras se leía, se completa con ceros para que la
+      // copia siga siendo legible.
+      if (written < length) addBytes(Uint8List(length - written));
     }
     sink.close();
     await raw.done;
@@ -134,71 +149,96 @@ class BackupService {
   /// Prepara la restauración: deja los archivos listos para aplicarlos la
   /// próxima vez que se abra la app (así la base de datos no está en uso) y
   /// restaura los ajustes. Devuelve cuántos archivos trae la copia.
+  ///
+  /// Se lee por partes (sin cargar la copia entera en memoria) y SOLO si
+  /// todo salió bien se marca como lista y se cambian los ajustes. Si falla a
+  /// la mitad (copia cortada o dañada), no se toca nada de lo que hay.
   static Future<int> prepareRestore(String backupPath, SharedPreferences prefs) async {
     final docs = await _docs();
     final target = Directory(p.join(docs.path, _restoreDir));
     if (target.existsSync()) target.deleteSync(recursive: true);
     target.createSync(recursive: true);
 
-    final bytes = gzip.decode(await File(backupPath).readAsBytes());
-    final data = Uint8List.fromList(bytes);
-    final view = ByteData.sublistView(data);
-    var i = 0;
-    final magic = utf8.decode(data.sublist(0, _magic.length), allowMalformed: true);
-    if (magic != _magic) {
-      target.deleteSync(recursive: true);
-      throw const FormatException('Ese archivo no es una copia de Kumo.');
-    }
-    i = _magic.length;
+    final reader = _ChunkReader(File(backupPath).openRead().transform(gzip.decoder));
+    Map<String, Object?>? prefsMap;
     var count = 0;
-    while (i < data.length) {
-      final len = view.getUint32(i);
-      i += 4;
-      final rel = utf8.decode(data.sublist(i, i + len));
-      i += len;
-      final size = view.getInt64(i);
-      i += 8;
-      final content = data.sublist(i, i + size);
-      i += size;
-      if (rel == _rootName) {
-        File(p.join(target.path, '.ruta_anterior')).writeAsStringSync(utf8.decode(content));
-        continue;
+    try {
+      final magic = await reader.read(_magic.length);
+      if (magic == null || utf8.decode(magic, allowMalformed: true) != _magic) {
+        throw const FormatException('Ese archivo no es una copia de Kumo.');
       }
-      if (rel == _prefsName) {
-        final map = (jsonDecode(utf8.decode(content)) as Map).cast<String, Object?>();
-        // Lo propio de este aparato (cuenta de Google, sincronización) se queda.
-        final keep = {
-          for (final k in prefs.getKeys())
-            if (k.startsWith('drive.') || k.startsWith('google.') || k.startsWith('sync.')) k: prefs.get(k),
-        };
-        map.removeWhere((k, _) => k.startsWith('drive.') || k.startsWith('google.') || k.startsWith('sync.'));
-        map.addAll(keep);
-        await prefs.clear();
-        for (final MapEntry(:key, :value) in map.entries) {
-          switch (value) {
-            case final bool v:
-              await prefs.setBool(key, v);
-            case final int v:
-              await prefs.setInt(key, v);
-            case final double v:
-              await prefs.setDouble(key, v);
-            case final String v:
-              await prefs.setString(key, v);
-            case final List v:
-              await prefs.setStringList(key, v.cast<String>());
-          }
+      while (true) {
+        final lenBytes = await reader.read(4, eofOk: true);
+        if (lenBytes == null) break; // fin de la copia, justo entre archivos
+        final len = ByteData.sublistView(lenBytes).getUint32(0);
+        if (len > 4096) throw const FormatException('La copia está dañada.');
+        final rel = utf8.decode((await reader.read(len))!);
+        final size = ByteData.sublistView((await reader.read(8))!).getInt64(0);
+        if (size < 0) throw const FormatException('La copia está dañada.');
+
+        if (rel == _rootName) {
+          File(p.join(target.path, '.ruta_anterior')).writeAsStringSync(utf8.decode((await reader.read(size))!));
+          continue;
         }
-        continue;
+        if (rel == _prefsName) {
+          prefsMap = (jsonDecode(utf8.decode((await reader.read(size))!)) as Map).cast<String, Object?>();
+          continue;
+        }
+        // Evitar rutas que salgan de la carpeta.
+        final dest = p.normalize(p.join(target.path, rel));
+        if (!p.isWithin(target.path, dest) || p.basename(dest) == _readyName) {
+          await reader.skip(size);
+          continue;
+        }
+        final f = File(dest)..createSync(recursive: true);
+        final sink = f.openWrite();
+        try {
+          await reader.copyTo(sink, size);
+        } finally {
+          await sink.close();
+        }
+        count++;
       }
-      // Evitar rutas que salgan de la carpeta.
-      final dest = p.normalize(p.join(target.path, rel));
-      if (!p.isWithin(target.path, dest)) continue;
-      File(dest)
-        ..createSync(recursive: true)
-        ..writeAsBytesSync(content);
-      count++;
+      if (count == 0) throw const FormatException('La copia está vacía.');
+    } catch (e) {
+      // Nada a medias: se borra lo preparado y lo de ahora queda igual.
+      try {
+        target.deleteSync(recursive: true);
+      } catch (_) {}
+      if (e is FormatException) rethrow;
+      throw FormatException('La copia está incompleta o dañada ($e). No se cambió nada.');
     }
+
+    // Todo bien: recién ahora se cambian los ajustes y se marca como lista.
+    if (prefsMap != null) await _restorePrefs(prefsMap, prefs);
+    File(p.join(target.path, _readyName)).writeAsStringSync(DateTime.now().toIso8601String(), flush: true);
     return count;
+  }
+
+  static Future<void> _restorePrefs(Map<String, Object?> map, SharedPreferences prefs) async {
+    // Lo propio de este aparato (cuenta de Google, sincronización) se queda.
+    bool own(String k) => k.startsWith('drive.') || k.startsWith('google.') || k.startsWith('sync.');
+    final keep = {
+      for (final k in prefs.getKeys())
+        if (own(k)) k: prefs.get(k),
+    };
+    map.removeWhere((k, _) => own(k));
+    map.addAll(keep);
+    await prefs.clear();
+    for (final MapEntry(:key, :value) in map.entries) {
+      switch (value) {
+        case final bool v:
+          await prefs.setBool(key, v);
+        case final int v:
+          await prefs.setInt(key, v);
+        case final double v:
+          await prefs.setDouble(key, v);
+        case final String v:
+          await prefs.setString(key, v);
+        case final List v:
+          await prefs.setStringList(key, v.cast<String>());
+      }
+    }
   }
 
   /// Se llama al abrir la app, ANTES de abrir la base de datos.
@@ -206,6 +246,14 @@ class BackupService {
     final docs = await _docs();
     final pending = Directory(p.join(docs.path, _restoreDir));
     if (!pending.existsSync()) return;
+    // Si no está marcada como completa (se cortó al prepararla), NO se
+    // aplica: se descarta y los datos de ahora quedan como están.
+    final ready = File(p.join(pending.path, _readyName));
+    if (!ready.existsSync()) {
+      pending.deleteSync(recursive: true);
+      return;
+    }
+    ready.deleteSync();
     for (final e in docs.listSync(followLinks: false)) {
       if (p.basename(e.path) == _restoreDir) continue;
       e.deleteSync(recursive: true);
@@ -214,5 +262,64 @@ class BackupService {
       e.renameSync(p.join(docs.path, p.basename(e.path)));
     }
     pending.deleteSync(recursive: true);
+  }
+}
+
+
+/// Lee un flujo de bytes por partes, pidiendo exactamente lo que hace falta.
+class _ChunkReader {
+  _ChunkReader(Stream<List<int>> stream) : _it = StreamIterator(stream);
+  final StreamIterator<List<int>> _it;
+  List<int> _buf = const [];
+  int _pos = 0;
+
+  int get _available => _buf.length - _pos;
+
+  Future<bool> _fill() async {
+    while (_available == 0) {
+      if (!await _it.moveNext()) return false;
+      _buf = _it.current;
+      _pos = 0;
+    }
+    return true;
+  }
+
+  /// Exactamente [n] bytes. null solo si [eofOk] y el flujo terminó antes
+  /// de empezar; si termina a la mitad, es una copia cortada.
+  Future<Uint8List?> read(int n, {bool eofOk = false}) async {
+    final out = Uint8List(n);
+    var got = 0;
+    while (got < n) {
+      if (!await _fill()) {
+        if (got == 0 && eofOk) return null;
+        throw const FormatException('La copia está incompleta (se cortó).');
+      }
+      final take = (n - got) < _available ? (n - got) : _available;
+      out.setRange(got, got + take, _buf, _pos);
+      _pos += take;
+      got += take;
+    }
+    return out;
+  }
+
+  Future<void> copyTo(IOSink sink, int n) async {
+    var left = n;
+    while (left > 0) {
+      if (!await _fill()) throw const FormatException('La copia está incompleta (se cortó).');
+      final take = left < _available ? left : _available;
+      sink.add(_buf.sublist(_pos, _pos + take));
+      _pos += take;
+      left -= take;
+    }
+  }
+
+  Future<void> skip(int n) async {
+    var left = n;
+    while (left > 0) {
+      if (!await _fill()) throw const FormatException('La copia está incompleta (se cortó).');
+      final take = left < _available ? left : _available;
+      _pos += take;
+      left -= take;
+    }
   }
 }

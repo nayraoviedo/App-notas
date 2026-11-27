@@ -238,6 +238,13 @@ class DriveSync {
     if (res.statusCode != 200) throw DriveException('Google Drive respondió ${res.statusCode}.');
     final out = File('${(await getTemporaryDirectory()).path}/$_name');
     await res.stream.pipe(out.openWrite());
+    // Si la descarga se cortó, no seguir (una copia a medias no se aplica).
+    final expected = all.first.$3;
+    final got = await out.length();
+    if ((expected > 0 && got != expected) || (res.contentLength != null && got != res.contentLength)) {
+      await out.delete().catchError((_) => out);
+      throw const DriveException('La descarga se cortó. Revisa tu internet e inténtalo de nuevo; no se cambió nada.');
+    }
     onStatus?.call('Preparando…');
     // Antes de reemplazar, una copia de lo que hay aquí (por si acaso).
     try {
