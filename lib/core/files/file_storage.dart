@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+import 'app_dirs.dart';
 
 /// Guarda los archivos de la app (audios, fotos, videos, capturas).
 /// La base de datos solo guarda las rutas.
@@ -12,7 +13,7 @@ class FileStorage {
   Directory? _root;
 
   Future<Directory> _dir(String name) async {
-    _root ??= await getApplicationDocumentsDirectory();
+    _root ??= await appDataDir();
     final dir = Directory(p.join(_root!.path, name));
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
@@ -20,6 +21,9 @@ class FileStorage {
 
   Future<String> newAudioPath() async =>
       p.join((await _dir('audio')).path, '${_uuid.v4()}.wav');
+
+  Future<String> newDrawingPath() async =>
+      p.join((await _dir('drawings')).path, '${_uuid.v4()}.json');
 
   /// Copia un archivo externo (foto de la cámara, video de la galería)
   /// a la carpeta de la app para que no se pierda si el sistema limpia la caché.
@@ -35,6 +39,13 @@ class FileStorage {
     final target = p.join((await _dir(folder)).path, '${_uuid.v4()}$ext');
     await File(target).writeAsBytes(bytes, flush: true);
     return target;
+  }
+
+  /// Archivos de una carpeta de la app, del más nuevo al más viejo.
+  Future<List<String>> listFolder(String folder) async {
+    final files = (await _dir(folder)).listSync().whereType<File>().toList()
+      ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+    return [for (final f in files) f.path];
   }
 
   Future<void> deleteIfExists(String? path) async {

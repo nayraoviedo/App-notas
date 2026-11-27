@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/utils/time_format.dart';
+import '../../../video/data/video_backend.dart';
 import '../../domain/note_block.dart';
 
 /// Nota escrita mientras se veía un video. Al tocarla, abre el video en ese minuto.
@@ -24,7 +25,8 @@ class VideoRefBlockView extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.movie_outlined, color: scheme.primary),
+              Icon(isYoutubeUrl(block.videoPath) ? Icons.smart_display_outlined : Icons.movie_outlined,
+                  color: scheme.primary),
               const SizedBox(width: 8),
               Text(formatMs(block.atMs),
                   style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600)),

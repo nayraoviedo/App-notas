@@ -1,7 +1,18 @@
 import 'package:go_router/go_router.dart';
 
+import '../features/drawing/presentation/drawing_screen.dart';
+import '../features/expenses/presentation/expenses_screen.dart';
+import '../features/journal/presentation/journal_screen.dart';
+import '../features/study/presentation/study_screen.dart';
+import '../features/study/presentation/exam_screen.dart';
+import '../features/planner/presentation/planner_screen.dart';
+import '../features/notebooks/presentation/library_screen.dart';
+import '../features/notes/presentation/book_view_screen.dart';
 import '../features/notes/presentation/note_editor_screen.dart';
+import '../features/settings/settings_screen.dart';
+import '../features/summary/presentation/weekly_summary_screen.dart';
 import '../features/notes/presentation/notes_list_screen.dart';
+import '../features/recording/presentation/recording_detail_screen.dart';
 import '../features/recording/presentation/recording_screen.dart';
 import '../features/video/presentation/video_notes_screen.dart';
 
@@ -16,17 +27,75 @@ final appRouter = GoRouter(
   routes: [
     GoRoute(
       path: '/',
-      builder: (context, state) => const NotesListScreen(),
+      builder: (context, state) => const LibraryScreen(),
       routes: [
+        GoRoute(
+          path: 'expenses',
+          builder: (context, state) => const ExpensesScreen(),
+        ),
+        GoRoute(
+          path: 'study',
+          builder: (context, state) => const StudyScreen(),
+        ),
+        GoRoute(
+          path: 'exam',
+          builder: (context, state) => const ExamScreen(),
+        ),
+        GoRoute(
+          path: 'planner',
+          builder: (context, state) =>
+              PlannerScreen(initialTab: state.uri.queryParameters['tab'] == 'pendientes' ? 1 : 0),
+        ),
+        GoRoute(
+          path: 'week',
+          builder: (context, state) => const WeeklySummaryScreen(),
+        ),
+        GoRoute(
+          path: 'journal',
+          builder: (context, state) => const JournalScreen(),
+        ),
+        GoRoute(
+          path: 'settings',
+          builder: (context, state) => const SettingsScreen(),
+        ),
+        GoRoute(
+          path: 'notebooks/:nb',
+          builder: (context, state) {
+            final nb = state.pathParameters['nb']!;
+            return NotesListScreen(notebookId: nb == 'all' ? null : nb);
+          },
+        ),
         GoRoute(
           path: 'notes/:id',
           builder: (context, state) =>
               NoteEditorScreen(noteId: state.pathParameters['id']!),
           routes: [
             GoRoute(
+              path: 'book',
+              builder: (context, state) => BookViewScreen(
+                noteId: state.pathParameters['id']!,
+                initialPage: state.extra as int?,
+              ),
+            ),
+            GoRoute(
               path: 'record',
               builder: (context, state) =>
                   RecordingScreen(noteId: state.pathParameters['id']!),
+            ),
+            GoRoute(
+              path: 'audio/:blockId',
+              builder: (context, state) => RecordingDetailScreen(
+                noteId: state.pathParameters['id']!,
+                blockId: state.pathParameters['blockId']!,
+                startMs: int.tryParse(state.uri.queryParameters['t'] ?? ''),
+              ),
+            ),
+            GoRoute(
+              path: 'drawing',
+              builder: (context, state) => DrawingScreen(
+                noteId: state.pathParameters['id']!,
+                path: state.extra! as String,
+              ),
             ),
             GoRoute(
               path: 'video',

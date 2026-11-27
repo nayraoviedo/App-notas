@@ -1,0 +1,192 @@
+# Compila el APK en los servidores de GitHub (no hace falta Android Studio).
+# Se ejecuta con cada cambio en la rama y también a mano desde la pestaña
+# "Actions" → "Compilar APK" → "Run workflow".
+#
+# El APK queda en la pestaña "Releases" del repositorio, en "APK de prueba".
+
+name: Compilar APK
+
+on:
+  push:
+    branches: [esqueleto-inicial, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # La compilación nativa (whisper.cpp, onnxruntime, mpv) ocupa mucho
+      # disco: se borran herramientas preinstaladas que no se usan.
+      - name: Liberar espacio en disco
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift \
+            /usr/local/share/boost /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules \
+            /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft || true
+          sudo docker image prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Portadas con obras de dominio público (Van Gogh, Monet, Hokusai,
+      # Morris). Si alguna no baja, la app simplemente no la muestra.
+      # Letras manuscritas de la app, incluidas en el APK (funcionan sin internet).
+      - name: Descargar letras de la app
+        continue-on-error: true
+        run: |
+          base=https://raw.githubusercontent.com/google/fonts/main/ofl
+          cd assets/google_fonts
+          for f in patrickhand/PatrickHand-Regular.ttf mali/Mali-Regular.ttf mali/Mali-Medium.ttf \
+                   mali/Mali-SemiBold.ttf mali/Mali-Bold.ttf itim/Itim-Regular.ttf \
+                   gaegu/Gaegu-Regular.ttf gaegu/Gaegu-Bold.ttf; do
+            curl -fsSL -o "$(basename $f)" "$base/$f" || echo "sin $f"
+          done
+          ls -la
+
+      - name: Descargar portadas de dominio público
+        continue-on-error: true
+        run: |
+          cd assets/covers
+          ua="AppNotas/1.0 (https://github.com/nayraoviedo/App-notas)"
+          wiki=https://commons.wikimedia.org/wiki/Special:FilePath
+          get() { curl -fsSL -A "$ua" -o "$1" "$2" || echo "no se pudo bajar $1"; }
+          get almendro.jpg  "$wiki/Vincent_van_Gogh_-_Almond_blossom_-_Google_Art_Project.jpg?width=1000"
+          get ciruelos.jpg  "$wiki/Vincent_van_Gogh_-_Bloeiende_pruimenboomgaard-_naar_Hiroshige_-_Google_Art_Project.jpg?width=1000"
+          get huerto.jpg    "$wiki/Vincent_van_Gogh_-_Orchard_in_Blossom_(Plum_Trees)_-_Google_Art_Project.jpg?width=1000"
+          get nenufares.jpg "$wiki/Claude_Monet_-_Water_Lilies_-_1906,_Ryerson.jpg?width=1000"
+          get estanque.jpg  "$wiki/Claude_Monet_-_Pond_with_Water_Lilies_-_Google_Art_Project.jpg?width=1000"
+          get ola.jpg       "$wiki/Tsunami_by_hokusai_19th_century.jpg?width=1000"
+          get fresas.jpg    "https://openaccess-cdn.clevelandart.org/1937.696/1937.696_web.jpg"
+          # Quitar lo que no sea una imagen JPEG válida.
+          for f in *.jpg; do file "$f" | grep -q JPEG || rm -f "$f"; done
+          ls -la
+
+      # Firma fija del APK desde los secretos del repositorio (KUMO_KEYSTORE en
+      # base64 y KUMO_KEY_PASSWORD). Sin ellos se firma con una llave de prueba.
+      - name: Firma del APK
+        env:
+          KS: ${{ secrets.KUMO_KEYSTORE }}
+          PW: ${{ secrets.KUMO_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$PW" ]; then
+            mkdir -p tool/firma
+            echo "$KS" | base64 -d > tool/firma/kumo.jks
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=kumo\nstoreFile=kumo.jks\n' "$PW" "$PW" > tool/firma/key.properties
+            echo "Firma fija lista"
+          else
+            echo "Sin secretos de firma: se usa la llave de prueba"
+          fi
+
+      - name: Crear carpetas de Android
+        run: |
+          flutter create . --project-name app_notas --org com.appnotas --platforms android
+          rm -f test/widget_test.dart
+          python3 tool/setup_android.py
+
+      - name: Dependencias y código generado
+        run: |
+          flutter pub get
+          dart run build_runner build
+
+      - name: Análisis y pruebas
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      # Capturas de las pantallas (se descargan desde Actions → "capturas").
+      - name: Capturas de pantalla
+        continue-on-error: true
+        run: |
+          mkdir -p screenshot_test/fonts
+          base=https://raw.githubusercontent.com/google/fonts/main
+          for pair in \
+            "Pacifico ofl/pacifico/Pacifico-Regular.ttf" \
+            "Dancing_Script ofl/dancingscript/DancingScript%5Bwght%5D.ttf" \
+            "Great_Vibes ofl/greatvibes/GreatVibes-Regular.ttf" \
+            "Satisfy apache/satisfy/Satisfy-Regular.ttf" \
+            "Allura ofl/allura/Allura-Regular.ttf" \
+            "Sacramento ofl/sacramento/Sacramento-Regular.ttf" \
+            "Patrick_Hand ofl/patrickhand/PatrickHand-Regular.ttf" \
+            "Caveat ofl/caveat/Caveat%5Bwght%5D.ttf" \
+            "Noto_Color_Emoji ofl/notocoloremoji/NotoColorEmoji-Regular.ttf"; do
+            set -- $pair
+            curl -fsSL -o "screenshot_test/fonts/$1.ttf" "$base/$2" || echo "sin $1"
+          done
+          export FLUTTER_ROOT="${FLUTTER_ROOT:-$(dirname "$(dirname "$(which flutter)")")}"
+          flutter test screenshot_test --update-goldens || true
+          ls -la screenshot_test/out || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capturas
+          path: screenshot_test/out/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # También en la rama "capturas" para verlas directo en GitHub.
+      - name: Publicar capturas en la rama "capturas"
+        continue-on-error: true
+        run: |
+          [ -d screenshot_test/out ] || exit 0
+          cd screenshot_test/out
+          git init -q -b capturas
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add *.png
+          git commit -qm "Capturas de ${GITHUB_SHA::7}"
+          git push -f -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" capturas
+
+      # Algunas librerías (whisper_ggml) piden otra versión del NDK; Gradle la
+      # instala sola, pero solo si las licencias están aceptadas.
+      - name: Aceptar licencias del SDK de Android
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Compilar APK
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64
+
+      - name: Nombrar los APK
+        run: |
+          mkdir -p salida
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk salida/AppNotas-arm64.apk
+          ls -lh salida
+
+      # Copia descargable desde la pestaña Actions (zip).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AppNotas-apk
+          path: salida/*.apk
+          retention-days: 14
+
+      # Publica en Releases para descargar directo desde el celular.
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-de-prueba
+          name: APK de prueba
+          prerelease: true
+          make_latest: false
+          body: |
+            Compilado automáticamente desde `${{ github.ref_name }}` (${{ github.sha }}).
+
+            Descarga **AppNotas-arm64.apk** (celulares de los últimos años).
+          files: salida/*.apk
+          overwrite_files: true

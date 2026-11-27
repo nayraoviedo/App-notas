@@ -1,9 +1,22 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/recording/application/audio_tools.dart';
+import '../features/transcription/data/groq_transcription.dart';
+
 import '../features/camera/camera_service.dart';
+import '../features/expenses/data/expenses_repository.dart';
+import '../features/study/data/flashcards_repository.dart';
+import '../features/study/domain/flashcard.dart';
+import '../features/drawing/data/drawing_store.dart';
+import '../features/drawing/domain/drawing.dart';
+import '../features/importing/import_service.dart';
+import '../features/notebooks/data/notebooks_repository.dart';
+import '../features/settings/settings.dart';
+import '../features/notebooks/domain/notebook.dart';
 import '../features/notes/data/notes_repository.dart';
 import '../features/notes/domain/note.dart';
 import '../features/notes/domain/note_block.dart';
+import '../features/speakers/data/sherpa_voice_embedder.dart';
 import '../features/speakers/data/speakers_repository.dart';
 import '../features/speakers/domain/speaker.dart';
 import '../features/speakers/domain/voice_embedder.dart';
@@ -26,24 +39,78 @@ final fileStorageProvider = Provider<FileStorage>((ref) => FileStorage());
 final notesRepositoryProvider =
     Provider<NotesRepository>((ref) => NotesRepository(ref.watch(databaseProvider)));
 
+final notebooksRepositoryProvider = Provider<NotebooksRepository>(
+    (ref) => NotebooksRepository(ref.watch(databaseProvider)));
+
 final speakersRepositoryProvider = Provider<SpeakersRepository>(
     (ref) => SpeakersRepository(ref.watch(databaseProvider)));
 
-final cameraServiceProvider =
-    Provider<CameraService>((ref) => CameraService(ref.watch(fileStorageProvider)));
+final cameraServiceProvider = Provider<CameraService>((ref) => CameraService(
+      ref.watch(fileStorageProvider),
+      ref.watch(sharedPreferencesProvider),
+    ));
 
 /// Cambia aquí el motor de transcripción (local o en la nube).
-final transcriptionServiceProvider =
-    Provider<TranscriptionService>((ref) => WhisperTranscriptionService());
+/// Con clave de Groq transcribe en la nube (rápido); si no, en el teléfono.
+final transcriptionServiceProvider = Provider<TranscriptionService>((ref) => SmartTranscriptionService(
+      local: WhisperTranscriptionService(),
+      groqKey: () => ref.read(apiKeysProvider).read(AiProvider.groq),
+      // Respaldo: si Groq llega al límite, transcribe con Gemini.
+      geminiKey: () => ref.read(apiKeysProvider).read(AiProvider.gemini),
+      geminiModel: ref.watch(settingsProvider).geminiModel,
+      compress: AudioTools.toM4a,
+    ));
 
-/// Cambia aquí a la implementación con sherpa_onnx cuando esté lista.
-final voiceEmbedderProvider =
-    Provider<VoiceEmbedder>((ref) => const NoopVoiceEmbedder());
+/// Huella de voz para detectar cambios de hablante. Usa `NoopVoiceEmbedder()`
+/// para apagar la detección automática.
+final voiceEmbedderProvider = Provider<VoiceEmbedder>((ref) {
+  final embedder = SherpaVoiceEmbedder();
+  ref.onDispose(embedder.dispose);
+  return embedder;
+});
+
+final drawingStoreProvider = Provider<DrawingStore>((ref) => DrawingStore());
+
+final importServiceProvider = Provider<ImportService>((ref) => ImportService(
+      ref.watch(fileStorageProvider),
+      ref.watch(drawingStoreProvider),
+      ref.watch(notesRepositoryProvider),
+    ));
 
 // ------------------------------------------------------------------ Datos
 
-final notesListProvider = StreamProvider<List<Note>>(
-    (ref) => ref.watch(notesRepositoryProvider).watchNotes());
+/// Hoja de dibujo cargada desde su archivo (para la vista previa en la nota).
+final drawingFileProvider = FutureProvider.autoDispose.family<Drawing, String>(
+    (ref, path) => ref.watch(drawingStoreProvider).load(path));
+
+/// Notas de un cuaderno (null = todas).
+final notesListProvider = StreamProvider.family<List<Note>, String?>((ref, notebookId) =>
+    ref.watch(notesRepositoryProvider).watchNotes(notebookId: notebookId));
+
+/// Stickers propios (fotos o dibujos que la persona agregó).
+final customStickersProvider =
+    FutureProvider<List<String>>((ref) => ref.watch(fileStorageProvider).listFolder('stickers'));
+
+final expensesRepositoryProvider =
+    Provider<ExpensesRepository>((ref) => ExpensesRepository(ref.watch(databaseProvider)));
+
+final flashcardsRepositoryProvider =
+    Provider<FlashcardsRepository>((ref) => FlashcardsRepository(ref.watch(databaseProvider)));
+
+final flashcardsProvider =
+    StreamProvider<List<Flashcard>>((ref) => ref.watch(flashcardsRepositoryProvider).watchAll());
+
+final allTagsProvider =
+    StreamProvider<List<String>>((ref) => ref.watch(notesRepositoryProvider).watchAllTags());
+
+final notebooksProvider = StreamProvider<List<Notebook>>(
+    (ref) => ref.watch(notebooksRepositoryProvider).watchAll());
+
+final notebookProvider = StreamProvider.family<Notebook?, String>(
+    (ref, id) => ref.watch(notebooksRepositoryProvider).watch(id));
+
+final notebookCountsProvider = StreamProvider<Map<String, int>>(
+    (ref) => ref.watch(notebooksRepositoryProvider).watchCounts());
 
 final noteProvider = StreamProvider.family<Note?, String>(
     (ref, id) => ref.watch(notesRepositoryProvider).watchNote(id));
@@ -54,7 +121,7 @@ final blocksProvider = StreamProvider.family<List<NoteBlock>, String>(
 final segmentsProvider = StreamProvider.family<List<TranscriptSegment>, String>(
     (ref, blockId) => ref.watch(notesRepositoryProvider).watchSegments(blockId));
 
-final markersProvider = StreamProvider.family<List<int>, String>(
+final markersProvider = StreamProvider.family<List<AudioMarker>, String>(
     (ref, blockId) => ref.watch(notesRepositoryProvider).watchMarkers(blockId));
 
 final speakersProvider = StreamProvider<List<Speaker>>(

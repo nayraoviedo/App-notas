@@ -24,3 +24,8 @@ build/
 **/ios/.symlinks/
 **/ios/Flutter/Generated.xcconfig
 **/ios/Flutter/flutter_export_environment.sh
+
+# Firma del APK: nunca en el repositorio (va en los secretos de GitHub)
+tool/firma/
+*.jks
+key.properties

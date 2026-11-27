@@ -14,9 +14,11 @@ class NotesRepository {
 
   // ---------------------------------------------------------------- Notas
 
-  Stream<List<Note>> watchNotes() {
+  /// Notas de un cuaderno, o todas si [notebookId] es null.
+  Stream<List<Note>> watchNotes({String? notebookId}) {
     final q = _db.select(_db.notes)
       ..orderBy([(n) => OrderingTerm.desc(n.updatedAt)]);
+    if (notebookId != null) q.where((n) => n.notebookId.equals(notebookId));
     return q.watch().map((rows) => rows.map(_toNote).toList());
   }
 
@@ -25,12 +27,15 @@ class NotesRepository {
     return q.watchSingleOrNull().map((r) => r == null ? null : _toNote(r));
   }
 
-  Future<String> createNote({String title = ''}) async {
+  Future<String> createNote(
+      {String title = '', String? notebookId, List<String> tags = const []}) async {
     final id = _uuid.v4();
     final now = DateTime.now();
     await _db.into(_db.notes).insert(NotesCompanion.insert(
           id: id,
           title: Value(title),
+          notebookId: Value(notebookId),
+          tags: Value(tags.join('|')),
           createdAt: now,
           updatedAt: now,
         ));
@@ -42,8 +47,33 @@ class NotesRepository {
         NotesCompanion(title: Value(title), updatedAt: Value(DateTime.now())),
       );
 
-  Future<void> deleteNote(String id) =>
-      (_db.delete(_db.notes)..where((n) => n.id.equals(id))).go();
+  Future<void> moveToNotebook(String noteId, String? notebookId) =>
+      (_db.update(_db.notes)..where((n) => n.id.equals(noteId)))
+          .write(NotesCompanion(notebookId: Value(notebookId)));
+
+  /// Borra la nota y todo lo que cuelga de ella. Devuelve las rutas de los
+  /// archivos (audios, fotos, hojas) para que se borren del disco.
+  ///
+  /// El borrado en cascada se hace a mano: con versiones muy nuevas de Dart,
+  /// drift_dev puede omitir las claves foráneas (REFERENCES) al generar código.
+  Future<List<String>> deleteNote(String id) {
+    return _db.transaction(() async {
+      final blocks =
+          await (_db.select(_db.blocks)..where((b) => b.noteId.equals(id))).get();
+      final ids = blocks.map((b) => b.id).toList();
+      await _deleteBlockChildren(ids);
+      await (_db.delete(_db.blocks)..where((b) => b.noteId.equals(id))).go();
+      await (_db.delete(_db.notes)..where((n) => n.id.equals(id))).go();
+      return [for (final b in blocks) if (b.filePath != null) b.filePath!];
+    });
+  }
+
+  Future<void> _deleteBlockChildren(List<String> blockIds) async {
+    if (blockIds.isEmpty) return;
+    await (_db.delete(_db.transcriptSegments)..where((s) => s.blockId.isIn(blockIds))).go();
+    await (_db.delete(_db.markers)..where((m) => m.blockId.isIn(blockIds))).go();
+    await (_db.delete(_db.summaries)..where((s) => s.blockId.isIn(blockIds))).go();
+  }
 
   Future<void> _touch(String noteId) =>
       (_db.update(_db.notes)..where((n) => n.id.equals(noteId)))
@@ -90,6 +120,26 @@ class NotesRepository {
       (_db.update(_db.blocks)..where((b) => b.id.equals(blockId)))
           .write(BlocksCompanion(textContent: Value(text)));
 
+  Future<void> updateTextStyle(String blockId,
+          {required String? fontFamily, required double? fontSize}) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId))).write(
+        BlocksCompanion(fontFamily: Value(fontFamily), fontSize: Value(fontSize)),
+      );
+
+  Future<void> updateMarks(String blockId, List<TextMark> marks) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId))).write(
+        BlocksCompanion(marks: Value(marks.isEmpty ? null : TextMark.encode(marks))),
+      );
+
+  Future<void> updateTextColor(String blockId, int? color) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId)))
+          .write(BlocksCompanion(textColor: Value(color)));
+
+  /// Cambia la foto de un bloque (por ejemplo, después de recortarla).
+  Future<void> updateImagePath(String blockId, String path) =>
+      (_db.update(_db.blocks)..where((b) => b.id.equals(blockId)))
+          .write(BlocksCompanion(filePath: Value(path)));
+
   Future<String> addImageBlock(String noteId, String path,
           {MediaAnchor? anchor}) =>
       _insertBlock(
@@ -102,6 +152,37 @@ class NotesRepository {
           anchorMs: Value(anchor?.atMs),
         ),
       );
+
+  Future<String> addDrawingBlock(String noteId, String path) => _insertBlock(
+        noteId,
+        BlocksCompanion(type: const Value('drawing'), filePath: Value(path)),
+      );
+
+  /// Inserta una hoja justo después de [afterBlockId] (para "agregar página"
+  /// y "copiar página" dentro del cuaderno).
+  Future<String> insertDrawingBlockAfter(
+      String noteId, String afterBlockId, String path) {
+    return _db.transaction(() async {
+      final after = await (_db.select(_db.blocks)
+            ..where((b) => b.id.equals(afterBlockId)))
+          .getSingle();
+      await (_db.update(_db.blocks)
+            ..where((b) =>
+                b.noteId.equals(noteId) & b.position.isBiggerThanValue(after.position)))
+          .write(BlocksCompanion.custom(position: _db.blocks.position + const Constant(1)));
+      final id = _uuid.v4();
+      await _db.into(_db.blocks).insert(BlocksCompanion.insert(
+            id: id,
+            noteId: noteId,
+            position: after.position + 1,
+            type: 'drawing',
+            filePath: Value(path),
+            createdAt: DateTime.now(),
+          ));
+      await _touch(noteId);
+      return id;
+    });
+  }
 
   Future<String> addVideoRefBlock(
     String noteId, {
@@ -126,7 +207,7 @@ class NotesRepository {
     required String path,
     required int durationMs,
     required List<TranscriptSegment> segments,
-    required List<int> markersMs,
+    required List<AudioMarker> markers,
   }) {
     return _db.transaction(() async {
       final blockId = await _insertBlock(
@@ -150,16 +231,36 @@ class NotesRepository {
         );
         b.insertAll(
           _db.markers,
-          markersMs.map(
-              (ms) => MarkersCompanion.insert(blockId: blockId, atMs: ms)),
+          markers.map((m) => MarkersCompanion.insert(
+              blockId: blockId, atMs: m.atMs, label: Value(m.label))),
         );
       });
       return blockId;
     });
   }
 
-  Future<void> deleteBlock(String blockId) =>
-      (_db.delete(_db.blocks)..where((b) => b.id.equals(blockId))).go();
+  /// Reemplaza la transcripción de una grabación (para transcribir de nuevo).
+  Future<void> replaceSegments(String blockId, List<TranscriptSegment> segments) =>
+      _db.transaction(() async {
+        await (_db.delete(_db.transcriptSegments)..where((t) => t.blockId.equals(blockId))).go();
+        await _db.batch((b) {
+          b.insertAll(
+            _db.transcriptSegments,
+            segments.map((s) => TranscriptSegmentsCompanion.insert(
+                  blockId: blockId,
+                  startMs: s.startMs,
+                  endMs: s.endMs,
+                  content: s.text,
+                  speakerId: Value(s.speakerId),
+                )),
+          );
+        });
+      });
+
+  Future<void> deleteBlock(String blockId) => _db.transaction(() async {
+        await _deleteBlockChildren([blockId]);
+        await (_db.delete(_db.blocks)..where((b) => b.id.equals(blockId))).go();
+      });
 
   // ---------------------------------------------------- Transcripciones
 
@@ -186,12 +287,35 @@ class NotesRepository {
       (_db.update(_db.transcriptSegments)..where((s) => s.id.equals(segmentId)))
           .write(TranscriptSegmentsCompanion(speakerId: Value(speakerId)));
 
-  Stream<List<int>> watchMarkers(String blockId) {
+  Stream<List<AudioMarker>> watchMarkers(String blockId) {
     final q = _db.select(_db.markers)
       ..where((m) => m.blockId.equals(blockId))
       ..orderBy([(m) => OrderingTerm.asc(m.atMs)]);
-    return q.watch().map((rows) => rows.map((r) => r.atMs).toList());
+    return q.watch().map((rows) => rows
+        .map((r) => AudioMarker(id: r.id, atMs: r.atMs, label: r.label))
+        .toList());
   }
+
+  /// Nota rápida (o ⭐ si [label] es null) agregada después de grabar.
+  Future<void> addMarker(String blockId, int atMs, {String? label}) => _db
+      .into(_db.markers)
+      .insert(MarkersCompanion.insert(blockId: blockId, atMs: atMs, label: Value(label)));
+
+  Future<void> updateMarker(int id, String label) =>
+      (_db.update(_db.markers)..where((m) => m.id.equals(id)))
+          .write(MarkersCompanion(label: Value(label)));
+
+  Future<void> deleteMarker(int id) =>
+      (_db.delete(_db.markers)..where((m) => m.id.equals(id))).go();
+
+  // ---------------------------------------------------------- Resúmenes
+
+  Stream<SummaryRow?> watchSummary(String blockId) =>
+      (_db.select(_db.summaries)..where((s) => s.blockId.equals(blockId)))
+          .watchSingleOrNull();
+
+  Future<void> saveSummary(SummariesCompanion data) =>
+      _db.into(_db.summaries).insertOnConflictUpdate(data);
 
   // ---------------------------------------------------------- Búsqueda
 
@@ -241,6 +365,26 @@ class NotesRepository {
         snippet: s.content,
         blockId: s.blockId,
         atMs: s.startMs,
+        inTranscript: true,
+      ));
+    }
+
+    // Y las notas que escribiste mientras grababas.
+    final markQuery = _db.select(_db.markers).join([
+      innerJoin(_db.blocks, _db.blocks.id.equalsExp(_db.markers.blockId)),
+      innerJoin(_db.notes, _db.notes.id.equalsExp(_db.blocks.noteId)),
+    ])
+      ..where(_db.markers.label.like(pattern));
+    for (final row in await markQuery.get()) {
+      final m = row.readTable(_db.markers);
+      final n = row.readTable(_db.notes);
+      hits.add(SearchHit(
+        noteId: n.id,
+        noteTitle: n.title,
+        snippet: '📝 ${m.label ?? ''}',
+        blockId: m.blockId,
+        atMs: m.atMs,
+        inTranscript: true,
       ));
     }
     return hits;
@@ -251,14 +395,52 @@ class NotesRepository {
   Note _toNote(NoteRow r) => Note(
         id: r.id,
         title: r.title,
+        notebookId: r.notebookId,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
+        tags: decodeTags(r.tags),
       );
+
+  static List<String> decodeTags(String raw) =>
+      raw.split('|').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+
+  // -------------------------------------------------------------- Etiquetas
+
+  Future<void> setTags(String noteId, List<String> tags) =>
+      (_db.update(_db.notes)..where((n) => n.id.equals(noteId))).write(NotesCompanion(
+        tags: Value(tags.map((t) => t.replaceAll('|', ' ').trim()).where((t) => t.isNotEmpty).toSet().join('|')),
+      ));
+
+  /// Todas las etiquetas usadas, ordenadas.
+  Stream<List<String>> watchAllTags() => _db.select(_db.notes).watch().map((rows) {
+        final all = <String>{for (final r in rows) ...decodeTags(r.tags)};
+        return all.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      });
+
+  /// Cambia el nombre de una etiqueta en todas las notas (o la quita si
+  /// [to] es null).
+  Future<void> renameTag(String from, String? to) => _db.transaction(() async {
+        final rows = await _db.select(_db.notes).get();
+        for (final r in rows) {
+          final tags = decodeTags(r.tags);
+          if (!tags.contains(from)) continue;
+          final next = [for (final t in tags) if (t != from) t, if (to != null && to.trim().isNotEmpty) to.trim()];
+          await setTags(r.id, next);
+        }
+      });
 
   NoteBlock? _toBlock(BlockRow r) {
     switch (r.type) {
       case 'text':
-        return TextBlock(id: r.id, position: r.position, text: r.textContent ?? '');
+        return TextBlock(
+          id: r.id,
+          position: r.position,
+          text: r.textContent ?? '',
+          fontFamily: r.fontFamily,
+          fontSize: r.fontSize,
+          marks: TextMark.decode(r.marks),
+          textColor: r.textColor,
+        );
       case 'audio':
         return AudioBlock(
           id: r.id,
@@ -277,6 +459,8 @@ class NotesRepository {
         }
         return ImageBlock(
             id: r.id, position: r.position, path: r.filePath!, anchor: anchor);
+      case 'drawing':
+        return DrawingBlock(id: r.id, position: r.position, path: r.filePath!);
       case 'videoRef':
         return VideoRefBlock(
           id: r.id,

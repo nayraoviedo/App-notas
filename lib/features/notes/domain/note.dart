@@ -4,10 +4,16 @@ class Note {
     required this.title,
     required this.createdAt,
     required this.updatedAt,
+    this.notebookId,
+    this.tags = const [],
   });
 
   final String id;
+
+  /// Etiquetas (#clase, #ideas…).
+  final List<String> tags;
   final String title;
+  final String? notebookId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -22,7 +28,11 @@ class SearchHit {
     required this.snippet,
     this.blockId,
     this.atMs,
+    this.inTranscript = false,
   });
+
+  /// Lo encontró en lo que se dijo en una grabación (abre el audio ahí).
+  final bool inTranscript;
 
   final String noteId;
   final String noteTitle;

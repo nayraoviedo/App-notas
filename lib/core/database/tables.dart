@@ -1,12 +1,40 @@
 import 'package:drift/drift.dart';
 
+/// Cuaderno: agrupa notas (por materia, proyecto…) y tiene portada.
+@DataClassName('NotebookRow')
+class Notebooks extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+
+  /// Color de la portada (ARGB).
+  IntColumn get color => integer().withDefault(const Constant(0xFF1677FF))();
+
+  /// Imagen de portada opcional.
+  TextColumn get coverPath => text().nullable()();
+
+  /// Diseño de portada "patrón;emoji" (desde el esquema v4).
+  TextColumn get coverStyle => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 /// Una nota: contenedor de bloques ordenados.
 @DataClassName('NoteRow')
 class Notes extends Table {
   TextColumn get id => text()();
   TextColumn get title => text().withDefault(const Constant(''))();
+
+  /// Cuaderno al que pertenece (null = sin cuaderno). Desde el esquema v2.
+  TextColumn get notebookId => text()
+      .nullable()
+      .references(Notebooks, #id, onDelete: KeyAction.setNull)();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+
+  /// Etiquetas separadas por "|" (desde el esquema v5).
+  TextColumn get tags => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -28,7 +56,17 @@ class Blocks extends Table {
   /// Texto del bloque (texto libre o comentario en un videoRef).
   TextColumn get textContent => text().nullable()();
 
-  /// Archivo en disco (audio .wav, imagen, video).
+  /// Estilo del texto: fuente y tamaño (desde la versión 2 del esquema).
+  TextColumn get fontFamily => text().nullable()();
+  RealColumn get fontSize => real().nullable()();
+
+  /// Resaltados del texto en JSON: [[inicio, fin, color], …] (desde v6).
+  TextColumn get marks => text().nullable()();
+
+  /// Color de la letra del bloque (desde v6).
+  IntColumn get textColor => integer().nullable()();
+
+  /// Archivo en disco (audio .wav, imagen, video, hoja .json).
   TextColumn get filePath => text().nullable()();
   IntColumn get durationMs => integer().nullable()();
 
@@ -73,7 +111,31 @@ class TranscriptSegments extends Table {
   TextColumn get speakerId => text().nullable().references(Speakers, #id)();
 }
 
-/// Momentos marcados como "Importante" durante una grabación.
+/// Resumen con IA de una grabación (desde el esquema v3).
+@DataClassName('SummaryRow')
+class Summaries extends Table {
+  TextColumn get blockId =>
+      text().references(Blocks, #id, onDelete: KeyAction.cascade)();
+  TextColumn get title => text()();
+  TextColumn get overview => text()();
+
+  /// JSON: [{"atMs":0,"title":"…","summary":"…"}, …]
+  TextColumn get chaptersJson => text()();
+
+  /// JSON: ["punto clave", …]
+  TextColumn get keyPointsJson => text().withDefault(const Constant('[]'))();
+
+  /// JSON: [{"task":"…","due":"…"}, …]
+  TextColumn get tasksJson => text().withDefault(const Constant('[]'))();
+  TextColumn get provider => text()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {blockId};
+}
+
+/// Momentos marcados durante una grabación: "⭐ Importante" (sin texto) o
+/// "Nota rápida" (con texto).
 @DataClassName('MarkerRow')
 class Markers extends Table {
   IntColumn get id => integer().autoIncrement()();
@@ -81,4 +143,38 @@ class Markers extends Table {
       text().references(Blocks, #id, onDelete: KeyAction.cascade)();
   IntColumn get atMs => integer()();
   TextColumn get label => text().nullable()();
+}
+
+/// Gastos (cuaderno "Gastos"): una compra con su categoría y monto. Desde v7.
+@DataClassName('ExpenseRow')
+class Expenses extends Table {
+  TextColumn get id => text()();
+  DateTimeColumn get day => dateTime()();
+  TextColumn get category => text()();
+  TextColumn get description => text().withDefault(const Constant(''))();
+  RealColumn get amount => real()();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Tarjetas de repaso (flashcards) con repaso espaciado. Desde v8.
+@DataClassName('FlashcardRow')
+class Flashcards extends Table {
+  TextColumn get id => text()();
+  TextColumn get front => text()();
+  TextColumn get back => text()();
+
+  /// Nota de donde salió (opcional).
+  TextColumn get noteId => text().nullable()();
+  TextColumn get deck => text().withDefault(const Constant('General'))();
+  DateTimeColumn get due => dateTime()();
+  IntColumn get intervalDays => integer().withDefault(const Constant(0))();
+  RealColumn get ease => real().withDefault(const Constant(2.5))();
+  IntColumn get reps => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
 }
