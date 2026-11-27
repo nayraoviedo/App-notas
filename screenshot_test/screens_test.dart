@@ -96,8 +96,10 @@ Future<void> _phoneSize(WidgetTester tester) async {
 ThemeData _theme() {
   final t = AppTheme.light('Normal');
   return t.copyWith(
-    textTheme: Typography.englishLike2021.merge(t.textTheme).apply(fontFamily: 'Patrick Hand', fontSizeFactor: 1.1),
-    primaryTextTheme: t.primaryTextTheme.apply(fontFamily: 'Patrick Hand'),
+    textTheme: Typography.englishLike2021
+        .merge(t.textTheme)
+        .apply(fontFamily: 'Patrick Hand', fontSizeFactor: 1.1, fontFamilyFallback: const ['Noto Color Emoji']),
+    primaryTextTheme: t.primaryTextTheme.apply(fontFamily: 'Patrick Hand', fontFamilyFallback: const ['Noto Color Emoji']),
   );
 }
 
@@ -423,28 +425,44 @@ void main() {
     await _shot(tester, '18_stickers_gatitos');
   });
 
-  Future<void> openJournal(WidgetTester tester) async {
+  Future<void> openJournal(WidgetTester tester, {bool desktop = false}) async {
     final now = DateTime.now();
     var st = const JournalState(habits: [
       Habit(id: 'h1', name: 'Tomar agua', emoji: '💧'),
-      Habit(id: 'h2', name: 'Leer', emoji: '📚'),
-      Habit(id: 'h3', name: 'Repasar', emoji: '✍️'),
+      Habit(id: 'h2', name: 'Leer 20 minutos', emoji: '📚'),
+      Habit(id: 'h3', name: 'Repasar la clase', emoji: '✍️'),
+      Habit(id: 'h4', name: 'Estirarme un ratito', emoji: '🧘‍♀️'),
     ]);
-    for (var i = 0; i < 14; i++) {
+    const moods = [Mood.great, Mood.good, Mood.meh, Mood.good, Mood.sad, Mood.great, Mood.tired, Mood.angry];
+    for (var i = 0; i < 26; i++) {
       final d = DateTime(now.year, now.month, now.day - i);
       if (d.month != now.month) break;
-      st = st.setDay(d, DayEntry(mood: Mood.values[i % 4], text: i == 0 ? 'Terminé el resumen de biología 🎉' : ''));
+      st = st.setDay(d, DayEntry(mood: moods[i % moods.length], text: i == 0 ? 'Terminé el resumen de biología 🎉' : ''));
       if (i % 3 != 2) st = st.toggle('h1', d);
       if (i.isEven) st = st.toggle('h2', d);
+      if (i > 0 && i % 4 != 0) st = st.toggle('h3', d);
     }
     SharedPreferences.setMockInitialValues({'journal.data': st.encode()});
     final prefs = await SharedPreferences.getInstance();
-    await _phoneSize(tester);
+    if (desktop) {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    } else {
+      await _phoneSize(tester);
+    }
     await tester.pumpWidget(_app(
       const JournalScreen(),
       overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
     ));
     await tester.pump();
+  }
+
+  Future<void> openHabits(WidgetTester tester) async {
+    await tester.tap(find.text('Hábitos'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
   }
 
   testWidgets('diario', (tester) async {
@@ -454,9 +472,19 @@ void main() {
 
   testWidgets('hábitos', (tester) async {
     await openJournal(tester);
-    await tester.tap(find.text('Hábitos'));
-    await tester.pumpAndSettle();
+    await openHabits(tester);
     await _shot(tester, '20_habitos');
+  });
+
+  testWidgets('diario en la compu', (tester) async {
+    await openJournal(tester, desktop: true);
+    await _shot(tester, '19b_diario_compu');
+  });
+
+  testWidgets('hábitos en la compu', (tester) async {
+    await openJournal(tester, desktop: true);
+    await openHabits(tester);
+    await _shot(tester, '20b_habitos_compu');
   });
 
   testWidgets('estudio', (tester) async {
