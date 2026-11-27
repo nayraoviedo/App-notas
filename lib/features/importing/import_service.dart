@@ -119,7 +119,14 @@ class ImportService {
     return files.length;
   }
 
-  Future<void> _addPage(String noteId, String imagePath, double w, double h) async {
+  /// Una imagen (por ejemplo una página de un PDF o una diapositiva) como
+  /// hoja nueva al final de la nota, para escribir encima. Devuelve su ruta.
+  Future<String> addPageImage(String noteId, String imagePath, double w, double h) async {
+    final copy = await _storage.importFile(imagePath, folder: 'pages');
+    return _addPage(noteId, copy, w, h);
+  }
+
+  Future<String> _addPage(String noteId, String imagePath, double w, double h) async {
     final drawing = Drawing(
       width: Drawing.a4Width,
       height: Drawing.a4Width * h / w, // misma proporción que la página
@@ -132,6 +139,7 @@ class ImportService {
     final jsonPath = await _storage.newDrawingPath();
     await _drawings.save(jsonPath, drawing);
     await _notes.addDrawingBlock(noteId, jsonPath);
+    return jsonPath;
   }
 
   static Future<Size> _imageSize(String path) async {

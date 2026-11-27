@@ -15,6 +15,7 @@ import '../features/notes/presentation/notes_list_screen.dart';
 import '../features/recording/presentation/recording_detail_screen.dart';
 import '../features/recording/presentation/recording_screen.dart';
 import '../features/video/presentation/video_notes_screen.dart';
+import '../features/reader/presentation/doc_notes_screen.dart';
 
 /// Argumentos para abrir un video en un minuto concreto.
 class VideoArgs {
@@ -95,6 +96,13 @@ final appRouter = GoRouter(
               builder: (context, state) => DrawingScreen(
                 noteId: state.pathParameters['id']!,
                 path: state.extra! as String,
+              ),
+            ),
+            GoRoute(
+              path: 'doc',
+              builder: (context, state) => DocNotesScreen(
+                noteId: state.pathParameters['id']!,
+                docPath: state.extra! as String,
               ),
             ),
             GoRoute(

@@ -1,9 +1,11 @@
+import '../../reader/presentation/doc_chooser.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -1122,6 +1124,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           : (Icons.photo_camera_outlined, 'Foto', 'photo'),
       (Icons.mic_none, recording ? 'Grabando…' : 'Grabar audio', 'rec'),
       (Icons.ondemand_video_outlined, 'Video y notas', 'video'),
+      (Icons.slideshow_outlined, 'PDF o diapositivas', 'doc'),
       (Icons.table_chart_outlined, 'Tabla', 'table'),
       (Icons.functions, 'Ecuación', 'eq'),
       (Icons.category_outlined, 'Formas', 'shapes'),
@@ -1176,6 +1179,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           await ctl.flush();
           if (!mounted) return;
           context.push('/notes/${widget.noteId}/video', extra: VideoArgs(videoPath: source, startMs: 0));
+        }
+      case 'doc':
+        final doc = await chooseDocument(context, ref, noteId: widget.noteId);
+        if (doc != null && mounted) {
+          await ctl.flush();
+          if (!mounted) return;
+          context.push('/notes/${widget.noteId}/doc', extra: doc);
         }
       case 'table':
         await _tableOrEquation(table: true);
@@ -2013,6 +2023,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     ));
   }
 
+  bool get _fitDuringBuild => SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks;
+
   Widget _canvas(DrawingController ctl) {
     return LayoutBuilder(
       builder: (context, c) {
@@ -2030,12 +2042,22 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               _fittedWidth = fitKey;
               final scale = (c.maxWidth - 16) / fitW;
               _fitScale = scale;
-              _transform.value = Matrix4.identity()
+              final m = Matrix4.identity()
                 ..setEntry(0, 0, scale)
                 ..setEntry(1, 1, scale)
                 ..setEntry(0, 3, 8)
                 // Con hojas seguidas: la hoja activa arriba de la pantalla.
                 ..setEntry(1, 3, 8 - _activeOffset * scale);
+              // Si la hoja cambia de tamaño mientras se dibuja la pantalla
+              // (por ejemplo al mover la raya en "PDF y notas"), se ajusta
+              // justo después: no se puede avisar en medio del dibujo.
+              if (_fitDuringBuild) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _transform.value = m;
+                });
+              } else {
+                _transform.value = m;
+              }
             }
             _viewport = Size(c.maxWidth, c.maxHeight);
             return Listener(
