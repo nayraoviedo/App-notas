@@ -16,6 +16,7 @@ import 'features/backup/backup_service.dart';
 import 'features/backup/drive_sync.dart';
 import 'features/notebooks/presentation/pick_notebook_sheet.dart';
 import 'features/planner/data/reminder_notifications.dart';
+import 'features/recording/application/recording_recovery.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
 import 'core/widgets/doodle_icon.dart';
@@ -39,6 +40,7 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
       _syncTimer = Timer.periodic(const Duration(minutes: 30), (_) => _syncUp());
     }
     _recoverLostPhoto();
+    _recoverRecordings();
     _setupShortcuts();
     _autoBackup();
     _setupWidgetAndWeekly();
@@ -226,6 +228,25 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
 
   /// Si Android cerró la app mientras la cámara estaba abierta, agrega la
   /// foto a la nota donde se estaba tomando.
+  /// Grabaciones que no llegaron a guardarse (Android cerró la app, se
+  /// apagó el celular…): se ponen en su nota.
+  Future<void> _recoverRecordings() async {
+    await Future<void>.delayed(const Duration(seconds: 2));
+    try {
+      final notes = await recoverInterruptedRecordings(ref.read(notesRepositoryProvider));
+      if (notes.isEmpty) return;
+      final context = appRouter.routerDelegate.navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 10),
+        content: Text(notes.length == 1
+            ? 'Se recuperó una grabación que no se había terminado de guardar 🎙️'
+            : 'Se recuperaron ${notes.length} grabaciones que no se habían terminado de guardar 🎙️'),
+        action: SnackBarAction(label: 'Ver', onPressed: () => appRouter.push('/notes/${notes.first}')),
+      ));
+    } catch (_) {}
+  }
+
   Future<void> _recoverLostPhoto() async {
     final lost = await ref.read(cameraServiceProvider).recoverLostPhoto();
     if (lost == null) return;

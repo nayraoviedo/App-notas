@@ -153,6 +153,14 @@ class NotesRepository {
         ),
       );
 
+  /// ¿Existe la nota? (para recuperar grabaciones a medias).
+  Future<bool> noteExists(String id) async =>
+      (await (_db.select(_db.notes)..where((n) => n.id.equals(id))).getSingleOrNull()) != null;
+
+  /// ¿Algún bloque usa este archivo?
+  Future<bool> fileInUse(String path) async =>
+      (await (_db.select(_db.blocks)..where((b) => b.filePath.equals(path))).get()).isNotEmpty;
+
   Future<String> addDrawingBlock(String noteId, String path) => _insertBlock(
         noteId,
         BlocksCompanion(type: const Value('drawing'), filePath: Value(path)),
