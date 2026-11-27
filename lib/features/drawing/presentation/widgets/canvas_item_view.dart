@@ -188,7 +188,14 @@ class EditableCanvasItem extends StatefulWidget {
     required this.pageKey,
     required this.onEditText,
     required this.onPointerDown,
+    this.onMoveStart,
+    this.onMoveEnd,
   });
+
+  /// Empieza y termina de arrastrarse (para llevarlo a otra hoja si se suelta
+  /// fuera del borde).
+  final VoidCallback? onMoveStart;
+  final void Function(String id)? onMoveEnd;
 
   final CanvasItem item;
   final DrawingController controller;
@@ -260,7 +267,10 @@ class _EditableCanvasItemState extends State<EditableCanvasItem> {
             if (p == null) return;
             widget.controller.beginItemChange();
             _grab = p - _center;
+            widget.onMoveStart?.call();
           },
+          onPanEnd: (_) => widget.onMoveEnd?.call(item.id),
+          onPanCancel: () => widget.onMoveEnd?.call(item.id),
           onPanUpdate: (d) {
             final p = _toPage(d.globalPosition);
             if (p == null) return;

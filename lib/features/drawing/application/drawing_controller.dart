@@ -43,6 +43,7 @@ class ToolSettings {
       ToolType.fountain => (0.55, 0.5),
       ToolType.pencil => (0.35, 0.35),
       ToolType.brush => (0.8, 0.6),
+      ToolType.marker => (0.3, 0.5),
       _ => (0.0, 0.5),
     };
 
@@ -53,10 +54,16 @@ class DrawingController extends ChangeNotifier {
   Drawing _drawing;
   Drawing get drawing => _drawing;
 
+  /// La tapa del cuaderno no se raya: ni trazos, ni textos, ni fotos.
+  bool get readOnly => _drawing.paper.template == PaperTemplate.cover;
+
   /// Se llama (con retraso) después de cada cambio, para guardar en disco.
   final Future<void> Function(Drawing)? onSave;
   Timer? _saveTimer;
   bool _dirty = false;
+
+  /// Hay cambios sin guardar todavía.
+  bool get isDirty => _dirty;
 
   // ------------------------------------------------------------ Herramientas
 
@@ -283,6 +290,64 @@ class DrawingController extends ChangeNotifier {
     _redo.clear();
   }
 
+  /// Deja elegido solo ese elemento, como si se hubiera tomado con el lazo
+  /// (para llevarlo a otra hoja).
+  void selectForMove(String id) {
+    final found = findItem(id);
+    if (found == null) return;
+    _active = found.$1;
+    selectedStrokes = {};
+    selectedItems = {id};
+    selectedItemId = null;
+    notifyListeners();
+  }
+
+  /// Quita de esta hoja lo elegido con el lazo y lo devuelve (para llevarlo
+  /// a otra hoja). Se puede deshacer.
+  (List<Stroke>, List<CanvasItem>) takeSelection() {
+    if (!hasStrokeSelection) return (const [], const []);
+    final strokes = [
+      for (final k in selectedStrokes)
+        if (k < activeLayer.strokes.length) activeLayer.strokes[k],
+    ];
+    final items = _selItems.toList();
+    deleteSelection();
+    return (strokes, items);
+  }
+
+  /// Agrega trazos y elementos (traídos de otra hoja) a la capa activa, o a
+  /// la primera que se pueda usar, y los deja elegidos con el lazo.
+  void addContent(List<Stroke> strokes, List<CanvasItem> items) {
+    if (readOnly || (strokes.isEmpty && items.isEmpty)) return;
+    var li = activeLayerIndex;
+    if (!canDrawOnActiveLayer) {
+      li = _drawing.layers.indexWhere((l) => l.visible && !l.locked);
+      if (li < 0) return;
+      _active = li;
+    }
+    _commit(() {
+      final layers = [..._drawing.layers];
+      final start = layers[li].strokes.length;
+      layers[li] = layers[li].copyWith(
+        strokes: [...layers[li].strokes, ...strokes],
+        items: [...layers[li].items, ...items],
+      );
+      _drawing = _drawing.copyWith(layers: layers);
+      selectedStrokes = {for (var k = 0; k < strokes.length; k++) start + k};
+      selectedItems = {for (final it in items) it.id};
+    });
+  }
+
+  /// Copia de un trazo movido (para llevarlo a otra hoja).
+  static Stroke shiftedStroke(Stroke s, Offset delta) => Stroke(
+        tool: s.tool,
+        color: s.color,
+        size: s.size,
+        thinning: s.thinning,
+        streamline: s.streamline,
+        points: [for (final p in s.points) StrokePoint(p.x + delta.dx, p.y + delta.dy, p.p)],
+      );
+
   void updateItem(String id, CanvasItem Function(CanvasItem) change,
       {bool undoable = true}) {
     final found = findItem(id);
@@ -318,6 +383,7 @@ class DrawingController extends ChangeNotifier {
   }
 
   void duplicateItem(String id) {
+    if (readOnly) return;
     final it = findItem(id)?.$2;
     if (it == null) return;
     final copy = CanvasItem.fromJson({
@@ -421,14 +487,14 @@ class DrawingController extends ChangeNotifier {
 
   Stroke? currentStroke;
 
-  bool get canDrawOnActiveLayer => activeLayer.visible && !activeLayer.locked;
+  bool get canDrawOnActiveLayer => !readOnly && activeLayer.visible && !activeLayer.locked;
 
   /// True si el trazo actual ya se convirtió en figura (se ignoran más puntos).
   bool _snapped = false;
 
   /// [sizeScale] < 1 hace el trazo más fino (por ejemplo, con zoom alto).
   void startStroke(Offset at, double? pressure, {double sizeScale = 1}) {
-    if (tool != ToolType.eraser && !canDrawOnActiveLayer) return;
+    if (readOnly || (tool != ToolType.eraser && !canDrawOnActiveLayer)) return;
     _snapped = false;
     if (tool == ToolType.eraser) {
       // Borrador por área: corta los trazos justo donde pasa (no pinta
@@ -576,6 +642,7 @@ class DrawingController extends ChangeNotifier {
   }
 
   void beginLasso(Offset at) {
+    if (readOnly) return;
     lasso = [at];
     selectedStrokes = {};
     selectedItems = {};
@@ -704,7 +771,7 @@ class DrawingController extends ChangeNotifier {
   }
 
   void duplicateSelection() {
-    if (!hasStrokeSelection) return;
+    if (readOnly || !hasStrokeSelection) return;
     _commit(() {
       final i = activeLayerIndex;
       final layers = [..._drawing.layers];
@@ -743,6 +810,7 @@ class DrawingController extends ChangeNotifier {
   /// todas las capas visibles y sin candado (no solo la activa: si no, un
   /// trazo de otra capa "no se deja borrar").
   void _eraseArea(Offset a, Offset b) {
+    if (readOnly) return;
     final r = _eraserRadius;
     final hit = Rect.fromPoints(a, b).inflate(r);
     var changed = false;
@@ -839,6 +907,7 @@ class DrawingController extends ChangeNotifier {
   /// Borra los trazos enteros que pasen cerca de [at] (en todas las capas
   /// visibles y sin candado).
   void eraseStrokesAt(Offset at, {double radius = 14}) {
+    if (readOnly) return;
     var changed = false;
     final layers = [..._drawing.layers];
     for (var li = 0; li < layers.length; li++) {

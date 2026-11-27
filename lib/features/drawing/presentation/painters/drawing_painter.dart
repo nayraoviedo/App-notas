@@ -6,10 +6,11 @@ import 'stroke_renderer.dart';
 
 /// Pinta los trazos de UNA capa dentro de su propio "saveLayer", así el
 /// borrador y la opacidad solo afectan a esa capa.
-void paintLayer(Canvas canvas, Size size, DrawingLayer layer, {Stroke? live}) {
+void paintLayer(Canvas canvas, Size size, DrawingLayer layer, {Stroke? live, bool clip = true}) {
   if (!layer.visible) return;
   if (layer.strokes.isEmpty && live == null) return;
-  final bounds = Offset.zero & size;
+  // Sin recorte, la capa abarca también lo que se sale de la hoja.
+  final bounds = clip ? Offset.zero & size : (Offset.zero & size).inflate(size.longestSide);
   canvas.saveLayer(bounds, Paint()..color = Color.fromRGBO(0, 0, 0, layer.opacity));
   for (final s in layer.strokes) {
     StrokeRenderer.paint(canvas, s);
@@ -43,20 +44,25 @@ void paintLayers(
 
 /// Trazos de una capa en edición (se repinta con cada punto nuevo).
 class LayerPainter extends CustomPainter {
-  LayerPainter(this.controller, this.index) : super(repaint: controller);
+  LayerPainter(this.controller, this.index, {this.clip = true}) : super(repaint: controller);
   final DrawingController controller;
   final int index;
+
+  /// false mientras se arrastra algo con el lazo hacia otra hoja (para que
+  /// se vea fuera del borde).
+  final bool clip;
 
   @override
   void paint(Canvas canvas, Size size) {
     final layers = controller.drawing.layers;
     if (index >= layers.length) return;
-    canvas.clipRect(Offset.zero & size);
+    if (clip) canvas.clipRect(Offset.zero & size);
     paintLayer(
       canvas,
       size,
       layers[index],
       live: index == controller.activeLayerIndex ? controller.currentStroke : null,
+      clip: clip,
     );
     // Círculo del borrador por área, para ver qué se va a borrar.
     final at = controller.eraserAt;
@@ -76,7 +82,7 @@ class LayerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(LayerPainter old) =>
-      old.controller != controller || old.index != index;
+      old.controller != controller || old.index != index || old.clip != clip;
 }
 
 /// Trazos de una capa, solo lectura (miniaturas).

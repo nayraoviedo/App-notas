@@ -145,8 +145,20 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     _viewDebounce?.cancel();
     _viewDebounce = Timer(const Duration(milliseconds: 260), () {
       if (!mounted || _drawingPointer != null || _editing != null || _viewport == Size.zero) return;
+      if (_movingSel || _lassoing || _transferring || _draggingItem) return;
       final pages = _stack;
       if (pages.length < 2) return;
+      // Mientras la hoja activa se siga viendo bien, sigue siendo la activa:
+      // así "deshacer" actúa en la hoja donde se acaba de escribir y no en
+      // la de al lado que quedó en el centro.
+      final top = _transform.toScene(Offset.zero).dy;
+      final bottom = _transform.toScene(Offset(0, _viewport.height)).dy;
+      final i = _pageIndex;
+      if (i >= 0) {
+        final a = _offsetOf(i), b = a + _sizeOf(pages[i]).height;
+        final seen = math.min(b, bottom) - math.max(a, top);
+        if (seen >= (bottom - top) * 0.35 || (a >= top && b <= bottom)) return;
+      }
       final y = _transform.toScene(Offset(_viewport.width / 2, _viewport.height * 0.45)).dy;
       var target = pages.length - 1;
       for (var i = 0; i < pages.length; i++) {
@@ -330,7 +342,18 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   /// tirar o deslizar, aunque se esté dibujando con el dedo.
   /// La portada del cuaderno no se raya: ahí el dedo o el mouse solo
   /// desplazan, como en el fondo gris.
-  bool get _onCover => _ctl?.drawing.paper.template == PaperTemplate.cover;
+  bool get _onCover => _ctl?.readOnly ?? false;
+
+  /// Por qué no se puede agregar nada aquí (tapa o capa bloqueada).
+  void _cantDrawHint(DrawingController ctl) {
+    if (ctl.readOnly) {
+      _coverHint();
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('La capa activa está oculta o bloqueada')));
+  }
 
   void _coverHint() {
     ScaffoldMessenger.of(context)
@@ -497,14 +520,31 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   /// Deshacer de cada hoja, para no perderlo al pasar de hoja y volver.
   final _histories = <String, (List<Drawing>, List<Drawing>, Drawing)>{};
 
-  Future<void> _load(String path, {bool keepView = false}) async {
+  /// Cambios de hoja, uno por vez: si se piden dos seguidos (por ejemplo,
+  /// dos dedos que tocan otra hoja), se mezclaban y el deshacer o la vista
+  /// previa de una hoja quedaban con los de otra.
+  Future<void> _loadChain = Future.value();
+  String? _wanted;
+
+  Future<void> _load(String path, {bool keepView = false}) {
+    _wanted = path;
+    final f = _loadChain.then((_) => _doLoad(path, keepView: keepView));
+    _loadChain = f.catchError((Object _) {});
+    return f;
+  }
+
+  Future<void> _doLoad(String path, {required bool keepView}) async {
+    // Ya se pidió otra hoja después de esta, o ya es la activa.
+    if (!mounted || _wanted != path) return;
+    if (_ctl != null && path == _path) return;
     if (_editing != null) _commitEditing();
     final old = _ctl;
+    final oldPath = _path;
     if (old != null) {
       await old.flush();
-      ref.invalidate(drawingFileProvider(_path));
-      unawaited(_indexHandwriting(_path, old.drawing));
-      _histories[_path] = old.history;
+      ref.invalidate(drawingFileProvider(oldPath));
+      unawaited(_indexHandwriting(oldPath, old.drawing));
+      _histories[oldPath] = old.history;
     }
     final store = ref.read(drawingStoreProvider);
     final drawing = await store.load(path);
@@ -525,7 +565,16 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       final h = _histories[path];
       if (h != null) _ctl!.restoreHistory(h);
     });
-    old?.dispose();
+    if (old != null) {
+      // Por si se alcanzó a escribir algo mientras se abría la otra hoja.
+      final wasDirty = old.isDirty;
+      await old.flush();
+      if (wasDirty && mounted) {
+        _histories[oldPath] = old.history;
+        ref.invalidate(drawingFileProvider(oldPath));
+      }
+      old.dispose();
+    }
   }
 
   @override
@@ -774,11 +823,16 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       if (_lassoing) {
         moved ? ctl.endLasso() : ctl.clearStrokeSelection();
       }
+      final wasMoving = _movingSel;
       _lassoing = false;
       _movingSel = false;
       _moveLast = null;
       _tapStart = null;
       _pointerOnItem = false;
+      if (wasMoving) {
+        setState(() {}); // volver a recortar en el borde de la hoja
+        unawaited(_moveSelectionToNeighbor());
+      }
       return;
     }
     if (ctl.mode == InputMode.text || ctl.mode == InputMode.select) {
@@ -815,6 +869,147 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       _drawingPointer = null;
       _ctl!.cancelStroke();
     }
+  }
+
+  /// Si lo elegido con el lazo se soltó más allá del borde de abajo (o de
+  /// arriba) de la hoja, pasa a la hoja siguiente (o anterior), en el mismo
+  /// lugar donde se soltó. Al final del cuaderno se agrega una hoja nueva.
+  Future<void> _moveSelectionToNeighbor() async {
+    final ctl = _ctl;
+    final b = ctl?.selectionBounds;
+    if (ctl == null || b == null) return;
+    final d = ctl.drawing;
+    if (d.infinite) return;
+    final dir = b.center.dy > d.height ? 1 : (b.center.dy < 0 ? -1 : 0);
+    if (dir == 0) return;
+    final pages = _pages;
+    final i = _pageIndex;
+    if (i < 0) return;
+    final t = i + dir;
+    // No hay hoja antes (o es la tapa): devolverlo dentro de la hoja.
+    void keepInside() {
+      final fix = _fitInside(b, d);
+      if (fix != Offset.zero) ctl.moveSelection(fix);
+    }
+
+    if (t < 0) {
+      keepInside();
+      return;
+    }
+    final store = ref.read(drawingStoreProvider);
+    _viewDebounce?.cancel();
+    _transferring = true;
+    try {
+      if (t >= pages.length) {
+        // Más abajo de la última hoja: agregar una nueva y pasar ahí.
+        final (strokes, items) = ctl.takeSelection();
+        await _addPage(copy: false);
+        final c = _ctl!;
+        final (s2, i2) = _shift(strokes, items, Offset(0, -(d.height + _gap)), c.drawing);
+        if (identical(c, ctl)) {
+          // No se pudo crear la hoja: devolverlo donde estaba.
+          ctl.undo();
+          return;
+        }
+        c.addContent(s2, i2);
+        _afterMove();
+        return;
+      }
+      final targetPath = pages[t].path;
+      final target = await store.load(targetPath);
+      if (target.paper.template == PaperTemplate.cover) {
+        keepInside();
+        _coverHint();
+        return;
+      }
+      final dy = dir > 0 ? -(d.height + _gap) : target.height + _gap;
+      final (strokes, items) = ctl.takeSelection();
+      final (s2, i2) = _shift(strokes, items, Offset(0, dy), target);
+      await _load(targetPath, keepView: _vertical);
+      final c = _ctl;
+      if (_path == targetPath && c != null && !identical(c, ctl)) {
+        c.addContent(s2, i2);
+        _afterMove();
+      } else {
+        // Se abrió otra hoja mientras tanto: se guarda directo en el archivo.
+        final fresh = await store.load(targetPath);
+        final layers = [...fresh.layers];
+        final li = layers.lastIndexWhere((l) => l.visible && !l.locked);
+        final k = li < 0 ? layers.length - 1 : li;
+        layers[k] = layers[k].copyWith(
+            strokes: [...layers[k].strokes, ...s2], items: [...layers[k].items, ...i2]);
+        await store.save(targetPath, fresh.copyWith(layers: layers));
+        _histories.remove(targetPath);
+        if (mounted) ref.invalidate(drawingFileProvider(targetPath));
+      }
+    } finally {
+      _transferring = false;
+    }
+  }
+
+  bool _transferring = false;
+
+  /// Cuánto hay que correr [r] para que quede dentro de la hoja [d].
+  static Offset _fitInside(Rect r, Drawing d) {
+    double fit(double lo, double hi, double max) {
+      if (hi - lo >= max) return -lo + (max - (hi - lo)) / 2;
+      if (lo < 0) return -lo;
+      if (hi > max) return max - hi;
+      return 0;
+    }
+
+    return Offset(fit(r.left, r.right, d.width), fit(r.top, r.bottom, d.height));
+  }
+
+  /// Se está arrastrando un texto, foto, sticker o figura.
+  bool _draggingItem = false;
+
+  /// Mientras se arrastra algo, lo que sale de la hoja se sigue viendo.
+  bool get _unclipped => _movingSel || _draggingItem;
+
+  void _itemMoveEnded(String id) {
+    if (!_draggingItem) return;
+    _draggingItem = false;
+    final ctl = _ctl;
+    final it = ctl?.findItem(id)?.$2;
+    if (ctl == null || it == null) {
+      setState(() {});
+      return;
+    }
+    final d = ctl.drawing;
+    if (!d.infinite && (it.y > d.height || it.y < 0)) {
+      ctl.selectForMove(id);
+      unawaited(_moveSelectionToNeighbor());
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _afterMove() {
+    final c = _ctl;
+    if (c == null) return;
+    if (c.mode != InputMode.select) c.selectMode(InputMode.select);
+    HapticFeedback.selectionClick();
+  }
+
+  /// Corre los trazos y elementos [delta] y, si aun así quedan fuera de
+  /// la hoja [to], los mete adentro.
+  (List<Stroke>, List<CanvasItem>) _shift(
+      List<Stroke> strokes, List<CanvasItem> items, Offset delta, Drawing to) {
+    Rect? r;
+    for (final s in strokes) {
+      final b = s.bounds.shift(delta);
+      r = r == null ? b : r.expandToInclude(b);
+    }
+    for (final it in items) {
+      final b = DrawingController.itemRect(it).shift(delta);
+      r = r == null ? b : r.expandToInclude(b);
+    }
+    final total = delta + (r == null ? Offset.zero : _fitInside(r, to));
+    return (
+      [for (final s in strokes) DrawingController.shiftedStroke(s, total)],
+      [for (final it in items) it.moved(x: it.x + total.dx, y: it.y + total.dy)],
+    );
   }
 
   // ---------------------------------------------------------------- Interfaz
@@ -1818,8 +2013,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   void _placeAndSelect(CanvasItem item) {
     final ctl = _ctl!;
     if (!ctl.canDrawOnActiveLayer) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('La capa activa está oculta o bloqueada')));
+      _cantDrawHint(ctl);
       return;
     }
     ctl.addItem(item);
@@ -2082,6 +2276,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                 key: _pageKey,
                 width: d.width,
                 height: d.height,
+                // Con varias hojas a la vista, un borde suave marca la hoja
+                // activa: ahí actúan deshacer, rehacer y lo que se inserta.
+                foregroundDecoration: _stack.length > 1
+                    ? BoxDecoration(border: Border.all(color: const Color(0x661E8CB4), width: 3))
+                    : null,
                 decoration: const BoxDecoration(
                   boxShadow: [BoxShadow(blurRadius: 8, color: Colors.black26)],
                 ),
@@ -2112,7 +2311,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                                     d.layers[i].locked ||
                                     ctl.hasStrokeSelection,
                                 child: Stack(
-                                  clipBehavior: Clip.hardEdge,
+                                  clipBehavior: _unclipped ? Clip.none : Clip.hardEdge,
                                   children: [
                                     for (final it in d.layers[i].items)
                                       if (it.id != _editing?.id)
@@ -2123,6 +2322,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                                         pageKey: _pageKey,
                                         onEditText: _editText,
                                         onPointerDown: () => _pointerOnItem = true,
+                                        onMoveStart: () => _draggingItem = true,
+                                        onMoveEnd: _itemMoveEnded,
                                       ),
                                   ],
                                 ),
@@ -2131,7 +2332,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                           // Los trazos no tapan los toques a fotos y textos.
                           IgnorePointer(
                             child: RepaintBoundary(
-                              child: CustomPaint(painter: LayerPainter(ctl, i)),
+                              child: CustomPaint(painter: LayerPainter(ctl, i, clip: !_unclipped)),
                             ),
                           ),
                         ],
@@ -2163,24 +2364,52 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       return Column(mainAxisSize: MainAxisSize.min, children: [active, _footer(ctl.drawing.width)]);
     }
     final fallback = Size(ctl.drawing.width, ctl.drawing.height);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final (k, p) in pages.indexed) ...[
-          if (k > 0) const SizedBox(height: _gap),
-          if (k == i)
-            active
-          else
-            _StaticPage(
-              key: ValueKey(p.path),
-              path: p.path,
-              fallback: fallback,
-              detailed: (k - i).abs() <= 3,
-              onTap: () => _load(p.path, keepView: true),
-            ),
+    // Las hojas van una bajo otra, pero la activa se pinta al final (encima):
+    // así lo que se arrastra con el lazo hacia la hoja de abajo o de arriba
+    // se sigue viendo mientras se mueve.
+    final sizes = [for (final p in pages) _sizeOf(p)];
+    final width = sizes.fold<double>(ctl.drawing.width, (w, s) => math.max(w, s.width));
+    final tops = <double>[];
+    var y = 0.0;
+    for (final s in sizes) {
+      tops.add(y);
+      y += s.height + _gap;
+    }
+    final footerTop = y - _gap;
+    Widget at(int k, Widget child) => Positioned(
+          key: ValueKey('page-${pages[k].path}'),
+          top: tops[k],
+          left: (width - sizes[k].width) / 2,
+          width: sizes[k].width,
+          height: sizes[k].height,
+          child: child,
+        );
+    return SizedBox(
+      width: width,
+      height: footerTop + _footerH,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (final (k, p) in pages.indexed)
+            if (k != i)
+              at(
+                k,
+                _StaticPage(
+                  key: ValueKey(p.path),
+                  path: p.path,
+                  fallback: fallback,
+                  detailed: (k - i).abs() <= 3,
+                  onTap: () => _load(p.path, keepView: true),
+                ),
+              ),
+          Positioned(
+            top: footerTop,
+            left: (width - ctl.drawing.width) / 2,
+            child: _footer(ctl.drawing.width),
+          ),
+          at(i, active),
         ],
-        _footer(ctl.drawing.width),
-      ],
+      ),
     );
   }
 
@@ -2376,8 +2605,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   Future<void> _addImage({required bool camera, String? fromPath}) async {
     final ctl = _ctl!;
     if (!ctl.canDrawOnActiveLayer) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('La capa activa está oculta o bloqueada')));
+      _cantDrawHint(ctl);
       return;
     }
     final path = fromPath ?? await pickAndCropImage(context, ref, camera: camera, forNoteId: widget.noteId);

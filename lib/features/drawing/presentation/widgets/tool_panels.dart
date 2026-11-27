@@ -731,7 +731,6 @@ class PenPanel extends StatelessWidget {
         final t = c.tool;
         final s = c.settings;
         final (defPressure, defStab) = defaultFeel(t);
-        final flat = t == ToolType.marker;
         return PanelCard(
           title: t.label,
           child: SingleChildScrollView(
@@ -767,12 +766,12 @@ class PenPanel extends StatelessWidget {
                 ),
                 _SliderRow(
                   label: 'Sensibilidad a la presión',
-                  valueLabel: flat ? '—' : '${((s.pressure ?? defPressure) * 100).round()}%',
-                  value: flat ? 0 : (s.pressure ?? defPressure),
+                  valueLabel: '${((s.pressure ?? defPressure) * 100).round()}%',
+                  value: s.pressure ?? defPressure,
                   min: 0,
                   max: 1,
                   divisions: 10,
-                  onChanged: flat ? null : (v) => c.setFeel(pressure: v),
+                  onChanged: (v) => c.setFeel(pressure: v),
                 ),
                 _SliderRow(
                   label: 'Espesor',
