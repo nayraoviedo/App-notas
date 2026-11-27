@@ -56,7 +56,7 @@ class SettingsScreen extends ConsumerWidget {
     final path = picked?.files.single.path;
     if (path == null || !context.mounted) return;
     try {
-      final n = await BackupService.prepareRestore(path, ref.read(sharedPreferencesProvider));
+      final n = await BackupService.prepareRestore(path);
       if (!context.mounted) return;
       await showDialog<void>(
         context: context,

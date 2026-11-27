@@ -24,10 +24,40 @@ class MainActivity : FlutterActivity() {
                         result.success(pending)
                         pending = null
                     }
+                    // Grabar con la pantalla apagada: aviso fijo "Kumo está grabando".
+                    "recordingStart" -> {
+                        try {
+                            KumoRecordingService.start(
+                                applicationContext,
+                                call.argument<String>("title") ?: "Kumo está grabando",
+                                call.argument<String>("text") ?: "Toca para volver a la grabación",
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "recordingStop" -> {
+                        try {
+                            KumoRecordingService.stop(applicationContext)
+                        } catch (e: Exception) {
+                        }
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
         }
+    }
+
+    // Mientras se graba, "atrás" en la primera pantalla no cierra Kumo (eso
+    // cortaría la grabación): solo lo manda al fondo, como el botón de inicio.
+    override fun popSystemNavigator(): Boolean {
+        if (KumoRecordingService.running) {
+            moveTaskToBack(true)
+            return true
+        }
+        return super.popSystemNavigator()
     }
 
     override fun onNewIntent(intent: Intent) {

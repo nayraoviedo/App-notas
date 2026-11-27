@@ -84,6 +84,9 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
     if (_syncing) return;
     _syncing = true;
     try {
+      // Después de "Traer cambios" la app se cierra; hasta que se vuelva a
+      // abrir, lo de aquí es lo viejo y no se sube.
+      if (await BackupService.hasPendingRestore()) return;
       await DriveSync.instance.syncUpIfDue(ref.read(sharedPreferencesProvider));
     } catch (_) {
       // Sin internet, sin espacio o sin permiso: se intenta la próxima vez.
@@ -96,6 +99,9 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
   Future<void> _autoBackup() async {
     await Future<void>.delayed(const Duration(seconds: 6)); // que la app abra rápido
     final prefs = ref.read(sharedPreferencesProvider);
+    try {
+      if (await BackupService.hasPendingRestore()) return;
+    } catch (_) {}
     // ¿Hay cambios más nuevos desde el otro aparato? Preguntar si traerlos.
     try {
       final newer = await DriveSync.instance.newerFromOtherDevice(prefs);
