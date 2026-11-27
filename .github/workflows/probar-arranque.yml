@@ -74,6 +74,8 @@ jobs:
             grep -n "flutter" logcat.txt | head -80 || true
             echo "== plugins que no se pudieron registrar =="
             grep -n -A30 "Error registering plugin" logcat.txt | head -200 || true
+            adb exec-out screencap -p > pantalla.png || true
+            if grep -q "Error registering plugin" logcat.txt; then echo "HAY PLUGINS SIN REGISTRAR"; exit 1; fi
             adb shell pidof com.appnotas.app_notas && echo "SIGUE ABIERTA" || echo "SE CERRO"
             adb exec-out screencap -p > pantalla.png || true
       - uses: actions/upload-artifact@v4
