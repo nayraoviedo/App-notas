@@ -269,7 +269,7 @@ void main() {
 
   testWidgets('panel de plumas', (tester) async {
     await openDrawing(tester);
-    await tester.tap(find.byTooltip('Bolígrafo')); // ya elegida: abre el panel
+    await tester.longPress(find.byTooltip('Bolígrafo')); // apretado: abre el panel
     await tester.pump();
     await tester.tap(find.byTooltip('Pluma estilográfica'));
     await _shot(tester, '07_plumas');
