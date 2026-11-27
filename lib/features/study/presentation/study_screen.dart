@@ -12,6 +12,7 @@ import '../../notes/domain/note.dart';
 import '../../settings/settings.dart';
 import '../../summary/data/llm_clients.dart';
 import '../domain/flashcard.dart';
+import 'import_flashcards_dialog.dart';
 import '../../../core/widgets/study_timer.dart';
 
 /// Modelos de IA con clave guardada, en el orden de preferencia.
@@ -89,6 +90,11 @@ class StudyScreen extends ConsumerWidget {
           actions: [
             const StudyTimerButton(),
             IconButton(
+              tooltip: 'Importar preguntas y respuestas',
+              icon: const Icon(Icons.playlist_add),
+              onPressed: () => showImportFlashcards(context, ref),
+            ),
+            IconButton(
               tooltip: 'Modo examen',
               icon: const Icon(Icons.quiz_outlined),
               onPressed: () => context.push('/exam'),
@@ -142,7 +148,7 @@ class _ReviewState extends ConsumerState<_Review> {
             children: [
               CatMascot(kind: CatKind.gray, size: 100),
               SizedBox(height: 12),
-              Text('¡Nada que repasar por ahora! 🎉\nCrea tarjetas con el botón + o desde tus notas de texto.',
+              Text('¡Nada que repasar por ahora! 🎉\nCrea tarjetas con el botón +, desde tus notas de texto o impórtalas con el botón de la lista arriba.',
                   textAlign: TextAlign.center),
             ],
           ),
