@@ -27,6 +27,7 @@ PERMISSIONS = """
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -69,6 +70,9 @@ if "POST_NOTIFICATIONS" not in s:
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 """ + s[i:]
+if "WAKE_LOCK" not in s:
+    i = s.index(">", s.index("<manifest")) + 1
+    s = s[:i] + '\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n' + s[i:]
 MANIFEST.write_text(s)
 
 g = GRADLE.read_text()
@@ -175,7 +179,7 @@ if WIDGET.exists():
     for java in Path("android/app/src/main").rglob("MainActivity.java"):
         java.unlink()
     kdir.mkdir(parents=True, exist_ok=True)
-    for name in ("MainActivity.kt", "KumoWidget.kt"):
+    for name in ("MainActivity.kt", "KumoWidget.kt", "KumoRecordService.kt"):
         code = (WIDGET / "kotlin" / name).read_text().replace("package com.appnotas.app_notas", f"package {pkg}", 1)
         (kdir / name).write_text(code)
     s = MANIFEST.read_text()
@@ -190,6 +194,15 @@ if WIDGET.exists():
 """
         i = s.index(">", s.index("<application")) + 1
         s = s[:i] + receiver + s[i:]
+        MANIFEST.write_text(s)
+    # Servicio para seguir grabando con la pantalla apagada.
+    s = MANIFEST.read_text()
+    if "KumoRecordService" not in s:
+        service = """
+        <service android:name=".KumoRecordService" android:exported="false" android:foregroundServiceType="microphone" />
+"""
+        i = s.index(">", s.index("<application")) + 1
+        s = s[:i] + service + s[i:]
         MANIFEST.write_text(s)
     print("Widget de inicio listo")
 

@@ -21,6 +21,7 @@ import '../data/wav_writer.dart';
 import '../../../core/platform_info.dart';
 import '../data/pcm_resample.dart';
 import 'recording_recovery.dart' show recordingJournalPath;
+import '../../../core/home_widget.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
 
@@ -164,6 +165,9 @@ class RecordingController extends Notifier<RecordingState> {
     }
     final recorder = AudioRecorder();
     _recorder = recorder;
+    // Antes de abrir el micrófono: aviso de "grabando" para que Android no
+    // lo silencie ni cierre la app con la pantalla apagada.
+    if (isPhone) await HomeWidget.recordingStarted();
 
     final path = await ref.read(fileStorageProvider).newAudioPath();
     // Alta calidad: se guarda a 48 kHz; para transcribir y detectar voces
@@ -202,12 +206,22 @@ class RecordingController extends Notifier<RecordingState> {
       (s) => state = state.copyWith(pendingSpeakerChange: s),
     );
 
-    final raw = (await recorder.startStream(RecordConfig(
-      encoder: AudioEncoder.pcm16bits,
-      sampleRate: rate,
-      numChannels: 1,
-    )))
-        .asBroadcastStream();
+    final Stream<Uint8List> raw;
+    try {
+      raw = (await recorder.startStream(RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: rate,
+        numChannels: 1,
+      )))
+          .asBroadcastStream();
+    } catch (_) {
+      // El micrófono no abrió: no dejar el aviso de "grabando" ni el diario.
+      _dropJournal();
+      await _wav?.close();
+      await ref.read(fileStorageProvider).deleteIfExists(_wav?.path);
+      await _cleanupSafe();
+      rethrow;
+    }
     final ds = hq ? Downsampler3() : null;
     final pcm = ds == null ? raw : raw.map(ds.add).asBroadcastStream();
 
@@ -468,6 +482,7 @@ class RecordingController extends Notifier<RecordingState> {
   }
 
   Future<void> _cleanup() async {
+    unawaited(HomeWidget.recordingStopped());
     await _suggestionSub?.cancel();
     await _tracker?.dispose();
     await _recorder?.dispose();

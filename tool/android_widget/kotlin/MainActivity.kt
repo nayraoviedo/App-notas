@@ -20,6 +20,18 @@ class MainActivity : FlutterActivity() {
                         KumoWidget.refreshAll(applicationContext)
                         result.success(null)
                     }
+                    "recordStart" -> {
+                        try {
+                            KumoRecordService.start(applicationContext)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "recordStop" -> {
+                        KumoRecordService.stop(applicationContext)
+                        result.success(null)
+                    }
                     "takeAction" -> {
                         result.success(pending)
                         pending = null

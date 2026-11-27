@@ -17,6 +17,20 @@ class HomeWidget {
     }
   }
 
+  /// Android: aviso "Kumo está grabando" (servicio en primer plano) para
+  /// que el micrófono siga con la pantalla apagada o en otra app.
+  static Future<void> recordingStarted() async {
+    try {
+      await _channel.invokeMethod<Object?>('recordStart');
+    } catch (_) {}
+  }
+
+  static Future<void> recordingStopped() async {
+    try {
+      await _channel.invokeMethod<Object?>('recordStop');
+    } catch (_) {}
+  }
+
   /// [onAction] recibe "nota", "grabar", "pendientes" o "abrir" cuando se
   /// toca un botón del widget (al abrir la app o con la app ya abierta).
   static Future<void> listen(void Function(String action) onAction) async {
