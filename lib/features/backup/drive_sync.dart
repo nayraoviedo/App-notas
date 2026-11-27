@@ -185,36 +185,39 @@ class DriveSync {
     onStatus?.call('Preparando la copia…');
     final path = await BackupService.create(prefs);
     final file = File(path);
-    final size = await file.length();
-    onStatus?.call('Subiendo a Google Drive (${(size / 1048576).toStringAsFixed(1)} MB)…');
+    try {
+      final size = await file.length();
+      onStatus?.call('Subiendo a Google Drive (${(size / 1048576).toStringAsFixed(1)} MB)…');
 
-    // Subida "reanudable": primero los datos del archivo, luego el contenido.
-    final start = await http.post(
-      Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'),
-      headers: {
-        ..._h(token),
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': 'application/octet-stream',
-        'X-Upload-Content-Length': '$size',
-      },
-      body: jsonEncode({
-        'name': _name,
-        'parents': ['appDataFolder'],
-        // Qué aparato la subió (para avisar en el otro que hay cambios).
-        'appProperties': {'device': deviceId(prefs), 'from': _deviceName},
-      }),
-    );
-    _check(start);
-    final url = start.headers['location'];
-    if (url == null) throw const DriveException('Google Drive no aceptó la subida.');
-    final req = http.StreamedRequest('PUT', Uri.parse(url))
-      ..headers['Content-Length'] = '$size'
-      ..headers['Content-Type'] = 'application/octet-stream'
-      ..contentLength = size;
-    unawaited(file.openRead().pipe(req.sink));
-    final res = await http.Response.fromStream(await req.send().timeout(const Duration(minutes: 30)));
-    _check(res);
-    await file.delete().catchError((_) => file);
+      // Subida "reanudable": primero los datos del archivo, luego el contenido.
+      final start = await http.post(
+        Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'),
+        headers: {
+          ..._h(token),
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': 'application/octet-stream',
+          'X-Upload-Content-Length': '$size',
+        },
+        body: jsonEncode({
+          'name': _name,
+          'parents': ['appDataFolder'],
+          // Qué aparato la subió (para avisar en el otro que hay cambios).
+          'appProperties': {'device': deviceId(prefs), 'from': _deviceName},
+        }),
+      );
+      _check(start);
+      final url = start.headers['location'];
+      if (url == null) throw const DriveException('Google Drive no aceptó la subida.');
+      final req = http.StreamedRequest('PUT', Uri.parse(url))
+        ..headers['Content-Length'] = '$size'
+        ..headers['Content-Type'] = 'application/octet-stream'
+        ..contentLength = size;
+      unawaited(file.openRead().pipe(req.sink));
+      final res = await http.Response.fromStream(await req.send().timeout(const Duration(minutes: 30)));
+      _check(res);
+    } finally {
+      await BackupService.discardTemp(path);
+    }
 
     // Limpiar copias viejas.
     final all = await list(prefs);
@@ -230,6 +233,8 @@ class DriveSync {
     final token = await _tok(prefs);
     final all = await list(prefs);
     if (all.isEmpty) throw const DriveException('Todavía no hay copias en tu Drive.');
+    // Si había otra copia traída sin poner, se reemplaza por esta.
+    await BackupService.discardPendingRestore();
     onStatus?.call('Descargando la copia…');
     final req = http.Request(
         'GET', Uri.https('www.googleapis.com', '/drive/v3/files/${all.first.$1}', {'alt': 'media'}))
@@ -237,15 +242,26 @@ class DriveSync {
     final res = await req.send().timeout(const Duration(minutes: 30));
     if (res.statusCode != 200) throw DriveException('Google Drive respondió ${res.statusCode}.');
     final out = File('${(await getTemporaryDirectory()).path}/$_name');
-    await res.stream.pipe(out.openWrite());
-    onStatus?.call('Preparando…');
-    // Antes de reemplazar, una copia de lo que hay aquí (por si acaso).
     try {
-      await BackupService.safetyCopy(prefs);
-    } catch (_) {}
-    final n = await BackupService.prepareRestore(out.path, prefs);
-    await prefs.setInt(syncLastKey, all.first.$2.millisecondsSinceEpoch);
-    return n;
+      await res.stream.pipe(out.openWrite());
+      // ¿Llegó entera? Si se cortó el internet, no se toca nada.
+      final expected = all.first.$3;
+      if (expected > 0 && await out.length() != expected) {
+        throw const DriveException('La copia no se bajó completa (¿se cortó el internet?). No se cambió nada.');
+      }
+      onStatus?.call('Preparando…');
+      // Antes de reemplazar, una copia de lo que hay aquí (por si acaso).
+      try {
+        await BackupService.safetyCopy(prefs);
+      } catch (_) {}
+      final n = await BackupService.prepareRestore(out.path);
+      await prefs.setInt(syncLastKey, all.first.$2.millisecondsSinceEpoch);
+      return n;
+    } finally {
+      try {
+        await out.delete();
+      } catch (_) {}
+    }
   }
 
   // ------------------------------------------------- Celular ⇄ compu
@@ -306,6 +322,9 @@ class DriveSync {
   /// Devuelve true si subió.
   Future<bool> syncUpIfDue(SharedPreferences prefs, {Duration every = const Duration(minutes: 30)}) async {
     if (prefs.getString(emailKey) == null || !(prefs.getBool(autoKey) ?? true)) return false;
+    // Hay una copia traída que se pone al volver a abrir: lo de aquí es lo
+    // viejo y no se sube (pisaría lo que se acaba de traer).
+    if (await BackupService.hasPendingRestore()) return false;
     final last = prefs.getInt(lastKey);
     if (last != null && DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(last)) < every) {
       return false;
@@ -318,6 +337,9 @@ class DriveSync {
   /// Copia diaria automática (al abrir la app), si está conectada.
   Future<void> autoUploadIfDue(SharedPreferences prefs) async {
     if (prefs.getString(emailKey) == null || !(prefs.getBool(autoKey) ?? true)) return;
+    // Hay una copia traída que se pone al volver a abrir: lo de aquí es lo
+    // viejo y no se sube (pisaría lo que se acaba de traer).
+    if (await BackupService.hasPendingRestore()) return;
     final last = prefs.getInt(lastKey);
     if (last != null &&
         DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(last)) < const Duration(hours: 24)) {

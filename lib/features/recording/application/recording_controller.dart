@@ -17,6 +17,8 @@ import '../../transcription/domain/transcript_segment.dart';
 import '../../transcription/domain/transcription_service.dart';
 import '../data/wav_writer.dart';
 import '../../../core/platform_info.dart';
+import '../../../core/background_recording.dart';
+import '../../planner/data/reminder_notifications.dart';
 import '../data/pcm_resample.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
@@ -218,6 +220,12 @@ class RecordingController extends Notifier<RecordingState> {
       state = state.copyWith(elapsedMs: _wav?.durationMs ?? 0, levels: List.of(_levels));
     });
     state = state.copyWith(status: RecordingStatus.recording);
+    // Para seguir grabando con la pantalla apagada (aviso fijo en Android).
+    // El aviso necesita el permiso de notificaciones en Android 13 o más.
+    if (isPhone) {
+      unawaited(BackgroundRecording.start());
+      unawaited(ReminderNotifications.instance.requestPermission().then((_) => true, onError: (_) => false));
+    }
 
     if (liveTranscription) {
       try {
@@ -317,6 +325,7 @@ class RecordingController extends Notifier<RecordingState> {
     }
 
     await safe(() => _recorder?.stop());
+    await safe(BackgroundRecording.stop);
     await safe(() => _pcmSub?.cancel());
     await safe(() => _pcm16Sub?.cancel());
     await safe(() => _live?.stop());
@@ -394,6 +403,7 @@ class RecordingController extends Notifier<RecordingState> {
   /// Descarta la grabación en curso.
   Future<void> cancel() async {
     _ticker?.cancel();
+    await BackgroundRecording.stop();
     await _recorder?.stop();
     await _live?.stop();
     await _liveSub?.cancel();

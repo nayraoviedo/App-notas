@@ -30,6 +30,7 @@ PERMISSIONS = """
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 """
 
 # Dentro de <application>: avisos programados (también después de reiniciar)
@@ -63,6 +64,11 @@ if "fullBackupContent" not in s:
 if "ScheduledNotificationReceiver" not in s:
     i = s.index(">", s.index("<application")) + 1
     s = s[:i] + APP_EXTRAS + s[i:]
+if "android.permission.WAKE_LOCK" not in s:
+    i = s.index(">", s.index("<manifest")) + 1
+    s = s[:i] + """
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+""" + s[i:]
 if "POST_NOTIFICATIONS" not in s:
     i = s.index(">", s.index("<manifest")) + 1
     s = s[:i] + """
@@ -175,7 +181,7 @@ if WIDGET.exists():
     for java in Path("android/app/src/main").rglob("MainActivity.java"):
         java.unlink()
     kdir.mkdir(parents=True, exist_ok=True)
-    for name in ("MainActivity.kt", "KumoWidget.kt"):
+    for name in ("MainActivity.kt", "KumoWidget.kt", "KumoRecordingService.kt"):
         code = (WIDGET / "kotlin" / name).read_text().replace("package com.appnotas.app_notas", f"package {pkg}", 1)
         (kdir / name).write_text(code)
     s = MANIFEST.read_text()
@@ -190,6 +196,16 @@ if WIDGET.exists():
 """
         i = s.index(">", s.index("<application")) + 1
         s = s[:i] + receiver + s[i:]
+        MANIFEST.write_text(s)
+    # Servicio para seguir grabando con la pantalla apagada (micrófono).
+    s = MANIFEST.read_text()
+    if "KumoRecordingService" not in s:
+        service = """
+        <service android:name=".KumoRecordingService" android:exported="false"
+            android:foregroundServiceType="microphone" />
+"""
+        i = s.index(">", s.index("<application")) + 1
+        s = s[:i] + service + s[i:]
         MANIFEST.write_text(s)
     print("Widget de inicio listo")
 
