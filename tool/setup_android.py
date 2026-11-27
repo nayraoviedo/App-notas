@@ -203,6 +203,18 @@ rules = """
 -keep class * extends androidx.room.RoomDatabase { <init>(...); }
 -keep class **_Impl { <init>(...); }
 -dontwarn androidx.work.**
+
+# ML Kit (lector de letra a mano y quitar fondo): sus piezas se buscan por
+# nombre al abrir la app. Si R8 les cambia el nombre, el lector de letra no
+# arranca y el botón "Bajar lector de letra" falla con MissingPluginException
+# (vision#manageInkModels).
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_** { *; }
+-keep class com.google.firebase.components.** { *; }
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep class com.google_mlkit_** { *; }
+-dontwarn com.google.mlkit.**
+-dontwarn com.google.android.gms.internal.mlkit_**
 """
 old = PROGUARD.read_text() if PROGUARD.exists() else ""
 if "androidx.work" not in old:
