@@ -159,11 +159,37 @@ class ApiKeys {
   const ApiKeys(this._storage);
   final FlutterSecureStorage _storage;
 
-  Future<String?> read(AiProvider p) => _storage.read(key: 'apikey_${p.name}');
+  /// Si el llavero del sistema no está (Linux sin gnome-keyring/KWallet),
+  /// se trata como "sin clave" en vez de romper la pantalla.
+  Future<String?> read(AiProvider p) async {
+    try {
+      return await _storage.read(key: 'apikey_${p.name}');
+    } catch (_) {
+      return null;
+    }
+  }
 
-  Future<void> write(AiProvider p, String? value) => value == null || value.trim().isEmpty
-      ? _storage.delete(key: 'apikey_${p.name}')
-      : _storage.write(key: 'apikey_${p.name}', value: value.trim());
+  Future<void> write(AiProvider p, String? value) async {
+    try {
+      if (value == null || value.trim().isEmpty) {
+        await _storage.delete(key: 'apikey_${p.name}');
+      } else {
+        await _storage.write(key: 'apikey_${p.name}', value: value.trim());
+      }
+    } catch (_) {
+      throw const SecureStorageMissing();
+    }
+  }
+}
+
+/// No hay llavero seguro donde guardar claves.
+class SecureStorageMissing implements Exception {
+  const SecureStorageMissing();
+  String get message => 'No se pudo guardar la clave en el llavero seguro de la compu. '
+      'En Linux instala el llavero con:  sudo apt install gnome-keyring libsecret-1-0  '
+      'y vuelve a entrar a tu sesión.';
+  @override
+  String toString() => message;
 }
 
 final apiKeysProvider = Provider<ApiKeys>((ref) => const ApiKeys(FlutterSecureStorage()));

@@ -26,6 +26,13 @@ class FlashcardsRepository {
     return id;
   }
 
+  /// Pares (pregunta, respuesta) que ya existen en [deck], para no repetir
+  /// tarjetas al importar el mismo archivo dos veces.
+  Future<Set<(String, String)>> existingPairs(String deck) async {
+    final rows = await (_db.select(_db.flashcards)..where((f) => f.deck.equals(deck))).get();
+    return {for (final r in rows) (r.front.trim(), r.back.trim())};
+  }
+
   Future<void> save(Flashcard c) => (_db.update(_db.flashcards)..where((f) => f.id.equals(c.id))).write(
         FlashcardsCompanion(
           front: Value(c.front),

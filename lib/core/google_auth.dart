@@ -33,6 +33,32 @@ class GoogleAuth {
 
   final _secure = const FlutterSecureStorage();
 
+  /// Si la compu no tiene llavero seguro (Linux sin gnome-keyring), el
+  /// permiso se guarda solo mientras Kumo esté abierto, en vez de fallar.
+  String? _memRefresh;
+
+  Future<String?> _readRefresh() async {
+    try {
+      return await _secure.read(key: _refreshKey) ?? _memRefresh;
+    } catch (_) {
+      return _memRefresh;
+    }
+  }
+
+  Future<void> _writeRefresh(String value) async {
+    _memRefresh = value;
+    try {
+      await _secure.write(key: _refreshKey, value: value);
+    } catch (_) {}
+  }
+
+  Future<void> _deleteRefresh() async {
+    _memRefresh = null;
+    try {
+      await _deleteRefresh();
+    } catch (_) {}
+  }
+
   // ----------------------------------------------------------- Celular
   bool _ready = false;
   GoogleSignInAccount? _user;
@@ -83,7 +109,7 @@ class GoogleAuth {
       } catch (_) {}
       _user = null;
     } else {
-      await _secure.delete(key: _refreshKey);
+      await _deleteRefresh();
       await prefs.remove(_scopesKey);
     }
     _access = null;
@@ -127,7 +153,7 @@ class GoogleAuth {
       await _desktopSignIn(prefs, {...granted, ...scopes}.toList());
     }
     if (_access != null && DateTime.now().isBefore(_expires)) return _access!;
-    final refresh = await _secure.read(key: _refreshKey);
+    final refresh = await _readRefresh();
     if (refresh == null) {
       if (!interactive) throw const GoogleAuthException('Conecta tu cuenta de Google en Ajustes.');
       await _desktopSignIn(prefs, {...granted, ...scopes}.toList());
@@ -140,7 +166,7 @@ class GoogleAuth {
       'grant_type': 'refresh_token',
     });
     if (res.statusCode != 200) {
-      await _secure.delete(key: _refreshKey);
+      await _deleteRefresh();
       throw const GoogleAuthException('Se venció el permiso de Google: vuelve a conectar en Ajustes. '
           '(Si tu proyecto de Google Cloud está "En prueba", Google lo vence cada 7 días.)');
     }
@@ -220,7 +246,7 @@ class GoogleAuth {
     _access = j['access_token'] as String;
     _expires = DateTime.now().add(Duration(seconds: (j['expires_in'] as num? ?? 3600).toInt() - 120));
     final refresh = j['refresh_token'] as String?;
-    if (refresh != null) await _secure.write(key: _refreshKey, value: refresh);
+    if (refresh != null) await _writeRefresh(refresh);
     final grantedNow = (j['scope'] as String? ?? all.join(' ')).split(' ');
     await prefs.setStringList(_scopesKey, grantedNow);
     final email = _emailFromIdToken(j['id_token'] as String?) ?? 'Cuenta de Google';

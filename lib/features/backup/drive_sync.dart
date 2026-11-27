@@ -362,7 +362,7 @@ class DriveSync {
     // Horario, hábitos, ánimo y gastos se guardan en los ajustes: también
     // cuentan como cambios (menos lo propio de la sincronización).
     final keys = prefs.getKeys().where((k) => !k.startsWith('sync.') && !k.startsWith('drive.') &&
-        !k.startsWith('google.') && !k.startsWith('backup.') && !k.startsWith('hw.count.')).toList()
+        !k.startsWith('google.') && !k.startsWith('backup.') && !k.startsWith('hw.count.') && !k.startsWith('hw.ink.')).toList()
       ..sort();
     final prefsHash = sha1.convert(utf8.encode(jsonEncode({for (final k in keys) k: '${prefs.get(k)}'}))).toString();
     final root = await appDataDir();
@@ -410,6 +410,13 @@ class DriveSync {
     }
     if (r.statusCode == 403 && r.body.contains('accessNotConfigured')) {
       throw const DriveException('Falta activar "Google Drive API" en tu proyecto de Google Cloud.');
+    }
+    if (r.statusCode == 403 && r.body.contains('exportSizeLimitExceeded')) {
+      throw const DriveException('El archivo es muy grande para que Google lo pase a PDF (máximo '
+          '10 MB). Guárdalo como PDF desde PowerPoint o Word y abre ese PDF en Kumo.');
+    }
+    if (r.statusCode == 413) {
+      throw const DriveException('El archivo es muy grande para subirlo a Google Drive de una vez.');
     }
     if (r.statusCode >= 300) throw DriveException('Google Drive respondió ${r.statusCode}.');
   }

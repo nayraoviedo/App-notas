@@ -85,10 +85,23 @@ class _ImportDialogState extends ConsumerState<_ImportDialog> {
     setState(() => _busy = true);
     final repo = ref.read(flashcardsRepositoryProvider);
     final deck = _deck.text.trim().isEmpty ? 'General' : _deck.text.trim();
+    // No repetir las que ya están en ese mazo (importar el mismo archivo
+    // dos veces) ni las repetidas dentro del mismo texto.
+    final seen = await repo.existingPairs(deck);
+    var added = 0;
     for (final c in cards) {
+      if (!seen.add((c.front.trim(), c.back.trim()))) continue;
       await repo.add(front: c.front, back: c.back, deck: deck);
+      added++;
     }
-    if (mounted) Navigator.pop(context, cards.length);
+    if (mounted) {
+      final dup = cards.length - added;
+      if (dup > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(dup == 1 ? '1 tarjeta ya estaba en el mazo y se saltó' : '$dup tarjetas ya estaban en el mazo y se saltaron')));
+      }
+      Navigator.pop(context, added);
+    }
   }
 
   @override

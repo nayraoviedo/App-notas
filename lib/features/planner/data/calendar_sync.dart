@@ -42,7 +42,39 @@ class CalendarSync {
 
   /// Crea, actualiza o borra eventos para que coincidan con [reminders].
   /// Devuelve cuántos eventos cambió.
-  Future<int> sync(SharedPreferences prefs, List<Reminder> reminders) async {
+  ///
+  /// Si ya hay una sincronización en curso, no se lanza otra a la vez (dos a
+  /// la vez crean el mismo evento dos veces): se espera y luego se corre una
+  /// sola vez más con la lista más nueva.
+  Future<int> sync(SharedPreferences prefs, List<Reminder> reminders) {
+    _latest = reminders;
+    final running = _running;
+    if (running != null) {
+      return _again ??= running.then((_) {
+        _again = null;
+        return _start(prefs);
+      }, onError: (_) {
+        _again = null;
+        return _start(prefs);
+      });
+    }
+    return _start(prefs);
+  }
+
+  Future<int>? _running;
+  Future<int>? _again;
+  List<Reminder> _latest = const [];
+
+  Future<int> _start(SharedPreferences prefs) {
+    final f = _syncNow(prefs, _latest);
+    _running = f;
+    f.whenComplete(() {
+      if (identical(_running, f)) _running = null;
+    }).ignore();
+    return f;
+  }
+
+  Future<int> _syncNow(SharedPreferences prefs, List<Reminder> reminders) async {
     if (!isOn(prefs)) return 0;
     final token = await GoogleAuth.instance.token(prefs, scopes);
     final h = {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'};

@@ -27,7 +27,7 @@ class Handwriting {
 
   /// Texto escrito con estos trazos (un renglón por línea).
   Future<String> recognize(List<Stroke> strokes) async {
-    final writing = strokes.where((s) => s.tool != ToolType.highlighter && s.tool != ToolType.tape && s.points.length > 1).toList();
+    final writing = strokes.where(isWriting).toList();
     if (writing.isEmpty) return '';
     await ensureModel();
     final rec = _rec ??= mlkit.DigitalInkRecognizer(languageCode: lang);
@@ -56,14 +56,44 @@ class Handwriting {
   }
 }
 
+/// ¿Este trazo es letra? (no resaltador, cinta ni borrador de archivos viejos).
+bool isWriting(Stroke s) =>
+    s.tool != ToolType.highlighter && s.tool != ToolType.tape && s.tool != ToolType.eraser && s.points.length > 1;
+
+/// Huella de lo escrito: cambia si se mueve, borra o agrega algo (no solo si
+/// cambia la cantidad de trazos).
+String inkFingerprint(List<Stroke> strokes) {
+  var h = 17;
+  var n = 0;
+  for (final s in strokes) {
+    if (!isWriting(s)) continue;
+    n++;
+    h = 0x1fffffff & (h * 31 + s.points.length);
+    for (final p in s.points) {
+      h = 0x1fffffff & (h * 31 + p.x.round());
+      h = 0x1fffffff & (h * 31 + p.y.round());
+    }
+  }
+  return '$n:$h';
+}
+
 /// Agrupa los trazos en renglones (de arriba a abajo, y cada renglón de
 /// izquierda a derecha): un trazo va al renglón con el que más se superpone
 /// en altura.
 List<List<Stroke>> groupLines(List<Stroke> strokes) {
   final sorted = [...strokes]..sort((a, b) => a.bounds.center.dy.compareTo(b.bounds.center.dy));
+  // Altura típica de una letra: un trazo muy alto (una llave, una flecha
+  // vertical) no debe estirar el renglón hasta tragarse los de abajo.
+  final heights = [for (final s in strokes) s.bounds.height]..sort();
+  final typical = heights.isEmpty ? 0.0 : heights[heights.length ~/ 2];
+  final tallLimit = typical <= 0 ? double.infinity : typical * 2.5;
   final lines = <(Rect, List<Stroke>)>[];
   for (final s in sorted) {
-    final b = s.bounds;
+    var b = s.bounds;
+    if (b.height > tallLimit) {
+      // Se ubica por su centro, con la altura de una letra normal.
+      b = Rect.fromCenter(center: b.center, width: b.width, height: typical);
+    }
     var best = -1;
     var bestOverlap = 0.0;
     for (final (i, (r, _)) in lines.indexed) {

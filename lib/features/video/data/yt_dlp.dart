@@ -118,18 +118,22 @@ class YtDlp {
     return null;
   }
 
+  static bool? _node;
+  static Future<bool> _hasNode() async => _node ??= await _runs('node', ['--version']);
+
   /// Enlace directo (hasta 720p) de un video de YouTube, con los encabezados
   /// que YouTube pide para entregarlo. Si YouTube solo da video y sonido por
   /// separado, [YtStream.audioUrl] trae el sonido.
   static Future<YtStream> directUrl(String url, {void Function(String)? onStatus}) async {
     final cmd = await _ensure(onStatus);
     final deno = await _ensureDeno(onStatus);
+    // Node solo si de verdad está instalado (pasarlo sin tenerlo no ayuda).
+    final node = deno == null && await _hasNode();
     onStatus?.call('Cargando el video de YouTube…');
     final r = await Process.run(cmd.first, [
       ...cmd.skip(1),
       if (deno != null) ...['--js-runtimes', 'deno:$deno'],
-      // Si hay Node instalado, también sirve.
-      '--js-runtimes', 'node',
+      if (node) ...['--js-runtimes', 'node'],
       '--no-playlist',
       '--no-warnings',
       '-f',
@@ -180,6 +184,11 @@ class YtDlp {
       } catch (_) {}
       if (err.contains('Private video') || err.contains('Sign in')) {
         throw Exception('Ese video es privado o pide iniciar sesión en YouTube.');
+      }
+      if (deno == null && !node) {
+        throw Exception('No se pudo preparar el motor que YouTube necesita '
+            '(Deno). Revisa el internet y vuelve a intentar; si sigue, '
+            'instala Node.js en la compu.');
       }
       final line = err.split('\n').lastWhere((l) => l.startsWith('ERROR'), orElse: () => '').trim();
       final detail = line.length > 220 ? '${line.substring(0, 220)}…' : line;

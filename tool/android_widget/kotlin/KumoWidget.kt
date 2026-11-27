@@ -1,5 +1,6 @@
 package com.appnotas.app_notas
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -27,6 +28,70 @@ class KumoWidget : AppWidgetProvider() {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, KumoWidget::class.java))
             for (id in ids) update(context, manager, id)
+        }
+
+        /**
+         * Próximo momento en que el widget cambia (empieza o termina una
+         * clase, vence un pendiente o cambia el día), para redibujarlo justo
+         * ahí y no quedarse mostrando una clase que ya pasó.
+         */
+        private fun nextChange(context: Context): Long {
+            val now = Calendar.getInstance()
+            val nowMs = now.timeInMillis
+            val midnight = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, 1)
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 5); set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            var best = midnight
+            try {
+                val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                val raw = prefs.getString("flutter.planner.data", null) ?: return best
+                val j = JSONObject(raw)
+                val wd = ((now.get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1
+                val dayStart = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                val classes = j.optJSONArray("classes")
+                if (classes != null) {
+                    for (i in 0 until classes.length()) {
+                        val c = classes.getJSONObject(i)
+                        if (c.optInt("weekday") != wd) continue
+                        for (m in intArrayOf(c.optInt("start"), c.optInt("end"))) {
+                            val t = dayStart + m * 60000L + 5000L
+                            if (t > nowMs && t < best) best = t
+                        }
+                    }
+                }
+                val reminders = j.optJSONArray("reminders")
+                if (reminders != null) {
+                    for (i in 0 until reminders.length()) {
+                        val r = reminders.getJSONObject(i)
+                        val t = r.optLong("due") + 5000L
+                        if (!r.optBoolean("done") && t > nowMs && t < best) best = t
+                    }
+                }
+            } catch (e: Exception) {}
+            return best
+        }
+
+        private fun scheduleNext(context: Context) {
+            try {
+                val ids = AppWidgetManager.getInstance(context)
+                    .getAppWidgetIds(ComponentName(context, KumoWidget::class.java))
+                val i = Intent(context, KumoWidget::class.java).apply {
+                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                }
+                val pi = PendingIntent.getBroadcast(context, 21, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                if (ids.isEmpty()) {
+                    alarms.cancel(pi)
+                    return
+                }
+                // Sin "exacta": no pide permisos y Android lo agrupa para ahorrar batería
+                // (puede llegar unos minutos tarde).
+                alarms.set(AlarmManager.RTC, nextChange(context), pi)
+            } catch (e: Exception) {}
         }
 
         private fun hhmm(m: Int) = String.format("%02d:%02d", m / 60, m % 60)
@@ -103,6 +168,7 @@ class KumoWidget : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_note, open(context, "nota", 13))
             views.setOnClickPendingIntent(R.id.widget_record, open(context, "grabar", 14))
             manager.updateAppWidget(id, views)
+            scheduleNext(context)
         }
 
         private fun open(context: Context, action: String, code: Int): PendingIntent {

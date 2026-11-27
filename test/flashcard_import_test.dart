@@ -50,4 +50,14 @@ void main() {
     final r = parseFlashcards('P: ¿Capital de Perú? ; R: Lima');
     expect(r.cards, const [ImportedCard('¿Capital de Perú?', 'Lima')]);
   });
+
+  test('CSV con comas sin comillas', () {
+    final r = parseFlashcards('pregunta,respuesta\nCapital de Bolivia,Sucre\n2+2,4\n');
+    expect(r.cards, const [ImportedCard('Capital de Bolivia', 'Sucre'), ImportedCard('2+2', '4')]);
+  });
+
+  test('una coma en un archivo con ; no corta', () {
+    final r = parseFlashcards('Sol, luna y estrellas ; cielo\nAgua ; H2O\n');
+    expect(r.cards.first, const ImportedCard('Sol, luna y estrellas', 'cielo'));
+  });
 }
