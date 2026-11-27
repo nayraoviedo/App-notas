@@ -91,6 +91,13 @@ jobs:
             # Lo que se ve en la pantalla (para tocar botones).
             adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml ui_nota.xml || true
             grep -o 'content-desc="[^"]*"\|text="[^"]*"\|bounds="[^"]*"' ui_nota.xml | paste - - | head -60 || true
+            # Abrir tres cuadernos seguidos (entrar, volver, entrar a otro).
+            adb logcat -c
+            flutter drive --profile -d emulator-5554 --driver=test_driver/integration_test.dart --target=integration_test/abrir_cuadernos_test.dart 2>&1 | tee drive.txt | tail -150 || true
+            adb logcat -d > logcat_cuadernos.txt || true
+            echo "== al abrir cuadernos =="
+            grep -n -B5 -A60 "FATAL EXCEPTION\|AndroidRuntime\|SIGSEGV\|SIGABRT\|Fatal signal\|backtrace:\|F/libc\|F DEBUG\|lowmemorykiller\|Out of memory" logcat_cuadernos.txt | head -300 || true
+            grep -n "I flutter\|E flutter" logcat_cuadernos.txt | head -150 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,3 +108,5 @@ jobs:
             logcat_nota.txt
             pantalla_nota.png
             ui_nota.xml
+            drive.txt
+            logcat_cuadernos.txt
