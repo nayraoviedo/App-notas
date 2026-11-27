@@ -21,6 +21,7 @@ import '../data/wav_writer.dart';
 import '../../../core/platform_info.dart';
 import '../data/pcm_resample.dart';
 import 'recording_recovery.dart' show recordingJournalPath;
+import '../../../core/activity_flags.dart';
 import '../../../core/home_widget.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
@@ -167,6 +168,7 @@ class RecordingController extends Notifier<RecordingState> {
     _recorder = recorder;
     // Antes de abrir el micrófono: aviso de "grabando" para que Android no
     // lo silencie ni cierre la app con la pantalla apagada.
+    recordingInProgress = true;
     if (isPhone) await HomeWidget.recordingStarted();
 
     final path = await ref.read(fileStorageProvider).newAudioPath();
@@ -470,6 +472,7 @@ class RecordingController extends Notifier<RecordingState> {
     try {
       await _cleanup().timeout(const Duration(seconds: 5));
     } catch (_) {
+      recordingInProgress = false;
       _recorder = null;
       _tracker = null;
       _live = null;
@@ -482,6 +485,7 @@ class RecordingController extends Notifier<RecordingState> {
   }
 
   Future<void> _cleanup() async {
+    recordingInProgress = false;
     unawaited(HomeWidget.recordingStopped());
     await _suggestionSub?.cancel();
     await _tracker?.dispose();

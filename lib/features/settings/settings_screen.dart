@@ -711,6 +711,17 @@ class _DriveTilesState extends ConsumerState<_DriveTiles> {
               setState(() {});
             },
           ),
+          if (isPhone)
+            SwitchListTile(
+              secondary: const Icon(Icons.wifi),
+              title: const Text('Sincronizar solo con wifi'),
+              subtitle: const Text('Así no gasta tus megas. Solo sube cuando cambiaste algo.'),
+              value: prefs.getBool(DriveSync.wifiOnlyKey) ?? true,
+              onChanged: (v) async {
+                await prefs.setBool(DriveSync.wifiOnlyKey, v);
+                setState(() {});
+              },
+            ),
           ListTile(
             leading: const Icon(Icons.sync_alt),
             title: const Text('Sincronizar ahora'),

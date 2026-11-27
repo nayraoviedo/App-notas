@@ -71,6 +71,8 @@ dependencies:
   shared_preferences: ^2.3.3
   flutter_secure_storage: ^9.2.2
   http: ^1.2.2
+  # Saber si hay wifi (sincronizar solo con wifi)
+  connectivity_plus: ^6.1.0
   crypto: ^3.0.3
   pdf: ^3.11.1
   printing: ^5.13.4
