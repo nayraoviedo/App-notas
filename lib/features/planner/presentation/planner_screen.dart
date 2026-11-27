@@ -11,6 +11,7 @@ import '../data/reminder_notifications.dart';
 import '../../../core/home_widget.dart';
 import '../data/calendar_sync.dart';
 import '../domain/planner.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 class PlannerController extends Notifier<PlannerState> {
   static const _key = 'planner.data';
@@ -512,7 +513,7 @@ class RemindersView extends ConsumerWidget {
                   children: [
                     CatMascot(kind: CatKind.orange, size: 90),
                     SizedBox(height: 12),
-                    Text('Anota tus exámenes y entregas.\nTe aviso un día antes y 2 horas antes 🔔',
+                    DoodleText('Anota tus exámenes y entregas.\nTe aviso un día antes y 2 horas antes 🔔',
                         textAlign: TextAlign.center),
                   ],
                 ),
@@ -557,7 +558,7 @@ class _ReminderTile extends ConsumerWidget {
           value: r.done,
           onChanged: (v) => ref.read(plannerProvider.notifier).saveReminder(r.copyWith(done: v ?? false)),
         ),
-        title: Text('${r.kind.emoji} ${r.title}',
+        title: DoodleText('${r.kind.emoji} ${r.title}',
             style: TextStyle(decoration: r.done ? TextDecoration.lineThrough : null)),
         subtitle: Text([
           if (r.subject.isNotEmpty) r.subject,
@@ -610,7 +611,7 @@ Future<void> editReminder(BuildContext context, WidgetRef ref, {Reminder? existi
                 children: [
                   for (final k in ReminderKind.values)
                     ChoiceChip(
-                      label: Text('${k.emoji} ${k.label}'),
+                      label: DoodleText('${k.emoji} ${k.label}'),
                       selected: kind == k,
                       onSelected: (_) => set(() => kind = k),
                     ),
@@ -716,6 +717,6 @@ Future<void> editReminder(BuildContext context, WidgetRef ref, {Reminder? existi
   await ctl.saveReminder(rem);
   if (context.mounted && before.isNotEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Te aviso ${rem.alertTimes(DateTime.now()).length} veces antes 🔔')));
+        SnackBar(content: DoodleText('Te aviso ${rem.alertTimes(DateTime.now()).length} veces antes 🔔')));
   }
 }

@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/fonts.dart';
 import '../../../core/providers.dart';
 import '../../../core/widgets/cat_mascot.dart';
+import '../../../core/widgets/doodle_icon.dart';
 import '../../settings/settings.dart';
 import '../domain/expense.dart';
 
@@ -23,9 +24,18 @@ const _weekdaysLong = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'S�
 String _fmtDay(DateTime d) => '${d.day} ${_months[d.month - 1]}';
 
 /// Categorías guardadas (se pueden agregar y quitar).
-final expenseCategoriesProvider = StateProvider<List<ExpenseCategory>>(
-  (ref) => ExpenseCategory.decodeAll(ref.watch(sharedPreferencesProvider).getString('expenses.categories')),
-);
+/// Las listas guardadas antes reciben una vez las categorías nuevas de
+/// estudiante (pasaje, fotocopias…).
+final expenseCategoriesProvider = StateProvider<List<ExpenseCategory>>((ref) {
+  final prefs = ref.watch(sharedPreferencesProvider);
+  final raw = prefs.getString('expenses.categories');
+  final cats = ExpenseCategory.decodeAll(raw);
+  if (raw == null || prefs.getBool('expenses.categories.v2') == true) return cats;
+  final merged = withStudentCategories(cats);
+  prefs.setString('expenses.categories', ExpenseCategory.encodeAll(merged));
+  prefs.setBool('expenses.categories.v2', true);
+  return merged;
+});
 
 /// Moneda (por defecto bolivianos).
 final currencyProvider = StateProvider<String>(
@@ -260,7 +270,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                   child: ListTile(
                     leading: CircleAvatar(
                       backgroundColor: Color(cats[e.category]?.color ?? 0xFFB0BEC5).withValues(alpha: 0.3),
-                      child: Text(cats[e.category]?.emoji ?? '🛒', style: const TextStyle(fontSize: 20)),
+                      child: DoodleIcon(cats[e.category]?.emoji ?? '🛒', size: 26),
                     ),
                     title: Text(e.description.isEmpty ? e.category : e.description),
                     subtitle: e.description.isEmpty ? null : Text(e.category),
@@ -303,7 +313,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       );
       if (msg != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(msg),
+          content: DoodleText(msg),
           duration: const Duration(seconds: 6),
           backgroundColor: msg.startsWith('⚠️') ? Colors.red.shade700 : null,
         ));
@@ -341,7 +351,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                   controller: ctls[c.name],
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
-                    labelText: '${c.emoji} ${c.name}',
+                    label: DoodleText('${c.emoji} ${c.name}'),
                     prefixText: '${ref.read(currencyProvider)} ',
                   ),
                 ),
@@ -434,7 +444,7 @@ class _CategoryRow extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('${category.emoji}  ${category.name}'),
+                DoodleText('${category.emoji}  ${category.name}'),
                 const Spacer(),
                 Text(amount, style: const TextStyle(fontWeight: FontWeight.w600)),
                 SizedBox(
@@ -566,7 +576,8 @@ class _ExpenseFormState extends ConsumerState<_ExpenseForm> {
               children: [
                 for (final c in cats)
                   ChoiceChip(
-                    avatar: Text(c.emoji),
+                    avatar: DoodleIcon(c.emoji, size: 20),
+                    showCheckmark: false,
                     label: Text(c.name),
                     selected: _cat == c.name,
                     selectedColor: Color(c.color).withValues(alpha: 0.35),
@@ -625,7 +636,8 @@ class _ExpenseFormState extends ConsumerState<_ExpenseForm> {
 class _CategoriesSheet extends ConsumerWidget {
   const _CategoriesSheet();
 
-  static const _emojis = ['🥬', '🍎', '🥩', '🍚', '🥛', '🍞', '🧼', '🛍️', '🐟', '🥚', '🧃', '🍬', '🐱', '💊', '🚌', '🏠', '📚', '🎁'];
+  static const _emojis = ['🚌', '🍲', '🍬', '🖨️', '✏️', '📚', '🎓', '📱', '💊', '👕', '🎉', '🏠', '🐱', '🎁', '☕', '🎧',
+    '🎨', '🥬', '🍎', '🥩', '🍚', '🥛', '🍞', '🐟', '🥚', '🧃', '🧼', '🧹', '🛒', '🛍️', '💸'];
   static const _colors = [0xFF8BC34A, 0xFFF48FB1, 0xFFE57373, 0xFFFFCC80, 0xFF90CAF9, 0xFFD7B98E, 0xFF80DEEA, 0xFFB39DDB];
 
   Future<void> _save(WidgetRef ref, List<ExpenseCategory> list) async {
@@ -647,7 +659,7 @@ class _CategoriesSheet extends ConsumerWidget {
                 children: [
                   for (final c in cats)
                     ListTile(
-                      leading: Text(c.emoji, style: const TextStyle(fontSize: 24)),
+                      leading: DoodleIcon(c.emoji, size: 30),
                       title: Text(c.name),
                       trailing: CircleAvatar(radius: 8, backgroundColor: Color(c.color)),
                       onLongPress: cats.length <= 1
@@ -685,7 +697,7 @@ class _CategoriesSheet extends ConsumerWidget {
                               children: [
                                 for (final e in _emojis)
                                   ChoiceChip(
-                                    label: Text(e),
+                                    label: DoodleIcon(e, size: 24),
                                     selected: e == emoji,
                                     onSelected: (_) => setState(() => emoji = e),
                                   ),
@@ -760,7 +772,7 @@ class _BudgetCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Text('${cat?.emoji ?? '🛒'}  ${e.key}'),
+                          DoodleText('${cat?.emoji ?? '🛒'}  ${e.key}'),
                           const Spacer(),
                           Text('${money(s)} / ${money(e.value)}',
                               style: TextStyle(
@@ -839,7 +851,7 @@ class _CompareCard extends StatelessWidget {
           children: [
             Text('Comparado con $prevName', style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            Text(
+            DoodleText(
               prevTotal == 0
                   ? 'En $prevName no anotaste gastos.'
                   : diff.abs() < 0.5
@@ -867,7 +879,7 @@ class _CompareCard extends StatelessWidget {
                   children: [
                     SizedBox(
                       width: 96,
-                      child: Text('${cats[name]?.emoji ?? '🛒'} $name',
+                      child: DoodleText('${cats[name]?.emoji ?? '🛒'} $name',
                           maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5)),
                     ),
                     Expanded(
@@ -965,7 +977,7 @@ class _ShoppingSheetState extends ConsumerState<_ShoppingSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Lista del súper 🛒', style: fontStyle('Pacifico', size: 22)),
+            DoodleText('Lista del súper 🛒', style: fontStyle('Pacifico', size: 22)),
             const Text('Toca ☐ cuando lo compres y pon cuánto costó: se anota solo en Gastos.',
                 style: TextStyle(color: Colors.black54, fontSize: 12.5)),
             const SizedBox(height: 8),
@@ -999,7 +1011,7 @@ class _ShoppingSheetState extends ConsumerState<_ShoppingSheet> {
                     Padding(
                       padding: const EdgeInsets.only(right: 6, top: 6),
                       child: ChoiceChip(
-                        label: Text('${c.emoji} ${c.name}'),
+                        label: DoodleText('${c.emoji} ${c.name}'),
                         selected: _cat == c.name,
                         onSelected: (_) => setState(() => _cat = c.name),
                       ),
@@ -1011,7 +1023,7 @@ class _ShoppingSheetState extends ConsumerState<_ShoppingSheet> {
             if (items.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(24),
-                child: Text('La lista está vacía ✨', textAlign: TextAlign.center),
+                child: DoodleText('La lista está vacía ✨', textAlign: TextAlign.center),
               ),
             Flexible(
               child: ListView(
@@ -1020,7 +1032,7 @@ class _ShoppingSheetState extends ConsumerState<_ShoppingSheet> {
                   for (final g in grouped.entries) ...[
                     Padding(
                       padding: const EdgeInsets.fromLTRB(4, 8, 4, 2),
-                      child: Text('${byName[g.key]?.emoji ?? '🛒'} ${g.key}',
+                      child: DoodleText('${byName[g.key]?.emoji ?? '🛒'} ${g.key}',
                           style: const TextStyle(fontWeight: FontWeight.w600)),
                     ),
                     for (final i in g.value)

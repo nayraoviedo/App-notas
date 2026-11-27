@@ -10,6 +10,7 @@ import '../../../drawing/presentation/widgets/tool_panels.dart' show pickColor;
 import '../../domain/note_block.dart';
 import '../../../study/presentation/study_screen.dart' show showNewFlashcard;
 import 'highlight_text_controller.dart';
+import '../../../../core/widgets/doodle_icon.dart';
 
 /// Bloque de texto con fuente y tamaño propios. Guarda solo, medio segundo
 /// después de dejar de escribir. Al tocarlo aparece la barra de fuente.
@@ -111,7 +112,7 @@ class _TextBlockViewState extends ConsumerState<TextBlockView> {
                     title: Text(f.label),
                     // Vista previa con la propia fuente (la china se descarga
                     // la primera vez, puede tardar unos segundos).
-                    subtitle: Text(
+                    subtitle: DoodleText(
                       f.sample ?? 'Así se verán tus notas',
                       style: fontStyle(f.family, size: 22),
                     ),

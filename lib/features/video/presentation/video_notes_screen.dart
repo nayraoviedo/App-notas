@@ -19,6 +19,7 @@ import '../application/video_transcript.dart';
 import '../../recording/application/transcript_tools.dart' show transcriptParagraphs;
 import '../../transcription/domain/transcript_segment.dart';
 import '../../transcription/domain/transcription_service.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 /// Ver un video y tomar notas al mismo tiempo.
 ///
@@ -219,7 +220,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
       if (bytes == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('No se pudo capturar este video. Usa la captura del celular y agrégala con 🖼️.')));
+              content: DoodleText('No se pudo capturar este video. Usa la captura del celular y agrégala con 🖼️.')));
         }
         return;
       }
@@ -234,7 +235,7 @@ class _VideoNotesScreenState extends ConsumerState<VideoNotesScreen> with Single
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('📷 Captura guardada · ${formatMs(atMs)}'),
+          content: DoodleText('📷 Captura guardada · ${formatMs(atMs)}'),
           action: SnackBarAction(label: 'Recortar', onPressed: () => _crop(id, path)),
         ));
       }
@@ -596,7 +597,7 @@ class _HelpCardState extends State<_HelpCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Text(
+              child: DoodleText(
                 widget.canCapture
                     ? '📷 Capturar: guarda lo que se ve en el video en este minuto. Luego toca '
                         '"Recortar" (o toca la captura) para quedarte solo con una parte.\n'

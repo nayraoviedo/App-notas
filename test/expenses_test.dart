@@ -1,3 +1,4 @@
+import 'package:app_notas/core/widgets/doodle_icon.dart';
 import 'package:app_notas/features/expenses/domain/expense.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -29,8 +30,28 @@ void main() {
   test('categorías se guardan y se leen', () {
     final back = ExpenseCategory.decodeAll(ExpenseCategory.encodeAll(defaultCategories));
     expect(back.length, defaultCategories.length);
-    expect(back.first.name, 'Verduras');
+    expect(back.first.name, 'Pasaje');
     expect(ExpenseCategory.decodeAll('basura').length, defaultCategories.length);
+  });
+
+  test('las listas de antes reciben las categorías de estudiante una vez', () {
+    const old = [
+      ExpenseCategory('Verduras', '🥬', 0),
+      ExpenseCategory('pasaje', '🚌', 0),
+      ExpenseCategory('Otros', '🛍️', 0),
+    ];
+    final merged = withStudentCategories(old);
+    expect(merged.first.name, 'Verduras');
+    expect(merged.last.name, 'Otros');
+    expect(merged.where((c) => c.name.toLowerCase() == 'pasaje').length, 1);
+    expect(merged.any((c) => c.name == 'Fotocopias'), isTrue);
+    expect(withStudentCategories(merged).length, merged.length);
+  });
+
+  test('todas las categorías tienen doodle', () {
+    for (final c in defaultCategories) {
+      expect(hasDoodle(c.emoji), isTrue, reason: c.name);
+    }
   });
 
   test('presupuesto: avisa al 80 % y al pasarse', () {
@@ -49,7 +70,10 @@ void main() {
     expect(guessCategory('2 kg de pollo', defaultCategories), 'Carne');
     expect(guessCategory('Leche Pil', defaultCategories), 'Lácteos');
     expect(guessCategory('salchichas', defaultCategories), 'Carne');
-    expect(guessCategory('cuaderno', defaultCategories), 'Otros');
+    expect(guessCategory('cuaderno', defaultCategories), 'Útiles');
+    expect(guessCategory('Apio', defaultCategories), 'Verduras');
+    expect(guessCategory('recarga de megas', defaultCategories), 'Celular y megas');
+    expect(guessCategory('algo raro', defaultCategories), 'Otros');
     final l = [const ShoppingItem(id: '1', name: 'Arroz', category: 'Abarrotes', qty: '2 kg')];
     expect(ShoppingItem.decodeAll(ShoppingItem.encodeAll(l)).single.qty, '2 kg');
   });

@@ -15,6 +15,7 @@ import '../../settings/settings.dart';
 import '../../speakers/domain/speaker.dart';
 import '../../speakers/presentation/speaker_change_banner.dart';
 import '../application/recording_controller.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 class RecordingScreen extends ConsumerStatefulWidget {
   const RecordingScreen({super.key, required this.noteId});
@@ -300,7 +301,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         await _chooseCurrentSpeaker(speakers);
       case 'star':
         controller.addMarker();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⭐ Marcado')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: DoodleText('⭐ Marcado')));
       case 'photo':
         await controller.takePhoto(() => captureWithInAppCamera(context));
       case 'discard':
@@ -427,7 +428,7 @@ class _LiveTranscript extends StatelessWidget {
               children: [
                 Icon(Icons.graphic_eq, size: 40, color: muted),
                 const SizedBox(height: 8),
-                Text(
+                DoodleText(
                   state.status == RecordingStatus.paused
                       ? 'En pausa'
                       : cloud
@@ -472,13 +473,13 @@ class _LiveTranscript extends StatelessWidget {
           for (final m in notes)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: Text('📝 ${formatMs(m.atMs)}  ${m.label}', style: TextStyle(color: muted)),
+              child: DoodleText('📝 ${formatMs(m.atMs)}  ${m.label}', style: TextStyle(color: muted)),
             ),
         ],
         if (state.photos.isNotEmpty || state.markers.any((m) => !m.isQuickNote))
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(
+            child: DoodleText(
               '⭐ ${state.markers.where((m) => !m.isQuickNote).length}   📷 ${state.photos.length}',
               style: TextStyle(color: muted),
             ),

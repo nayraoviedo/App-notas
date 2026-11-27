@@ -14,6 +14,7 @@ import '../../summary/data/llm_clients.dart';
 import '../domain/flashcard.dart';
 import 'import_flashcards_dialog.dart';
 import '../../../core/widgets/study_timer.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 /// Modelos de IA con clave guardada, en el orden de preferencia.
 Future<List<LlmClient>> availableLlms(WidgetRef ref) async {
@@ -148,7 +149,7 @@ class _ReviewState extends ConsumerState<_Review> {
             children: [
               CatMascot(kind: CatKind.gray, size: 100),
               SizedBox(height: 12),
-              Text('¡Nada que repasar por ahora! 🎉\nCrea tarjetas con el botón +, desde tus notas de texto o impórtalas con el botón de la lista arriba.',
+              DoodleText('¡Nada que repasar por ahora! 🎉\nCrea tarjetas con el botón +, desde tus notas de texto o impórtalas con el botón de la lista arriba.',
                   textAlign: TextAlign.center),
             ],
           ),

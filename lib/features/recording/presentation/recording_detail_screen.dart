@@ -17,6 +17,7 @@ import '../../drawing/presentation/widgets/canvas_item_view.dart' show measureTe
 import '../../study/domain/cornell.dart';
 import '../../study/domain/mind_map.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 /// Vista completa de una grabación, con tres pestañas:
 /// Transcripción · Notas rápidas · Resumen, y el reproductor abajo.
@@ -188,7 +189,7 @@ class _RecordingDetailScreenState extends ConsumerState<RecordingDetailScreen> {
                   ),
                   _Tag(icon: Icons.schedule, text: formatMs(audio?.durationMs ?? 0), color: muted),
                   IconButton(
-                    tooltip: 'Solo lo importante ⭐',
+                    tooltip: 'Solo lo importante',
                     isSelected: _onlyImportant,
                     icon: const Icon(Icons.star_border),
                     selectedIcon: const Icon(Icons.star, color: Colors.amber),
@@ -635,7 +636,7 @@ class _QuickNotesTabState extends ConsumerState<_QuickNotesTab> {
                         label: Text(formatMs(m.atMs)),
                         onPressed: () => widget.onSeek(m.atMs),
                       ),
-                      title: Text(m.isQuickNote ? m.label! : '⭐ Momento importante'),
+                      title: DoodleText(m.isQuickNote ? m.label! : '⭐ Momento importante'),
                       onTap: () => widget.onSeek(m.atMs),
                       trailing: PopupMenuButton<String>(
                         onSelected: (a) async {
@@ -928,7 +929,7 @@ class _SummaryTabState extends ConsumerState<_SummaryTab> {
     await ref.read(notesRepositoryProvider).addDrawingBlock(widget.noteId, path);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Mapa mental listo 🧠 Pellizca para alejar y ver todo; mueve o edita lo que quieras.')));
+        content: DoodleText('Mapa mental listo 🧠 Pellizca para alejar y ver todo; mueve o edita lo que quieras.')));
     context.push('/notes/${widget.noteId}/drawing', extra: path);
   }
 

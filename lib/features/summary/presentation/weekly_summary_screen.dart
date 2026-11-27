@@ -13,6 +13,7 @@ import '../../planner/domain/planner.dart';
 import '../../planner/presentation/planner_screen.dart';
 import '../../settings/settings.dart';
 import '../../study/domain/flashcard.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 const _days = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 
@@ -119,7 +120,7 @@ class _WeeklySummaryScreenState extends ConsumerState<WeeklySummaryScreen> {
             children: [
               for (final (i, d) in weekDays.indexed)
                 Column(children: [
-                  Text(journal.day(d).mood?.emoji ?? '·', style: const TextStyle(fontSize: 26)),
+                  DoodleText(journal.day(d).mood?.emoji ?? '·', style: const TextStyle(fontSize: 26)),
                   Text(_days[i], style: const TextStyle(fontSize: 12)),
                 ]),
             ],
@@ -130,7 +131,7 @@ class _WeeklySummaryScreenState extends ConsumerState<WeeklySummaryScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(children: [
-                  SizedBox(width: 110, child: Text('${h.emoji} ${h.name}', overflow: TextOverflow.ellipsis)),
+                  SizedBox(width: 110, child: DoodleText('${h.emoji} ${h.name}', overflow: TextOverflow.ellipsis)),
                   for (final d in weekDays)
                     Expanded(
                       child: Icon(
@@ -149,12 +150,12 @@ class _WeeklySummaryScreenState extends ConsumerState<WeeklySummaryScreen> {
           ],
           const _Title('Lo que viene'),
           if (upcoming.isEmpty)
-            const Text('Nada pendiente en los próximos días 🎉')
+            const DoodleText('Nada pendiente en los próximos días 🎉')
           else
             for (final r in upcoming)
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: Text(r.kind.emoji, style: const TextStyle(fontSize: 24)),
+                leading: DoodleIcon(r.kind.emoji, size: 30),
                 title: Text(r.title),
                 subtitle: Text([if (r.subject.isNotEmpty) r.subject, dueLabel(r.due, now)].join(' · ')),
                 onTap: () => context.push('/planner?tab=pendientes'),
@@ -207,7 +208,7 @@ class _Stat extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(children: [
-              Text(emoji, style: const TextStyle(fontSize: 26)),
+              DoodleIcon(emoji, size: 34),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

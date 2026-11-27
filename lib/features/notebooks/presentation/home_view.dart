@@ -7,6 +7,7 @@ import '../../../core/theme.dart';
 import '../../../core/widgets/cat_mascot.dart';
 import '../domain/notebook.dart';
 import 'notebook_form.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 /// Colores del inicio (cálidos, tipo diario).
 class HomeColors {
@@ -636,7 +637,7 @@ class _Bubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: HomeColors.terracotta, width: 1.4),
         ),
-        child: Text(text,
+        child: DoodleText(text,
             textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: HomeColors.ink)),
       );
 }
