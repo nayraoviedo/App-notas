@@ -9,6 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'backup_service.dart';
 import '../../core/google_auth.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:path/path.dart' as p;
+import '../../core/activity_flags.dart';
+import '../../core/files/app_dirs.dart';
+import '../../core/platform_info.dart';
+import 'package:crypto/crypto.dart';
 
 /// Copia de TODA la app en tu Google Drive, en la carpeta privada de la app
 /// (no se ve entre tus archivos y solo Kumo puede leerla). Usa el espacio
@@ -183,6 +189,7 @@ class DriveSync {
   Future<void> upload(SharedPreferences prefs, {void Function(String)? onStatus}) async {
     final token = await _tok(prefs);
     onStatus?.call('Preparando la copia…');
+    final fp = await dataFingerprint(prefs); // antes de armarla: lo que se sube
     final path = await BackupService.create(prefs);
     final file = File(path);
     try {
@@ -226,6 +233,7 @@ class DriveSync {
     }
     await prefs.setInt(lastKey, DateTime.now().millisecondsSinceEpoch);
     await prefs.setInt(syncLastKey, DateTime.now().millisecondsSinceEpoch);
+    await prefs.setString(fingerprintKey, fp);
   }
 
   /// Baja la copia más reciente y la deja lista para aplicar al reiniciar.
@@ -328,13 +336,56 @@ class DriveSync {
     // Hay una copia traída que se pone al volver a abrir: lo de aquí es lo
     // viejo y no se sube (pisaría lo que se acaba de traer).
     if (await BackupService.hasPendingRestore()) return false;
+    // Nunca durante una grabación.
+    if (recordingInProgress) return false;
     final last = prefs.getInt(lastKey);
     if (last != null && DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(last)) < every) {
       return false;
     }
+    // Solo si algo cambió desde la última subida (si no, gastaría megas
+    // subiendo lo mismo).
+    if (await dataFingerprint(prefs) == prefs.getString(fingerprintKey)) return false;
+    // En el celular, por defecto solo con wifi.
+    if (isPhone && (prefs.getBool(wifiOnlyKey) ?? true) && !await _onWifi()) return false;
     if (await newerFromOtherDevice(prefs) != null) return false;
     await upload(prefs);
     return true;
+  }
+
+  static const fingerprintKey = 'sync.lastFingerprint';
+  static const wifiOnlyKey = 'drive.wifiOnly';
+
+  /// Huella de los datos de la app (cuántos archivos, cuánto pesan y cuándo
+  /// cambió el último). Si es igual a la de la última subida, no hay nada
+  /// nuevo que subir.
+  static Future<String> dataFingerprint(SharedPreferences prefs) async {
+    // Horario, hábitos, ánimo y gastos se guardan en los ajustes: también
+    // cuentan como cambios (menos lo propio de la sincronización).
+    final keys = prefs.getKeys().where((k) => !k.startsWith('sync.') && !k.startsWith('drive.') &&
+        !k.startsWith('google.') && !k.startsWith('backup.') && !k.startsWith('hw.count.')).toList()
+      ..sort();
+    final prefsHash = sha1.convert(utf8.encode(jsonEncode({for (final k in keys) k: '${prefs.get(k)}'}))).toString();
+    final root = await appDataDir();
+    var count = 0, bytes = 0, newest = 0;
+    for (final e in root.listSync(recursive: true, followLinks: false)) {
+      if (e is! File) continue;
+      final rel = p.relative(e.path, from: root.path);
+      if (rel.startsWith('_restore') || rel.endsWith('.tmp')) continue;
+      final st = e.statSync();
+      count++;
+      bytes += st.size;
+      if (st.modified.millisecondsSinceEpoch > newest) newest = st.modified.millisecondsSinceEpoch;
+    }
+    return '$count:$bytes:$newest:$prefsHash';
+  }
+
+  static Future<bool> _onWifi() async {
+    try {
+      final r = await Connectivity().checkConnectivity();
+      return r.contains(ConnectivityResult.wifi) || r.contains(ConnectivityResult.ethernet);
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Copia diaria automática (al abrir la app), si está conectada.
@@ -343,6 +394,7 @@ class DriveSync {
     // Hay una copia traída que se pone al volver a abrir: lo de aquí es lo
     // viejo y no se sube (pisaría lo que se acaba de traer).
     if (await BackupService.hasPendingRestore()) return;
+    if (recordingInProgress) return;
     final last = prefs.getInt(lastKey);
     if (last != null &&
         DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(last)) < const Duration(hours: 24)) {

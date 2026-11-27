@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -20,6 +22,8 @@ import '../../../core/platform_info.dart';
 import '../../../core/background_recording.dart';
 import '../../planner/data/reminder_notifications.dart';
 import '../data/pcm_resample.dart';
+import 'recording_recovery.dart' show recordingJournalPath;
+import '../../../core/activity_flags.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
 
@@ -171,6 +175,12 @@ class RecordingController extends Notifier<RecordingState> {
     final rate = hq ? 48000 : 16000;
     _wav = WavWriter(path, sampleRate: rate);
     await _wav!.open();
+    // Diario de la grabación: si Android cierra la app antes de Detener, al
+    // volver a abrirla se recupera el audio con sus notas y fotos.
+    _journal = File(recordingJournalPath(path));
+    _journalStart = DateTime.now();
+    _journalRate = rate;
+    _writeJournal();
 
     // La detección de voz se prepara en segundo plano: la primera vez descarga
     // el modelo. Mientras tanto se graba normal y se puede marcar a mano.
@@ -201,6 +211,8 @@ class RecordingController extends Notifier<RecordingState> {
       numChannels: 1,
     )))
         .asBroadcastStream();
+    // Grabando: mientras tanto no se arman copias para Drive.
+    recordingInProgress = true;
     final ds = hq ? Downsampler3() : null;
     final pcm = ds == null ? raw : raw.map(ds.add).asBroadcastStream();
 
@@ -258,6 +270,36 @@ class RecordingController extends Notifier<RecordingState> {
   void addMarker() {
     if (!state.isActive) return;
     state = state.copyWith(markers: [...state.markers, AudioMarker(atMs: state.elapsedMs)]);
+    _writeJournal();
+  }
+
+  File? _journal;
+  DateTime? _journalStart;
+  int _journalRate = 16000;
+
+  void _writeJournal() {
+    final j = _journal;
+    if (j == null) return;
+    try {
+      j.writeAsStringSync(jsonEncode({
+        'noteId': _noteId,
+        'startedAt': _journalStart?.millisecondsSinceEpoch,
+        'rate': _journalRate,
+        'markers': [
+          for (final m in state.markers) {'at': m.atMs, if (m.label != null) 'label': m.label},
+        ],
+        'photos': [
+          for (final ph in state.photos) {'path': ph.path, 'at': ph.atMs},
+        ],
+      }), flush: true);
+    } catch (_) {}
+  }
+
+  void _dropJournal() {
+    try {
+      _journal?.deleteSync();
+    } catch (_) {}
+    _journal = null;
   }
 
   /// Nota rápida escrita mientras se graba, pegada al minuto [atMs]
@@ -266,6 +308,7 @@ class RecordingController extends Notifier<RecordingState> {
     if (text.trim().isEmpty) return;
     state = state.copyWith(
         markers: [...state.markers, AudioMarker(atMs: atMs, label: text.trim())]);
+    _writeJournal();
   }
 
   /// Foto sincronizada con el minuto actual de la grabación.
@@ -277,6 +320,7 @@ class RecordingController extends Notifier<RecordingState> {
     if (temp == null) return;
     final path = await ref.read(cameraServiceProvider).savePhoto(temp);
     state = state.copyWith(photos: [...state.photos, PendingPhoto(path, atMs)]);
+    _writeJournal();
   }
 
   // ------------------------------------------------------------ Hablantes
@@ -367,6 +411,7 @@ class RecordingController extends Notifier<RecordingState> {
         anchor: MediaAnchor.audio(audioBlockId: blockId, atMs: photo.atMs),
       );
     }
+    _dropJournal(); // ya quedó guardada
     await _cleanupSafe();
 
     // 2) Transcribir con calma y reemplazar el texto provisional.
@@ -415,6 +460,7 @@ class RecordingController extends Notifier<RecordingState> {
     for (final p in state.photos) {
       await storage.deleteIfExists(p.path);
     }
+    _dropJournal();
     await _cleanup();
     state = const RecordingState();
   }
@@ -423,6 +469,7 @@ class RecordingController extends Notifier<RecordingState> {
     try {
       await _cleanup().timeout(const Duration(seconds: 5));
     } catch (_) {
+      recordingInProgress = false;
       _recorder = null;
       _tracker = null;
       _live = null;
@@ -435,6 +482,7 @@ class RecordingController extends Notifier<RecordingState> {
   }
 
   Future<void> _cleanup() async {
+    recordingInProgress = false;
     await _suggestionSub?.cancel();
     await _tracker?.dispose();
     await _recorder?.dispose();
