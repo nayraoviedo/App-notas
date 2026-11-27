@@ -16,6 +16,7 @@ import 'features/backup/backup_service.dart';
 import 'features/backup/drive_sync.dart';
 import 'features/notebooks/presentation/pick_notebook_sheet.dart';
 import 'features/planner/data/reminder_notifications.dart';
+import 'features/planner/domain/planner.dart';
 import 'features/recording/application/recording_recovery.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
@@ -254,12 +255,55 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
       case 'diario':
         appRouter.push('/journal');
       case 'nota':
-        final now = DateTime.now();
-        final id = await ref.read(notesRepositoryProvider).createNote(title: 'Nota ${now.day}/${now.month}');
-        appRouter.push('/notes/$id');
+        await _noteFromShortcut();
       case 'grabar':
         await _recordFromShortcut();
     }
+  }
+
+  /// La clase de ahora (o la que empieza en menos de 15 min), para sugerir
+  /// su cuaderno.
+  ClassSlot? _classNow(DateTime now) {
+    final cls = ref.read(plannerProvider).currentOrNext(now);
+    if (cls != null && cls.start - (now.hour * 60 + now.minute) > 15) return null;
+    return cls;
+  }
+
+  /// Al abrir la app desde el widget, la pantalla tarda un momento en estar.
+  Future<BuildContext?> _navContext() async {
+    for (var i = 0; i < 40; i++) {
+      final nav = appRouter.routerDelegate.navigatorKey.currentContext;
+      if (nav != null && nav.mounted) return nav;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return null;
+  }
+
+  /// "Nota" del widget o del acceso rápido: primero se elige el cuaderno
+  /// (sugiriendo el de la clase de ahora) y luego se abre la nota nueva.
+  Future<void> _noteFromShortcut() async {
+    final now = DateTime.now();
+    final cls = _classNow(now);
+    String? notebookId = cls?.notebookId;
+    final nav = await _navContext();
+    if (nav != null && nav.mounted) {
+      final choice = await pickNotebookSheet(
+        nav,
+        ref,
+        title: '¿En qué cuaderno va la nota?',
+        suggestedId: cls?.notebookId,
+        suggestedLabel: cls == null ? null : 'Clase de ahora: ${cls.subject}',
+      );
+      if (choice == null) return; // se cerró sin elegir: no se crea nada
+      notebookId = choice.notebookId;
+    }
+    final forClass = cls != null && cls.notebookId != null && cls.notebookId == notebookId ? cls : null;
+    final id = await ref.read(notesRepositoryProvider).createNote(
+          title: forClass != null ? '${forClass.subject} ${now.day}/${now.month}' : 'Nota ${now.day}/${now.month}',
+          notebookId: notebookId,
+          tags: forClass != null ? [forClass.subject] : const [],
+        );
+    appRouter.push('/notes/$id');
   }
 
   /// "Grabar" del widget o del acceso rápido: primero se elige el cuaderno
@@ -267,16 +311,8 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
   Future<void> _recordFromShortcut() async {
     final now = DateTime.now();
     // Si hay una clase ahora (o empieza pronto), se sugiere su cuaderno.
-    var cls = ref.read(plannerProvider).currentOrNext(now);
-    if (cls != null && cls.start - (now.hour * 60 + now.minute) > 15) cls = null;
-
-    // Al abrir la app desde el widget, la pantalla tarda un momento en estar.
-    BuildContext? nav;
-    for (var i = 0; i < 40; i++) {
-      nav = appRouter.routerDelegate.navigatorKey.currentContext;
-      if (nav != null && nav.mounted) break;
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
+    final cls = _classNow(now);
+    final nav = await _navContext();
     String? notebookId = cls?.notebookId;
     if (nav != null && nav.mounted) {
       final choice = await pickNotebookSheet(
