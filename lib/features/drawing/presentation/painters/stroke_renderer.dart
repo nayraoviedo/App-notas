@@ -11,7 +11,8 @@ import '../../domain/drawing.dart';
 /// - Pluma estilográfica: tinta con trazo que engrosa con la presión.
 /// - Lápiz: fino, algo transparente y con borde suave (grafito).
 /// - Pincel: muy sensible a la presión, con puntas afinadas.
-/// - Marcador: grueso y opaco.
+/// - Marcador: punta biselada (cambia de grosor según la dirección) y, si
+///   se sube la sensibilidad, también con la presión o la velocidad.
 /// - Resaltador: plano, translúcido y "multiplica" el color (no tapa).
 /// - Borrador: borra píxeles solo de la capa activa.
 class StrokeRenderer {
@@ -48,10 +49,13 @@ class StrokeRenderer {
             ..color = color.withValues(alpha: 0.8)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.6),
         );
+      case ToolType.marker:
+        // Punta biselada: el grosor cambia según la dirección del trazo
+        // (fino en diagonal, ancho de lado), como un marcador de verdad.
+        canvas.drawPath(_chisel(stroke, live), Paint()..color = color.withValues(alpha: color.a * 0.92));
       case ToolType.pen:
       case ToolType.fountain:
       case ToolType.brush:
-      case ToolType.marker:
         canvas.drawPath(_outline(stroke, live), Paint()..color = color);
     }
   }
@@ -65,6 +69,65 @@ class StrokeRenderer {
       options: _options(s, hasPressure, live),
     );
     final path = Path()..addPolygon(outline, true);
+    if (!live) s.cachedPath = path;
+    return path;
+  }
+
+  /// Marcador de punta biselada: la punta es una raya inclinada 45°; el
+  /// trazo es todo lo que barre al moverse. Al ir en la dirección de la
+  /// punta sale fino; de través, ancho.
+  static Path _chisel(Stroke s, bool live) {
+    if (!live && s.cachedPath != null) return s.cachedPath!;
+    final pts = s.points;
+    final th = (s.thinning ?? 0.3).clamp(0.0, 1.0);
+    // Ancho de cada punto: con presión real o, si no hay, por la velocidad
+    // (rápido = más fino), solo si la sensibilidad está encendida.
+    final widths = <double>[];
+    for (var i = 0; i < pts.length; i++) {
+      var p = pts[i].p;
+      if (p == null) {
+        if (i == 0) {
+          p = 0.8;
+        } else {
+          final d = (Offset(pts[i].x, pts[i].y) - Offset(pts[i - 1].x, pts[i - 1].y)).distance;
+          p = (1 - (d / (s.size * 1.5)).clamp(0.0, 1.0) * 0.7);
+        }
+      }
+      widths.add(s.size * (1 - th * (1 - p)));
+    }
+    // Suavizar los anchos para que no salten.
+    for (var i = 1; i < widths.length; i++) {
+      widths[i] = widths[i - 1] * 0.6 + widths[i] * 0.4;
+    }
+    const angle = -math.pi / 4;
+    final dir = Offset(math.cos(angle), math.sin(angle));
+    final nrm = Offset(-dir.dy, dir.dx);
+    final path = Path();
+    void addPoly(List<Offset> poly) {
+      // Mismo sentido de giro en todas las piezas, para que se unan bien.
+      var area = 0.0;
+      for (var i = 0; i < poly.length; i++) {
+        final a = poly[i], b = poly[(i + 1) % poly.length];
+        area += a.dx * b.dy - b.dx * a.dy;
+      }
+      path.addPolygon(area < 0 ? poly.reversed.toList() : poly, true);
+    }
+
+    List<Offset> nib(Offset c, double w) {
+      final half = dir * (w / 2);
+      final t = nrm * math.max(0.6, w * 0.12);
+      return [c - half - t, c + half - t, c + half + t, c - half + t];
+    }
+
+    for (var i = 0; i < pts.length; i++) {
+      final c = Offset(pts[i].x, pts[i].y);
+      addPoly(nib(c, widths[i]));
+      if (i == 0) continue;
+      final b = Offset(pts[i - 1].x, pts[i - 1].y);
+      final hb = dir * (widths[i - 1] / 2), hc = dir * (widths[i] / 2);
+      addPoly([b - hb, b + hb, c + hc, c - hc]);
+    }
+    path.fillType = PathFillType.nonZero;
     if (!live) s.cachedPath = path;
     return path;
   }
