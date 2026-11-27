@@ -72,6 +72,8 @@ jobs:
             adb logcat -d > logcat.txt || true
             grep -n -A40 "FATAL EXCEPTION\|AndroidRuntime" logcat.txt | head -150 || true
             grep -n "flutter" logcat.txt | head -80 || true
+            echo "== plugins que no se pudieron registrar =="
+            grep -n -A30 "Error registering plugin" logcat.txt | head -200 || true
             adb shell pidof com.appnotas.app_notas && echo "SIGUE ABIERTA" || echo "SE CERRO"
             adb exec-out screencap -p > pantalla.png || true
       - uses: actions/upload-artifact@v4
