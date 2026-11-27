@@ -9,6 +9,7 @@ import 'dart:ui';
 import 'package:app_notas/app.dart';
 import 'package:app_notas/core/providers.dart';
 import 'package:app_notas/core/router.dart';
+import 'package:app_notas/features/drawing/application/handwriting.dart';
 import 'package:app_notas/features/drawing/domain/drawing.dart';
 import 'package:app_notas/features/drawing/presentation/drawing_screen.dart';
 import 'package:app_notas/main.dart' as app;
@@ -60,6 +61,16 @@ void main() {
     }
 
     await wait(3000);
+    // Con el lector de letra bajado (como en el celular de nayra), al cerrar
+    // cada hoja se lee lo escrito a mano.
+    try {
+      await tester.runAsync(() => Handwriting.instance.ensureModel().timeout(const Duration(minutes: 3)));
+      // ignore: avoid_print
+      print('== lector de letra listo: ${await tester.runAsync(() => Handwriting.instance.isReady())}');
+    } catch (e) {
+      // ignore: avoid_print
+      print('== sin lector de letra: $e');
+    }
     final container = ProviderScope.containerOf(tester.element(find.byType(AppNotas)));
     final repo = container.read(notesRepositoryProvider);
     final storage = container.read(fileStorageProvider);
