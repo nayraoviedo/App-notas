@@ -18,6 +18,7 @@ import '../../notes/presentation/note_tags_dialog.dart';
 import '../../recording/application/recording_controller.dart';
 import '../../settings/settings.dart';
 import '../application/drawing_controller.dart';
+import '../application/page_move.dart';
 import '../application/handwriting.dart';
 import '../data/page_templates.dart';
 import 'presentation_screen.dart';
@@ -720,6 +721,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           _movingSel = false;
           return;
         }
+        // Capa con candado u oculta: el lazo no la toca (avisar).
+        if (!ctl.canDrawOnActiveLayer) {
+          if (_pointers.length == 1) _cantDrawHint(ctl);
+          return;
+        }
         final b = ctl.selectionBounds;
         if (b != null && b.inflate(24).contains(e.localPosition)) {
           _movingSel = true;
@@ -865,6 +871,17 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   void _onCancel(PointerCancelEvent e) {
     _pointers.remove(e.pointer);
     _disarmHold();
+    if (_lassoing || _movingSel) {
+      // Android cortó el toque (un aviso, una llamada): soltar el lazo para
+      // que no quede trabado.
+      if (_lassoing) _ctl?.cancelLasso();
+      final wasMoving = _movingSel;
+      _lassoing = false;
+      _movingSel = false;
+      _moveLast = null;
+      _tapStart = null;
+      if (wasMoving) setState(() {});
+    }
     if (e.pointer == _drawingPointer) {
       _drawingPointer = null;
       _ctl!.cancelStroke();
@@ -885,6 +902,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     final pages = _pages;
     final i = _pageIndex;
     if (i < 0) return;
+    final fromPath = _path;
     final t = i + dir;
     // No hay hoja antes (o es la tapa): devolverlo dentro de la hoja.
     void keepInside() {
@@ -902,7 +920,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     try {
       if (t >= pages.length) {
         // Más abajo de la última hoja: agregar una nueva y pasar ahí.
-        final (strokes, items) = ctl.takeSelection();
+        final (strokes, items) = ctl.takeSelection(afterDrag: true);
         await _addPage(copy: false);
         final c = _ctl!;
         final (s2, i2) = _shift(strokes, items, Offset(0, -(d.height + _gap)), c.drawing);
@@ -911,7 +929,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           ctl.undo();
           return;
         }
+        final before = c.drawing;
         c.addContent(s2, i2);
+        _linkMove(fromPath, c, before);
         _afterMove();
         return;
       }
@@ -923,12 +943,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         return;
       }
       final dy = dir > 0 ? -(d.height + _gap) : target.height + _gap;
-      final (strokes, items) = ctl.takeSelection();
+      final (strokes, items) = ctl.takeSelection(afterDrag: true);
       final (s2, i2) = _shift(strokes, items, Offset(0, dy), target);
       await _load(targetPath, keepView: _vertical);
       final c = _ctl;
       if (_path == targetPath && c != null && !identical(c, ctl)) {
+        final before = c.drawing;
         c.addContent(s2, i2);
+        _linkMove(fromPath, c, before);
         _afterMove();
       } else {
         // Se abrió otra hoja mientras tanto: se guarda directo en el archivo.
@@ -948,6 +970,54 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   }
 
   bool _transferring = false;
+
+  /// Lo último que se pasó a otra hoja (para deshacerlo en las dos).
+  PageMove? _move;
+  PageMove? _movedBack;
+
+  void _linkMove(String from, DrawingController to, Drawing before) {
+    if (identical(to.drawing, before)) return; // no se agregó nada
+    _move = PageMove(from: from, to: _path, after: to.drawing, before: before);
+    _movedBack = null;
+  }
+
+  /// Deshacer: si lo último fue recibir algo de otra hoja, también se
+  /// devuelve a esa hoja (si no, desaparecía de las dos).
+  void _undo(DrawingController c) {
+    final m = _move;
+    if (m != null && _path == m.to && identical(c.drawing, m.after)) {
+      c.undo();
+      _move = null;
+      if (identical(c.drawing, m.before)) _movedBack = m;
+      unawaited(_stepClosedPage(m.from, undo: true));
+      return;
+    }
+    c.undo();
+  }
+
+  void _redo(DrawingController c) {
+    final m = _movedBack;
+    if (m != null && _path == m.to && identical(c.drawing, m.before)) {
+      c.redo();
+      _movedBack = null;
+      if (identical(c.drawing, m.after)) _move = m;
+      unawaited(_stepClosedPage(m.from, undo: false));
+      return;
+    }
+    c.redo();
+  }
+
+  /// Deshace o rehace un paso en una hoja que no está abierta.
+  Future<void> _stepClosedPage(String path, {required bool undo}) async {
+    final h = _histories[path];
+    if (h == null || path == _path) return;
+    final step = undo ? undoClosedPage(h) : redoClosedPage(h);
+    if (step == null) return;
+    final (drawing, history) = step;
+    await ref.read(drawingStoreProvider).save(path, drawing);
+    _histories[path] = history;
+    if (mounted) ref.invalidate(drawingFileProvider(path));
+  }
 
   /// Cuánto hay que correr [r] para que quede dentro de la hoja [d].
   static Offset _fitInside(Rect r, Drawing d) {
@@ -1553,8 +1623,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Row(
               children: [
-                _icon(Icons.undo, 'Deshacer', c.canUndo ? c.undo : null),
-                _icon(Icons.redo, 'Rehacer', c.canRedo ? c.redo : null),
+                _icon(Icons.undo, 'Deshacer', c.canUndo ? () => _undo(c) : null),
+                _icon(Icons.redo, 'Rehacer', c.canRedo ? () => _redo(c) : null),
                 const SizedBox(height: 30, child: VerticalDivider(width: 10)),
                 _icon(toolIcon(_pen), _pen.label, () => _tapTool(c, _pen, on: penOn),
                     onLongPress: () => _toolSettings(c, _pen, ToolPanel.pen), selected: penOn),
@@ -1811,10 +1881,10 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     }
 
     return {
-      const SingleActivator(LogicalKeyboardKey.keyZ, control: true): guard(c.undo),
-      const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): guard(c.undo),
-      const SingleActivator(LogicalKeyboardKey.keyY, control: true): guard(c.redo),
-      const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true): guard(c.redo),
+      const SingleActivator(LogicalKeyboardKey.keyZ, control: true): guard(() => _undo(c)),
+      const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): guard(() => _undo(c)),
+      const SingleActivator(LogicalKeyboardKey.keyY, control: true): guard(() => _redo(c)),
+      const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true): guard(() => _redo(c)),
       const SingleActivator(LogicalKeyboardKey.keyP): guard(() => tool(ToolType.pen)),
       const SingleActivator(LogicalKeyboardKey.keyB): guard(() => tool(ToolType.pen)),
       const SingleActivator(LogicalKeyboardKey.keyH): guard(() => tool(ToolType.highlighter)),

@@ -34,9 +34,17 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Las copias de seguridad sacan la base de datos completa y al día.
+    BackupService.databaseSnapshot =
+        (dest) => ref.read(databaseProvider).customStatement('VACUUM INTO ?', [dest]);
     // En la compu se sube cada 30 min mientras está abierta.
     if (isDesktop) {
-      _syncTimer = Timer.periodic(const Duration(minutes: 30), (_) => _syncUp());
+      _syncTimer = Timer.periodic(const Duration(minutes: 30), (_) async {
+        // Si el otro aparato subió algo, preguntar (si no, esta compu deja de
+        // subir sin que se note).
+        await _checkNewer();
+        await _syncUp();
+      });
     }
     _recoverLostPhoto();
     _setupShortcuts();
@@ -77,6 +85,28 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) _syncUp();
+    // Al volver a la app (celular): ¿hay cambios nuevos del otro aparato?
+    if (state == AppLifecycleState.resumed && isPhone) _checkNewer();
+  }
+
+  DateTime _lastCheck = DateTime(0);
+  bool _offering = false;
+
+  /// Si el otro aparato subió cambios más nuevos, ofrecer traerlos. Mientras
+  /// eso no se resuelva, este aparato no sube nada a Drive, así que no se
+  /// puede quedar callado: se vuelve a preguntar (como mucho cada 2 horas
+  /// después de "Ahora no").
+  Future<void> _checkNewer() async {
+    if (_offering || DateTime.now().difference(_lastCheck) < const Duration(minutes: 10)) return;
+    _lastCheck = DateTime.now();
+    final prefs = ref.read(sharedPreferencesProvider);
+    try {
+      if (await BackupService.hasPendingRestore()) return;
+      final snooze = prefs.getInt(DriveSync.snoozeKey) ?? 0;
+      if (DateTime.now().millisecondsSinceEpoch < snooze) return;
+      final newer = await DriveSync.instance.newerFromOtherDevice(prefs);
+      if (newer != null) await _offerPull(newer.$1, newer.$2);
+    } catch (_) {}
   }
 
   bool _syncing = false;
@@ -104,6 +134,7 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
     } catch (_) {}
     // ¿Hay cambios más nuevos desde el otro aparato? Preguntar si traerlos.
     try {
+      _lastCheck = DateTime.now();
       final newer = await DriveSync.instance.newerFromOtherDevice(prefs);
       if (newer != null) {
         await _offerPull(newer.$1, newer.$2);
@@ -119,22 +150,59 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
 
   Future<void> _offerPull(DateTime when, String from) async {
     final context = appRouter.routerDelegate.navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
+    if (context == null || !context.mounted || _offering) return;
+    _offering = true;
     final hm = '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const DoodleText('Hay cambios nuevos ☁️'),
-        content: Text('Tu $from guardó cambios en Google Drive (${when.day}/${when.month} $hm).\n\n'
-            '¿Traerlos a este aparato? Lo que hay aquí se reemplaza por esa versión '
-            '(antes se guarda una copia de seguridad, por si acaso).'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ahora no')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Traer cambios')),
-        ],
-      ),
-    );
-    if (ok != true || !context.mounted) return;
+    final String? choice;
+    try {
+      choice = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const DoodleText('Hay cambios nuevos ☁️'),
+          content: Text('Tu $from guardó cambios en Google Drive (${when.day}/${when.month} $hm).\n\n'
+              '• Traer cambios: lo de aquí se reemplaza por esa versión '
+              '(antes se guarda una copia de seguridad, por si acaso).\n'
+              '• Quedarme con lo de aquí: se sube lo de este aparato y, la próxima vez, '
+              'el otro aparato te preguntará si lo trae.\n\n'
+              'Mientras no elijas, desde aquí no se sube nada a Drive.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, 'later'), child: const Text('Ahora no')),
+            TextButton(onPressed: () => Navigator.pop(context, 'mine'), child: const Text('Quedarme con lo de aquí')),
+            FilledButton(onPressed: () => Navigator.pop(context, 'pull'), child: const Text('Traer cambios')),
+          ],
+        ),
+      );
+    } finally {
+      _offering = false;
+    }
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (!context.mounted) return;
+    final messenger0 = ScaffoldMessenger.maybeOf(context);
+    if (choice == 'mine') {
+      messenger0?.showSnackBar(const SnackBar(content: Text('Subiendo lo de este aparato…')));
+      try {
+        await DriveSync.instance.upload(prefs);
+        await prefs.remove(DriveSync.snoozeKey);
+        messenger0?.hideCurrentSnackBar();
+        messenger0?.showSnackBar(const SnackBar(content: Text('Listo: Drive tiene lo de este aparato ✓')));
+      } catch (e) {
+        messenger0?.hideCurrentSnackBar();
+        messenger0?.showSnackBar(SnackBar(content: Text('No se pudo subir: $e')));
+      }
+      return;
+    }
+    if (choice != 'pull') {
+      // "Ahora no": avisar que la sincronización queda en pausa y volver a
+      // preguntar en 2 horas.
+      await prefs.setInt(
+          DriveSync.snoozeKey, DateTime.now().add(const Duration(hours: 2)).millisecondsSinceEpoch);
+      messenger0?.showSnackBar(const SnackBar(
+        duration: Duration(seconds: 6),
+        content: Text('Sincronización en pausa: lo que hagas aquí no se sube a Drive hasta que elijas. '
+            'Te vuelvo a preguntar en 2 horas.'),
+      ));
+      return;
+    }
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger?.showSnackBar(const SnackBar(content: Text('Trayendo los cambios…'), duration: Duration(minutes: 5)));
     try {

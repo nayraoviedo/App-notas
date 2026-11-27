@@ -269,6 +269,9 @@ class DriveSync {
   static const deviceKey = 'sync.device';
   static const syncLastKey = 'sync.last';
 
+  /// Hasta cuándo no volver a preguntar "Traer cambios" (después de "Ahora no").
+  static const snoozeKey = 'sync.snoozeUntil';
+
   static String get _deviceName => Platform.isAndroid
       ? 'celular'
       : Platform.isIOS
