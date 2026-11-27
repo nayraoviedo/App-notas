@@ -11,6 +11,7 @@ import '../data/reminder_notifications.dart';
 import '../../../core/home_widget.dart';
 import '../data/calendar_sync.dart';
 import '../domain/planner.dart';
+import 'schedule_views.dart';
 
 class PlannerController extends Notifier<PlannerState> {
   static const _key = 'planner.data';
@@ -54,7 +55,7 @@ class PlannerController extends Notifier<PlannerState> {
 
 final plannerProvider = NotifierProvider<PlannerController, PlannerState>(PlannerController.new);
 
-const _weekNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+const weekNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const _subjectColors = [
   0xFFF4A7B9, 0xFFF9D5A7, 0xFFFFE699, 0xFFB8E0D2, 0xFFA7C7E7, 0xFFD5B8F0, 0xFFC5E1A5, 0xFFFFCCBC,
 ];
@@ -89,28 +90,51 @@ class PlannerScreen extends StatelessWidget {
 
 // ------------------------------------------------------------------ Horario
 
-class ScheduleView extends ConsumerWidget {
+class ScheduleView extends ConsumerStatefulWidget {
   const ScheduleView({super.key, this.now});
   final DateTime? now;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ScheduleView> createState() => _ScheduleViewState();
+}
+
+class _ScheduleViewState extends ConsumerState<ScheduleView> {
+  static const _viewKey = 'planner.view';
+  late bool _dayView = ref.read(sharedPreferencesProvider).getString(_viewKey) == 'day';
+
+  void _setView(bool day) {
+    setState(() => _dayView = day);
+    ref.read(sharedPreferencesProvider).setString(_viewKey, day ? 'day' : 'week');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final st = ref.watch(plannerProvider);
-    final today = now ?? DateTime.now();
-    final days = st.classes.any((c) => c.weekday == 7)
-        ? 7
-        : st.classes.any((c) => c.weekday == 6)
-            ? 6
-            : 5;
-    final minH = st.classes.isEmpty
-        ? 7
-        : (st.classes.map((c) => c.start).reduce((a, b) => a < b ? a : b) ~/ 60).clamp(0, 7);
-    final maxH = st.classes.isEmpty
-        ? 18
-        : ((st.classes.map((c) => c.end).reduce((a, b) => a > b ? a : b) + 59) ~/ 60).clamp(18, 24);
-    const hourH = 56.0;
-    const leftW = 38.0;
+    final today = widget.now ?? DateTime.now();
     final next = st.currentOrNext(today);
+    final toolbar = Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+      child: Row(
+        children: [
+          SegmentedButton<bool>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: false, icon: Icon(Icons.calendar_view_week_outlined), label: Text('Semana')),
+              ButtonSegment(value: true, icon: Icon(Icons.view_agenda_outlined), label: Text('Día')),
+            ],
+            selected: {_dayView},
+            onSelectionChanged: (v) => _setView(v.first),
+          ),
+          const Spacer(),
+          if (!_dayView && st.classes.isNotEmpty)
+            IconButton.filledTonal(
+              tooltip: 'Guardar como imagen (PNG)',
+              onPressed: () => exportScheduleImage(context, ref),
+              icon: const Icon(Icons.image_outlined),
+            ),
+        ],
+      ),
+    );
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
@@ -119,185 +143,114 @@ class ScheduleView extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('Clase'),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
-        children: [
-          if (next != null)
-            Card(
-              color: Color(next.color),
-              child: ListTile(
-                leading: const CatMascot(kind: CatKind.orange, size: 40),
-                title: Text(next.subject, style: const TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: Text(
-                    '${next.start <= today.hour * 60 + today.minute ? 'Ahora' : 'Hoy'} · ${hhmm(next.start)}–${hhmm(next.end)}'
-                    '${next.room.isEmpty ? '' : ' · ${next.room}'}'),
-                trailing: FilledButton.tonalIcon(
-                  onPressed: () => recordClass(context, ref, next),
-                  icon: const Icon(Icons.mic, size: 18),
-                  label: const Text('Grabar'),
-                ),
-              ),
-            )
-          else if (st.classes.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CatMascot(kind: CatKind.gray, size: 56),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text('Agrega tus clases con el botón + y toca una para abrir su cuaderno '
-                        'o grabar la clase.'),
-                  ),
-                ],
-              ),
-            ),
-          Row(
-            children: [
-              const SizedBox(width: leftW),
-              for (var d = 1; d <= days; d++)
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    alignment: Alignment.center,
-                    decoration: d == today.weekday
-                        ? BoxDecoration(
-                            color: const Color(0xFFE07B55).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          )
-                        : null,
-                    child: Text(_weekNames[d - 1].substring(0, 3),
-                        style: TextStyle(
-                          fontWeight: d == today.weekday ? FontWeight.bold : FontWeight.w500,
-                          color: d == today.weekday ? const Color(0xFFE07B55) : null,
-                        )),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(
-            height: (maxH - minH) * hourH,
-            child: LayoutBuilder(builder: (context, c) {
-              final colW = (c.maxWidth - leftW) / days;
-              return Stack(
-                children: [
-                  for (var h = minH; h <= maxH; h++) ...[
-                    Positioned(
-                      top: (h - minH) * hourH - 7,
-                      left: 0,
-                      width: leftW - 4,
-                      child: Text('$h:00',
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(fontSize: 10, color: Colors.black45)),
-                    ),
-                    Positioned(
-                      top: (h - minH) * hourH,
-                      left: leftW,
-                      right: 0,
-                      child: Container(height: 1, color: Colors.black12),
-                    ),
-                  ],
-                  for (final cl in st.classes)
-                    if (cl.weekday <= days)
-                      Positioned(
-                        left: leftW + (cl.weekday - 1) * colW + 2,
-                        width: colW - 4,
-                        top: (cl.start / 60 - minH) * hourH + 1,
-                        height: ((cl.end - cl.start) / 60 * hourH - 2).clamp(18, 2000),
-                        child: Material(
-                          color: Color(cl.color),
-                          borderRadius: BorderRadius.circular(8),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: () => _classMenu(context, ref, cl),
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(cl.subject,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                                  if (cl.room.isNotEmpty)
-                                    Text(cl.room,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 9.5)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+      body: _dayView
+          ? DayAgenda(now: today, header: toolbar)
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
+              children: [
+                toolbar,
+                if (next != null)
+                  Card(
+                    color: Color(next.color),
+                    child: ListTile(
+                      textColor: inkOn(Color(next.color)),
+                      leading: const CatMascot(kind: CatKind.orange, size: 40),
+                      title: Text(next.subject, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                          '${next.start <= today.hour * 60 + today.minute ? 'Ahora' : 'Hoy'} · ${hhmm(next.start)}–${hhmm(next.end)}'
+                          '${next.room.isEmpty ? '' : ' · ${next.room}'}'),
+                      trailing: FilledButton.tonalIcon(
+                        onPressed: () => recordClass(context, ref, next),
+                        icon: const Icon(Icons.mic, size: 18),
+                        label: const Text('Grabar'),
                       ),
-                ],
-              );
-            }),
+                    ),
+                  )
+                else if (st.classes.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        CatMascot(kind: CatKind.gray, size: 56),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text('Agrega tus clases con el botón + y toca una para abrir su cuaderno '
+                              'o grabar la clase.'),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                WeekGrid(
+                  classes: st.classes,
+                  now: today,
+                  onTap: (cl) => classMenu(context, ref, cl),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+/// Menú de una clase: grabar, abrir su cuaderno, editar…
+Future<void> classMenu(BuildContext context, WidgetRef ref, ClassSlot c) async {
+  final action = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            title: Text(c.subject, style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text('${weekNames[c.weekday - 1]} · ${hhmm(c.start)}–${hhmm(c.end)}'
+                '${c.room.isEmpty ? '' : ' · ${c.room}'}'),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.mic_none),
+            title: const Text('Grabar la clase ahora'),
+            onTap: () => Navigator.pop(context, 'record'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.menu_book_outlined),
+            title: Text(c.notebookId == null ? 'Elegir su cuaderno' : 'Abrir su cuaderno'),
+            onTap: () => Navigator.pop(context, 'open'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.event_note_outlined),
+            title: const Text('Agregar examen o entrega'),
+            onTap: () => Navigator.pop(context, 'reminder'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('Editar'),
+            onTap: () => Navigator.pop(context, 'edit'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Quitar del horario'),
+            onTap: () => Navigator.pop(context, 'delete'),
           ),
         ],
       ),
-    );
-  }
-
-  Future<void> _classMenu(BuildContext context, WidgetRef ref, ClassSlot c) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(c.subject, style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text('${_weekNames[c.weekday - 1]} · ${hhmm(c.start)}–${hhmm(c.end)}'
-                  '${c.room.isEmpty ? '' : ' · ${c.room}'}'),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.mic_none),
-              title: const Text('Grabar la clase ahora'),
-              onTap: () => Navigator.pop(context, 'record'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.menu_book_outlined),
-              title: Text(c.notebookId == null ? 'Elegir su cuaderno' : 'Abrir su cuaderno'),
-              onTap: () => Navigator.pop(context, 'open'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.event_note_outlined),
-              title: const Text('Agregar examen o entrega'),
-              onTap: () => Navigator.pop(context, 'reminder'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Editar'),
-              onTap: () => Navigator.pop(context, 'edit'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Quitar del horario'),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!context.mounted) return;
-    switch (action) {
-      case 'record':
-        await recordClass(context, ref, c);
-      case 'open':
-        if (c.notebookId == null) {
-          await editClass(context, ref, c);
-        } else {
-          context.push('/notebooks/${c.notebookId}');
-        }
-      case 'reminder':
-        await editReminder(context, ref, subject: c.subject);
-      case 'edit':
+    ),
+  );
+  if (!context.mounted) return;
+  switch (action) {
+    case 'record':
+      await recordClass(context, ref, c);
+    case 'open':
+      if (c.notebookId == null) {
         await editClass(context, ref, c);
-      case 'delete':
-        ref.read(plannerProvider.notifier).deleteClass(c);
-    }
+      } else {
+        context.push('/notebooks/${c.notebookId}');
+      }
+    case 'reminder':
+      await editReminder(context, ref, subject: c.subject);
+    case 'edit':
+      await editClass(context, ref, c);
+    case 'delete':
+      ref.read(plannerProvider.notifier).deleteClass(c);
   }
 }
 
@@ -411,7 +364,7 @@ Future<void> editClass(BuildContext context, WidgetRef ref, [ClassSlot? c]) asyn
                   children: [
                     for (var d = 1; d <= 7; d++)
                       ChoiceChip(
-                        label: Text(_weekNames[d - 1].substring(0, 3)),
+                        label: Text(weekNames[d - 1].substring(0, 3)),
                         selected: weekday == d,
                         onSelected: (_) => set(() => weekday = d),
                       ),
@@ -523,9 +476,9 @@ class RemindersView extends ConsumerWidget {
               children: [
                 for (final r in list) _ReminderTile(r: r, now: today),
                 if (done.isNotEmpty) ...[
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(8, 16, 8, 4),
-                    child: Text('Hechos', style: TextStyle(color: Colors.black45)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 16, 8, 4),
+                    child: Text('Hechos', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ),
                   for (final r in done.take(20)) _ReminderTile(r: r, now: today),
                 ],
@@ -544,17 +497,23 @@ class _ReminderTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final soon = !r.done && r.due.difference(now).inDays < 2;
     final late = !r.done && r.due.isBefore(now);
+    final bg = r.done
+        ? null
+        : late
+            ? const Color(0xFFFFE0E0)
+            : soon
+                ? const Color(0xFFFFF1D6)
+                : const Color(0xFFFFFDF8);
+    // Tarjetas claras: tinta oscura también en modo oscuro.
+    final ink = bg == null ? null : inkOn(bg);
     return Card(
-      color: r.done
-          ? null
-          : late
-              ? const Color(0xFFFFE0E0)
-              : soon
-                  ? const Color(0xFFFFF1D6)
-                  : Colors.white,
+      color: bg,
       child: ListTile(
+        textColor: ink,
+        iconColor: ink,
         leading: Checkbox(
           value: r.done,
+          side: ink == null ? null : BorderSide(color: ink, width: 2),
           onChanged: (v) => ref.read(plannerProvider.notifier).saveReminder(r.copyWith(done: v ?? false)),
         ),
         title: Text('${r.kind.emoji} ${r.title}',
@@ -567,7 +526,11 @@ class _ReminderTile extends ConsumerWidget {
           dueLabel(r.due, now),
           style: TextStyle(
             fontWeight: FontWeight.w600,
-            color: late ? Colors.red.shade700 : soon ? const Color(0xFFB26A00) : Colors.black54,
+            color: late
+                ? Colors.red.shade700
+                : soon
+                    ? const Color(0xFFB26A00)
+                    : (ink ?? Theme.of(context).colorScheme.onSurfaceVariant).withValues(alpha: 0.7),
           ),
         ),
         onTap: () => editReminder(context, ref, existing: r),
