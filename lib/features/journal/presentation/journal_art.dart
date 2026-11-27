@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../domain/journal.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 /// Dibujos propios del diario: las nubecitas-gato de los ánimos ("kumo" es
 /// nube en japonés) y los paisajes de hábitos y del calendario.
@@ -490,7 +491,7 @@ class HabitBadge extends StatelessWidget {
         dimension: size,
         child: CustomPaint(
           painter: _BlobPainter(color),
-          child: Center(child: Text(emoji, style: TextStyle(fontSize: size * 0.46))),
+          child: Center(child: DoodleIcon(emoji, size: size * 0.6)),
         ),
       );
 }

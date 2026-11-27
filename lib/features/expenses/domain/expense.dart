@@ -43,7 +43,25 @@ class ExpenseCategory {
   }
 }
 
-const defaultCategories = <ExpenseCategory>[
+/// Categorías nuevas pensadas para una estudiante (pasaje, fotocopias…).
+/// Se agregan una vez a las listas guardadas de antes (ver [withStudentCategories]).
+const studentCategories = <ExpenseCategory>[
+  ExpenseCategory('Pasaje', '🚌', 0xFFFFD54F),
+  ExpenseCategory('Almuerzo', '🍲', 0xFFFFB74D),
+  ExpenseCategory('Snacks', '🍬', 0xFFF8BBD0),
+  ExpenseCategory('Fotocopias', '🖨️', 0xFFB0BEC5),
+  ExpenseCategory('Útiles', '✏️', 0xFFFFE082),
+  ExpenseCategory('Universidad', '🎓', 0xFFCE93D8),
+  ExpenseCategory('Celular y megas', '📱', 0xFF9FA8DA),
+  ExpenseCategory('Salud', '💊', 0xFFEF9A9A),
+  ExpenseCategory('Ropa', '👕', 0xFF81D4FA),
+  ExpenseCategory('Salidas', '🎉', 0xFFF48FB1),
+  ExpenseCategory('Casa', '🏠', 0xFFBCAAA4),
+  ExpenseCategory('Mascotas', '🐱', 0xFFFFCC80),
+  ExpenseCategory('Regalos', '🎁', 0xFFE1BEE7),
+];
+
+const _groceryCategories = <ExpenseCategory>[
   ExpenseCategory('Verduras', '🥬', 0xFF8BC34A),
   ExpenseCategory('Frutas', '🍎', 0xFFF48FB1),
   ExpenseCategory('Carne', '🥩', 0xFFE57373),
@@ -51,8 +69,25 @@ const defaultCategories = <ExpenseCategory>[
   ExpenseCategory('Lácteos', '🥛', 0xFF90CAF9),
   ExpenseCategory('Pan', '🍞', 0xFFD7B98E),
   ExpenseCategory('Limpieza', '🧼', 0xFF80DEEA),
-  ExpenseCategory('Otros', '🛍️', 0xFFB39DDB),
 ];
+
+const _other = ExpenseCategory('Otros', '🛍️', 0xFFB39DDB);
+
+const defaultCategories = <ExpenseCategory>[
+  ...studentCategories,
+  ..._groceryCategories,
+  _other,
+];
+
+/// Agrega a [saved] las categorías de estudiante que falten, antes de
+/// "Otros" (que queda al final). Las que la persona ya tiene no se tocan.
+List<ExpenseCategory> withStudentCategories(List<ExpenseCategory> saved) {
+  final names = {for (final c in saved) c.name.toLowerCase()};
+  final missing = [for (final c in studentCategories) if (!names.contains(c.name.toLowerCase())) c];
+  if (missing.isEmpty) return saved;
+  final i = saved.indexWhere((c) => c.name == 'Otros');
+  return i < 0 ? [...saved, ...missing] : [...saved.sublist(0, i), ...missing, ...saved.sublist(i)];
+}
 
 /// Periodo para ver los gastos.
 enum ExpensePeriod { day, week, month }
@@ -186,6 +221,14 @@ String guessCategory(String item, List<ExpenseCategory> cats) {
       'avena', 'atún', 'atun', 'lenteja', 'quinua', 'mayonesa', 'salsa'],
     'Limpieza': ['detergente', 'jabón', 'jabon', 'lavandina', 'papel', 'shampoo', 'champú', 'esponja',
       'cloro', 'escoba', 'pasta dental'],
+    'Fotocopias': ['fotocopia', 'copia', 'impresión', 'impresion', 'imprimir', 'anillado', 'empastado'],
+    'Útiles': ['cuaderno', 'lapicero', 'bolígrafo', 'boligrafo', 'lápiz', 'lapiz', 'borrador', 'regla',
+      'marcador', 'resaltador', 'carpeta', 'hojas', 'tijera', 'pegamento', 'calculadora'],
+    'Celular y megas': ['megas', 'recarga', 'crédito', 'credito', 'internet'],
+    'Salud': ['farmacia', 'paracetamol', 'ibuprofeno', 'pastilla', 'remedio', 'vitamina', 'curita'],
+    'Snacks': ['dulce', 'chocolate', 'chicle', 'papitas', 'refresco', 'soda', 'helado', 'salteña', 'saltena',
+      'empanada', 'tucumana', 'pipoca'],
+    'Mascotas': ['croqueta', 'whiskas', 'gato', 'perro', 'veterinario'],
   };
   final t = item.toLowerCase();
   final names = {for (final c in cats) c.name};

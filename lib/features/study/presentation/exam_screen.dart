@@ -8,6 +8,7 @@ import '../../../core/providers.dart';
 import '../../../core/widgets/cat_mascot.dart';
 import '../../settings/settings.dart';
 import '../domain/flashcard.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 /// Una pregunta del examen: la tarjeta y 4 respuestas (una correcta).
 class ExamQuestion {
@@ -159,7 +160,7 @@ class _ExamScreenState extends ConsumerState<ExamScreen> {
             Text('$_score / $total', style: Theme.of(context).textTheme.displaySmall),
             Text('$pct %', style: const TextStyle(color: Colors.black45)),
             const SizedBox(height: 12),
-            Text(msg, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
+            DoodleText(msg, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: () => setState(() {

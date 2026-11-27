@@ -8,6 +8,7 @@ import '../../features/drawing/presentation/painters/sticker_painter.dart' show 
 import '../../features/settings/settings.dart';
 import '../daily_stats.dart';
 import '../providers.dart';
+import 'doodle_icon.dart';
 
 /// Temporizador de estudio (por ejemplo, 25 min tipo Pomodoro). Es global:
 /// sigue corriendo aunque cambies de nota o de hoja.
@@ -95,13 +96,13 @@ class StudyTimerButton extends ConsumerWidget {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('¡Terminaste! 🎉', textAlign: TextAlign.center),
+        title: const DoodleText('¡Terminaste! 🎉', textAlign: TextAlign.center),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(asset, width: 140, height: 140),
             const SizedBox(height: 8),
-            Text('Ganaste este sticker (ya está en "Míos").\n'
+            DoodleText('Ganaste este sticker (ya está en "Míos").\n'
                 'Llevas $count ${count == 1 ? 'pomodoro' : 'pomodoros'}. Toma un descanso ☕',
                 textAlign: TextAlign.center),
           ],
@@ -158,7 +159,7 @@ class StudyTimerButton extends ConsumerWidget {
                   Image.asset(_sleepyCat, width: 64, height: 64),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
+                    child: DoodleText(
                       'Pomodoro con tu gatito: estudia mientras duerme y al terminar te regala un sticker 🎁',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
@@ -196,7 +197,7 @@ class StudyTimerButton extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Image.asset(_sleepyCat, width: 120, height: 120),
-            const Text('Tu gatito duerme mientras estudias. Si lo detienes ahora, no hay sticker 🥺',
+            const DoodleText('Tu gatito duerme mientras estudias. Si lo detienes ahora, no hay sticker 🥺',
                 textAlign: TextAlign.center),
           ],
         ),

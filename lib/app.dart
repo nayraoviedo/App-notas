@@ -17,6 +17,7 @@ import 'features/backup/drive_sync.dart';
 import 'features/planner/data/reminder_notifications.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
+import 'core/widgets/doodle_icon.dart';
 
 class AppNotas extends ConsumerStatefulWidget {
   const AppNotas({super.key});
@@ -116,7 +117,7 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hay cambios nuevos ☁️'),
+        title: const DoodleText('Hay cambios nuevos ☁️'),
         content: Text('Tu $from guardó cambios en Google Drive (${when.day}/${when.month} $hm).\n\n'
             '¿Traerlos a este aparato? Lo que hay aquí se reemplaza por esa versión '
             '(antes se guarda una copia de seguridad, por si acaso).'),

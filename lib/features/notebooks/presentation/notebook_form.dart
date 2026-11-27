@@ -8,6 +8,7 @@ import '../../../core/widgets/cat_mascot.dart';
 import 'cover_designs.dart';
 
 import '../domain/notebook.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 class NotebookFormResult {
   const NotebookFormResult(this.name, this.color, this.coverPath, this.style);
@@ -274,6 +275,8 @@ class _NotebookFormState extends State<_NotebookForm> {
                             : s.startsWith('cat:')
                             ? CatMascot(
                                 kind: s == 'cat:gray' ? CatKind.gray : CatKind.orange, size: 26)
+                            : hasDoodle(s)
+                            ? DoodleIcon(s, size: 30)
                             : Text(s.isEmpty ? 'Ninguno' : s, style: const TextStyle(fontSize: 18)),
                         selected: _style.sticker == s,
                         onSelected: (_) => setState(() => _style = _style.copyWith(sticker: s)),
@@ -397,6 +400,12 @@ class NotebookCover extends StatelessWidget {
                   kind: style.sticker == 'cat:gray' ? CatKind.gray : CatKind.orange,
                   size: width * 0.42,
                 ),
+              )
+            else if (hasDoodle(style.sticker) && icon == null)
+              Positioned(
+                right: width * 0.08,
+                top: width * 0.1,
+                child: DoodleIcon(style.sticker, size: width * 0.3),
               )
             else if (style.sticker.isNotEmpty && icon == null)
               Positioned(

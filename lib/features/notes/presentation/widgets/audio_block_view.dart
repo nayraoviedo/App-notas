@@ -14,6 +14,7 @@ import '../../../study/presentation/study_screen.dart' show showNewFlashcard;
 import '../../../transcription/domain/transcription_service.dart';
 import '../../domain/note_block.dart';
 import '../../../recording/application/audio_tools.dart' show confirmDeleteRecording;
+import '../../../../core/widgets/doodle_icon.dart';
 
 /// Tarjeta compacta de una grabación dentro de la nota: reproductor, los
 /// primeros párrafos y un botón para abrir la vista completa
@@ -75,9 +76,9 @@ class _AudioBlockViewState extends ConsumerState<AudioBlockView> {
                 ),
               Row(
                 children: [
-                  if (stars > 0) Text('⭐ $stars   '),
-                  if (notes > 0) Text('📝 $notes   '),
-                  if (widget.photoCount > 0) Text('📷 ${widget.photoCount}'),
+                  if (stars > 0) DoodleText('⭐ $stars   '),
+                  if (notes > 0) DoodleText('📝 $notes   '),
+                  if (widget.photoCount > 0) DoodleText('📷 ${widget.photoCount}'),
                   const Spacer(),
                   IconButton(
                     tooltip: 'Borrar grabación',
@@ -498,7 +499,7 @@ class _PhotoAtTime extends StatelessWidget {
                     color: Colors.black54,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text('📷 ${formatMs(photo.anchor!.atMs)}',
+                  child: DoodleText('📷 ${formatMs(photo.anchor!.atMs)}',
                       style: const TextStyle(color: Colors.white)),
                 ),
               ),

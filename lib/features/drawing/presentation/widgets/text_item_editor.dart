@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/fonts.dart';
 import '../../domain/drawing.dart';
 import 'tool_panels.dart' show fullPalette, pickColor;
+import '../../../../core/widgets/doodle_icon.dart';
 
 /// Colores de fondo tipo etiqueta / cinta para los textos del collage.
 const textBackgrounds = <int>[
@@ -191,7 +192,7 @@ Future<AppFont?> pickFont(BuildContext context, String? current) {
               ListTile(
                 selected: f.family == current,
                 title: Text(f.label),
-                subtitle: Text(f.sample ?? 'Así se verá tu texto', style: fontStyle(f.family, size: 24)),
+                subtitle: DoodleText(f.sample ?? 'Así se verá tu texto', style: fontStyle(f.family, size: 24)),
                 onTap: () => Navigator.pop(context, f),
               ),
           ],

@@ -632,6 +632,23 @@ void main() {
     await _shot(tester, '25_gastos_mes');
   });
 
+  testWidgets('gastos: nuevo gasto con categorías doodle', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await _phoneSize(tester);
+    await tester.pumpWidget(_app(
+      const ExpensesScreen(),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        expensesRepositoryProvider.overrideWithValue(_FakeExpenses()),
+      ],
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pump(const Duration(milliseconds: 600));
+    await _shot(tester, '26_gastos_categorias');
+  });
+
   testWidgets('stickers doodles', (tester) async {
     await openDrawing(tester);
     await tester.tap(find.text('Insertar'));
@@ -683,6 +700,9 @@ class _FakeExpenses implements ExpensesRepository {
     Expense e(int d, String c, double a, String t) =>
         Expense(id: '$d$c$t', day: mon.add(Duration(days: d)), category: c, amount: a * k, description: t);
     return Stream.value([
+      e(0, 'Pasaje', 5, 'Micro a la U'),
+      e(0, 'Fotocopias', 3.5, 'Apuntes de cálculo'),
+      e(1, 'Almuerzo', 15, 'Almuerzo en el comedor'),
       e(0, 'Verduras', 12, 'Tomate y cebolla'),
       e(0, 'Carne', 45, 'Pollo'),
       e(1, 'Frutas', 18.5, 'Plátanos y manzanas'),

@@ -19,6 +19,7 @@ import '../../core/google_auth.dart';
 import '../../core/platform_info.dart';
 import '../planner/data/calendar_sync.dart';
 import '../planner/presentation/planner_screen.dart';
+import '../../core/widgets/doodle_icon.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -143,7 +144,7 @@ class SettingsScreen extends ConsumerWidget {
                         ListTile(
                           title: Text(e.value,
                               style: e.key == 'Normal' ? null : fontStyle(e.key, size: 20)),
-                          subtitle: Text(e.key == 'Normal' ? 'La letra del sistema' : 'Hoy aprendí algo nuevo ✏️',
+                          subtitle: DoodleText(e.key == 'Normal' ? 'La letra del sistema' : 'Hoy aprendí algo nuevo ✏️',
                               style: e.key == 'Normal' ? null : fontStyle(e.key, size: 16)),
                           trailing: ref.read(appFontProvider) == e.key ? const Icon(Icons.check) : null,
                           onTap: () => Navigator.pop(context, e.key),

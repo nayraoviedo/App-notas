@@ -8,6 +8,7 @@ import '../../../core/widgets/cat_mascot.dart';
 import '../../settings/settings.dart';
 import '../domain/journal.dart';
 import 'journal_art.dart';
+import '../../../core/widgets/doodle_icon.dart';
 
 class JournalController extends Notifier<JournalState> {
   static const _key = 'journal.data';
@@ -564,7 +565,7 @@ class _HabitTrackerState extends ConsumerState<HabitTracker> {
               children: [
                 CatMascot(kind: CatKind.gray, size: 80),
                 SizedBox(height: 10),
-                Text('Agrega hábitos como "Tomar agua 💧" o "Leer 📚"\ny márcalos cada día con ✓.',
+                DoodleText('Agrega hábitos como "Tomar agua 💧" o "Leer 📚"\ny márcalos cada día con ✓.',
                     textAlign: TextAlign.center),
               ],
             ),
@@ -656,7 +657,7 @@ class _HabitTrackerState extends ConsumerState<HabitTracker> {
           const Icon(Icons.calendar_month_rounded, color: _leafInk),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(text,
+            child: DoodleText(text,
                 style: Theme.of(context)
                     .textTheme
                     .titleMedium
@@ -734,7 +735,7 @@ class _HabitTrackerState extends ConsumerState<HabitTracker> {
           children: [
             Image.asset('assets/stickers/cat_05.png', width: 150, height: 150),
             const SizedBox(height: 8),
-            Text('¡Todos tus hábitos de hoy! 🎉',
+            DoodleText('¡Todos tus hábitos de hoy! 🎉',
                 textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
             const Text('Los gatitos están orgullosos de ti.', textAlign: TextAlign.center),
           ],
@@ -768,7 +769,7 @@ class _HabitTrackerState extends ConsumerState<HabitTracker> {
                 children: [
                   for (final e in emojis)
                     ChoiceChip(
-                      label: Text(e),
+                      label: DoodleIcon(e, size: 26),
                       selected: e == emoji,
                       onSelected: (_) => setD(() => emoji = e),
                     ),
@@ -967,7 +968,7 @@ class _HabitCard extends StatelessWidget {
                           decorationColor: Colors.black38,
                         ),
                       ),
-                      Text(
+                      DoodleText(
                         streak == 0 ? 'Empieza tu racha hoy' : '🔥 $streak ${streak == 1 ? 'día' : 'días'} seguidos',
                         style: t.bodySmall?.copyWith(color: Colors.black45),
                       ),
