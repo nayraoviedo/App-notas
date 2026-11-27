@@ -1,9 +1,11 @@
+import '../../reader/presentation/doc_chooser.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -696,7 +698,9 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       _coverTap = e.localPosition;
       return;
     }
-    if (!ctl.canDrawOnActiveLayer) {
+    // El borrador funciona en todas las capas sin candado.
+    final erasing = ctl.mode == InputMode.eraseStrokes || ctl.tool == ToolType.eraser;
+    if (!erasing && !ctl.canDrawOnActiveLayer) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
@@ -1035,7 +1039,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     );
   }
 
-  Widget _icon(IconData icon, String tooltip, VoidCallback? onTap, {bool selected = false, Widget? glyph}) {
+  Widget _icon(IconData icon, String tooltip, VoidCallback? onTap,
+      {bool selected = false, Widget? glyph, VoidCallback? onLongPress}) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -1050,6 +1055,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
         ),
         icon: glyph ?? Icon(icon, size: 24),
         onPressed: onTap,
+        onLongPress: onLongPress,
       ),
     );
   }
@@ -1122,6 +1128,7 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           : (Icons.photo_camera_outlined, 'Foto', 'photo'),
       (Icons.mic_none, recording ? 'Grabando…' : 'Grabar audio', 'rec'),
       (Icons.ondemand_video_outlined, 'Video y notas', 'video'),
+      (Icons.slideshow_outlined, 'PDF o diapositivas', 'doc'),
       (Icons.table_chart_outlined, 'Tabla', 'table'),
       (Icons.functions, 'Ecuación', 'eq'),
       (Icons.category_outlined, 'Formas', 'shapes'),
@@ -1176,6 +1183,13 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           await ctl.flush();
           if (!mounted) return;
           context.push('/notes/${widget.noteId}/video', extra: VideoArgs(videoPath: source, startMs: 0));
+        }
+      case 'doc':
+        final doc = await chooseDocument(context, ref, noteId: widget.noteId);
+        if (doc != null && mounted) {
+          await ctl.flush();
+          if (!mounted) return;
+          context.push('/notes/${widget.noteId}/doc', extra: doc);
         }
       case 'table':
         await _tableOrEquation(table: true);
@@ -1296,6 +1310,33 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     }
   }
 
+  /// Tocar una herramienta la elige; tocarla otra vez la apaga y el dedo
+  /// solo mueve la hoja (así no se raya sin querer). Sus ajustes (color,
+  /// grosor…) se abren dejándola apretada.
+  void _tapTool(DrawingController c, ToolType tool, {required bool on}) {
+    _closePanel();
+    if (!on) {
+      c.selectTool(tool);
+      return;
+    }
+    c.selectMode(InputMode.pan);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        duration: Duration(seconds: 3),
+        content: Text('Herramienta apagada: el dedo solo mueve la hoja. '
+            'Para cambiar color o grosor, deja apretada la herramienta.'),
+      ));
+  }
+
+  void _toolSettings(DrawingController c, ToolType tool, ToolPanel panel) {
+    HapticFeedback.selectionClick();
+    final on = c.tool == tool &&
+        (c.mode == InputMode.draw || (tool == ToolType.eraser && c.mode == InputMode.eraseStrokes));
+    if (!on) c.selectTool(tool);
+    if (_panel != panel) _togglePanel(panel);
+  }
+
   /// Fila 2: deshacer/rehacer, herramientas y colores rápidos.
   Widget _toolRow(DrawingController ctl) {
     return ListenableBuilder(
@@ -1320,38 +1361,14 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
                 _icon(Icons.undo, 'Deshacer', c.canUndo ? c.undo : null),
                 _icon(Icons.redo, 'Rehacer', c.canRedo ? c.redo : null),
                 const SizedBox(height: 30, child: VerticalDivider(width: 10)),
-                _icon(toolIcon(_pen), _pen.label, () {
-                  if (penOn) {
-                    _togglePanel(ToolPanel.pen);
-                  } else {
-                    c.selectTool(_pen);
-                    _closePanel();
-                  }
-                }, selected: penOn),
-                _icon(Icons.highlight, 'Resaltador', glyph: const HighlighterIcon(), () {
-                  if (hlOn) {
-                    _togglePanel(ToolPanel.highlighter);
-                  } else {
-                    c.selectTool(ToolType.highlighter);
-                    _closePanel();
-                  }
-                }, selected: hlOn),
-                _icon(Icons.linear_scale, 'Cinta washi', glyph: const TapeIcon(), () {
-                  if (tapeOn) {
-                    _togglePanel(ToolPanel.tape);
-                  } else {
-                    c.selectTool(ToolType.tape);
-                    _closePanel();
-                  }
-                }, selected: tapeOn),
-                _icon(Icons.auto_fix_normal, 'Borrador', glyph: const EraserIcon(), () {
-                  if (eraserOn) {
-                    _togglePanel(ToolPanel.eraser);
-                  } else {
-                    c.selectTool(ToolType.eraser);
-                    _closePanel();
-                  }
-                }, selected: eraserOn),
+                _icon(toolIcon(_pen), _pen.label, () => _tapTool(c, _pen, on: penOn),
+                    onLongPress: () => _toolSettings(c, _pen, ToolPanel.pen), selected: penOn),
+                _icon(Icons.highlight, 'Resaltador', glyph: const HighlighterIcon(), () => _tapTool(c, ToolType.highlighter, on: hlOn),
+                    onLongPress: () => _toolSettings(c, ToolType.highlighter, ToolPanel.highlighter), selected: hlOn),
+                _icon(Icons.linear_scale, 'Cinta washi', glyph: const TapeIcon(), () => _tapTool(c, ToolType.tape, on: tapeOn),
+                    onLongPress: () => _toolSettings(c, ToolType.tape, ToolPanel.tape), selected: tapeOn),
+                _icon(Icons.auto_fix_normal, 'Borrador', glyph: const EraserIcon(), () => _tapTool(c, ToolType.eraser, on: eraserOn),
+                    onLongPress: () => _toolSettings(c, ToolType.eraser, ToolPanel.eraser), selected: eraserOn),
                 _icon(Icons.highlight_alt, 'Lazo: rodea trazos para moverlos o pasarlos a texto; toca textos y fotos para editarlos', glyph: const LassoIcon(), () {
                   final first = c.mode != InputMode.select;
                   c.selectMode(InputMode.select);
@@ -2013,6 +2030,8 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
     ));
   }
 
+  bool get _fitDuringBuild => SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks;
+
   Widget _canvas(DrawingController ctl) {
     return LayoutBuilder(
       builder: (context, c) {
@@ -2030,12 +2049,22 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
               _fittedWidth = fitKey;
               final scale = (c.maxWidth - 16) / fitW;
               _fitScale = scale;
-              _transform.value = Matrix4.identity()
+              final m = Matrix4.identity()
                 ..setEntry(0, 0, scale)
                 ..setEntry(1, 1, scale)
                 ..setEntry(0, 3, 8)
                 // Con hojas seguidas: la hoja activa arriba de la pantalla.
                 ..setEntry(1, 3, 8 - _activeOffset * scale);
+              // Si la hoja cambia de tamaño mientras se dibuja la pantalla
+              // (por ejemplo al mover la raya en "PDF y notas"), se ajusta
+              // justo después: no se puede avisar en medio del dibujo.
+              if (_fitDuringBuild) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _transform.value = m;
+                });
+              } else {
+                _transform.value = m;
+              }
             }
             _viewport = Size(c.maxWidth, c.maxHeight);
             return Listener(
@@ -2797,8 +2826,12 @@ class _StaticPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final d = ref.watch(drawingFileProvider(path)).valueOrNull;
     final w = d?.width ?? fallback.width, h = d?.height ?? fallback.height;
-    return GestureDetector(
-      onTap: onTap,
+    // Basta con apoyar el dedo (o el lápiz) para que la hoja pase a ser la
+    // que se edita; antes había que dar un toque limpio, y al arrastrar el
+    // borrador sobre otra hoja no pasaba nada.
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => onTap(),
       child: Container(
         width: w,
         height: h,

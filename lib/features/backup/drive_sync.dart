@@ -96,6 +96,44 @@ class DriveSync {
     return j['webViewLink'] as String? ?? 'https://drive.google.com/file/d/$id/view';
   }
 
+  /// Convierte una presentación o documento (PPTX, DOCX…) a PDF con Google:
+  /// se sube a tu Drive como archivo de Google, se baja como PDF y se borra.
+  Future<Uint8List> convertToPdf(SharedPreferences prefs, Uint8List bytes, String fileName,
+      {required String googleMime, void Function(String)? onStatus}) async {
+    final String token;
+    try {
+      token = await _auth.token(prefs, shareScopes, interactive: true);
+    } on GoogleAuthException catch (e) {
+      throw DriveException(e.message);
+    }
+    onStatus?.call('Convirtiendo con Google…');
+    final boundary = 'kumo${DateTime.now().microsecondsSinceEpoch}';
+    final meta = jsonEncode({'name': 'Kumo (temporal) $fileName', 'mimeType': googleMime});
+    final body = BytesBuilder()
+      ..add(utf8.encode('--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n'))
+      ..add(utf8.encode('--$boundary\r\nContent-Type: application/octet-stream\r\n\r\n'))
+      ..add(bytes)
+      ..add(utf8.encode('\r\n--$boundary--'));
+    final up = await http.post(
+      Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id'),
+      headers: {..._h(token), 'Content-Type': 'multipart/related; boundary=$boundary'},
+      body: body.takeBytes(),
+    );
+    _check(up);
+    final id = (jsonDecode(up.body) as Map)['id'] as String;
+    try {
+      final pdf = await http.get(
+        Uri.https('www.googleapis.com', '/drive/v3/files/$id/export', {'mimeType': 'application/pdf'}),
+        headers: _h(token),
+      );
+      _check(pdf);
+      return pdf.bodyBytes;
+    } finally {
+      // El archivo temporal no se queda en tu Drive.
+      await http.delete(Uri.parse('https://www.googleapis.com/drive/v3/files/$id'), headers: _h(token));
+    }
+  }
+
   /// Carpeta "Kumo compartidos" en tu Drive (se crea la primera vez).
   Future<String> _shareFolder(String token) async {
     const name = 'Kumo compartidos';

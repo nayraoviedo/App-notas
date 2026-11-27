@@ -428,7 +428,7 @@ class DrawingController extends ChangeNotifier {
 
   /// [sizeScale] < 1 hace el trazo más fino (por ejemplo, con zoom alto).
   void startStroke(Offset at, double? pressure, {double sizeScale = 1}) {
-    if (!canDrawOnActiveLayer) return;
+    if (tool != ToolType.eraser && !canDrawOnActiveLayer) return;
     _snapped = false;
     if (tool == ToolType.eraser) {
       // Borrador por área: corta los trazos justo donde pasa (no pinta
@@ -739,32 +739,39 @@ class DrawingController extends ChangeNotifier {
   double _eraserRadius = 15;
   double get eraserRadius => _eraserRadius;
 
-  /// Borra la parte de los trazos que queda dentro del recorrido a→b.
+  /// Borra la parte de los trazos que queda dentro del recorrido a→b, en
+  /// todas las capas visibles y sin candado (no solo la activa: si no, un
+  /// trazo de otra capa "no se deja borrar").
   void _eraseArea(Offset a, Offset b) {
-    final layer = activeLayer;
     final r = _eraserRadius;
     final hit = Rect.fromPoints(a, b).inflate(r);
     var changed = false;
-    final out = <Stroke>[];
-    for (final s in layer.strokes) {
-      if (!s.bounds.overlaps(hit)) {
-        out.add(s);
-        continue;
+    final layers = [..._drawing.layers];
+    for (var li = 0; li < layers.length; li++) {
+      final layer = layers[li];
+      if (!layer.visible || layer.locked) continue;
+      var layerChanged = false;
+      final out = <Stroke>[];
+      for (final s in layer.strokes) {
+        if (!s.bounds.overlaps(hit)) {
+          out.add(s);
+          continue;
+        }
+        final cut = _cutStroke(s, a, b, r);
+        if (cut == null) {
+          out.add(s);
+        } else {
+          layerChanged = true;
+          out.addAll(cut);
+        }
       }
-      final cut = _cutStroke(s, a, b, r);
-      if (cut == null) {
-        out.add(s);
-      } else {
+      if (layerChanged) {
         changed = true;
-        out.addAll(cut);
+        layers[li] = layer.copyWith(strokes: out);
       }
     }
     if (!changed) return;
-    void apply() {
-      final layers = [..._drawing.layers];
-      layers[activeLayerIndex] = layer.copyWith(strokes: out);
-      _drawing = _drawing.copyWith(layers: layers);
-    }
+    void apply() => _drawing = _drawing.copyWith(layers: layers);
 
     // Un solo paso de "deshacer" por pasada del borrador.
     if (!_erasingGesture) {
@@ -829,17 +836,21 @@ class DrawingController extends ChangeNotifier {
     return pieces;
   }
 
-  /// Borra los trazos de la capa activa que pasen cerca de [at].
+  /// Borra los trazos enteros que pasen cerca de [at] (en todas las capas
+  /// visibles y sin candado).
   void eraseStrokesAt(Offset at, {double radius = 14}) {
-    if (!canDrawOnActiveLayer) return;
-    final layer = activeLayer;
-    final keep = layer.strokes.where((s) => !_hits(s, at, radius)).toList();
-    if (keep.length == layer.strokes.length) return;
-    void apply() {
-      final layers = [..._drawing.layers];
-      layers[activeLayerIndex] = layer.copyWith(strokes: keep);
-      _drawing = _drawing.copyWith(layers: layers);
+    var changed = false;
+    final layers = [..._drawing.layers];
+    for (var li = 0; li < layers.length; li++) {
+      final layer = layers[li];
+      if (!layer.visible || layer.locked) continue;
+      final keep = layer.strokes.where((s) => !_hits(s, at, radius)).toList();
+      if (keep.length == layer.strokes.length) continue;
+      changed = true;
+      layers[li] = layer.copyWith(strokes: keep);
     }
+    if (!changed) return;
+    void apply() => _drawing = _drawing.copyWith(layers: layers);
 
     // Un solo paso de "deshacer" por gesto, aunque borre varios trazos.
     if (!_erasingGesture) {

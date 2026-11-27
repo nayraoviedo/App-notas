@@ -1,3 +1,4 @@
+import '../../reader/presentation/doc_chooser.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -316,6 +317,14 @@ class _EditorToolbar extends ConsumerWidget {
               onTap: () async {
                 final source = await chooseVideo(context, ref);
                 if (source != null && context.mounted) onOpenVideo(context, source, 0);
+              },
+            ),
+            _ToolButton(
+              icon: Icons.slideshow_outlined,
+              label: 'PDF o diapos',
+              onTap: () async {
+                final doc = await chooseDocument(context, ref, noteId: noteId);
+                if (doc != null && context.mounted) context.push('/notes/$noteId/doc', extra: doc);
               },
             ),
             _ToolButton(

@@ -33,6 +33,8 @@ import 'package:app_notas/features/study/presentation/exam_screen.dart';
 import 'package:app_notas/features/planner/domain/planner.dart';
 import 'package:app_notas/features/planner/presentation/planner_screen.dart';
 import 'package:app_notas/features/planner/presentation/schedule_views.dart';
+import 'package:app_notas/features/reader/presentation/doc_notes_screen.dart';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -43,6 +45,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _phone = Size(1080, 2340);
 const _dpr = 2.75;
+
+// Para dibujar con el reloj real dentro de una prueba.
+late Future<T?> Function<T>(Future<T> Function()) tester_runAsync;
 
 Future<void> _loadFont(String family, List<String> files) async {
   final loader = FontLoader(family);
@@ -269,7 +274,7 @@ void main() {
 
   testWidgets('panel de plumas', (tester) async {
     await openDrawing(tester);
-    await tester.tap(find.byTooltip('Bolígrafo')); // ya elegida: abre el panel
+    await tester.longPress(find.byTooltip('Bolígrafo')); // apretado: abre el panel
     await tester.pump();
     await tester.tap(find.byTooltip('Pluma estilográfica'));
     await _shot(tester, '07_plumas');
@@ -687,6 +692,85 @@ void main() {
       ),
     )));
     await _shot(tester, '17_portadas');
+  });
+
+  // -------------------------------------------- PDF o diapositivas + notas
+
+  /// Una "diapositiva" de ejemplo dibujada aquí mismo, guardada como PNG.
+  Future<String> sampleSlide() async {
+    final path = '${Directory.systemTemp.createTempSync('kumo-doc').path}/diapositiva.png';
+    await tester_runAsync(() async {
+      final rec = ui.PictureRecorder();
+      final c = Canvas(rec);
+      const w = 1600.0, h = 900.0;
+      c.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0xFFFFFBF2));
+      c.drawRect(const Rect.fromLTWH(0, 0, w, 170), Paint()..color = const Color(0xFF8FB3C6));
+      final pb = ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: 90, fontFamily: 'Roboto'))
+        ..pushStyle(ui.TextStyle(color: const Color(0xFFFFFFFF)))
+        ..addText('La célula');
+      final para = pb.build()..layout(const ui.ParagraphConstraints(width: w));
+      c.drawParagraph(para, const Offset(80, 30));
+      c.drawCircle(const Offset(1150, 540), 260, Paint()..color = const Color(0xFFBDE0B4));
+      c.drawCircle(const Offset(1150, 540), 90, Paint()..color = const Color(0xFFE59C8B));
+      for (var i = 0; i < 4; i++) {
+        c.drawRRect(RRect.fromLTRBR(100, 270 + i * 120.0, 700 - i * 60.0, 320 + i * 120.0, const Radius.circular(20)),
+            Paint()..color = const Color(0xFFCCCCCC));
+      }
+      final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
+      final png = await img.toByteData(format: ui.ImageByteFormat.png);
+      File(path).writeAsBytesSync(png!.buffer.asUint8List());
+    });
+    return path;
+  }
+
+  Future<void> openDoc(WidgetTester tester, {required bool desktop}) async {
+    tester_runAsync = tester.runAsync;
+    final doc = await sampleSlide();
+    // La imagen se carga antes (con el reloj real) para que la foto no espere.
+    await tester.runAsync(() async {
+      final done = Completer<void>();
+      FileImage(File(doc)).resolve(ImageConfiguration.empty).addListener(ImageStreamListener((_, __) => done.complete()));
+      await done.future;
+    });
+    SharedPreferences.setMockInitialValues({'flutter.doc.name.diapositiva': 'Biología - clase 3'});
+    final prefs = await SharedPreferences.getInstance();
+    if (desktop) {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    } else {
+      await _phoneSize(tester);
+    }
+    await tester.pumpWidget(_app(
+      DocNotesScreen(noteId: 'n1', docPath: doc),
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        drawingStoreProvider.overrideWithValue(_FakeStore()),
+        blocksProvider.overrideWith((ref, id) => Stream.value(const [
+              DrawingBlock(id: 'b1', position: 1, path: 'p3'),
+            ])),
+        noteProvider.overrideWith((ref, id) => Stream.value(Note(
+            id: 'n1', title: 'Biología', createdAt: DateTime(2026, 11, 27), updatedAt: DateTime(2026, 11, 27)))),
+      ],
+    ));
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  testWidgets('pdf o diapositivas con notas', (tester) async {
+    await openDoc(tester, desktop: false);
+    expect(find.text('1 / 1'), findsOneWidget);
+    await _shot(tester, '23_documento_notas');
+  });
+
+  testWidgets('pdf o diapositivas con notas en la compu', (tester) async {
+    await openDoc(tester, desktop: true);
+    expect(find.text('1 / 1'), findsOneWidget);
+    await _shot(tester, '23b_documento_notas_compu');
+    debugDefaultTargetPlatformOverride = null;
   });
 }
 
