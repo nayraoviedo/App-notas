@@ -56,7 +56,8 @@ void main() {
     await app.main();
     Future<void> wait(int ms) async {
       for (var t = 0; t < ms; t += 100) {
-        await tester.pump(const Duration(milliseconds: 100));
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+        await tester.pump();
       }
     }
 
