@@ -17,6 +17,7 @@ import '../../recording/application/audio_tools.dart';
 import '../../video/data/video_backend.dart';
 import '../../notebooks/domain/notebook.dart';
 import '../domain/note_block.dart';
+import 'notes_list_screen.dart' show deleteNoteFlow;
 import 'widgets/audio_block_view.dart';
 import 'widgets/image_block_view.dart';
 import 'widgets/text_block_view.dart';
@@ -50,6 +51,7 @@ class NoteEditorScreen extends ConsumerWidget {
               'book' => context.push('/notes/$noteId/book'),
               'rename' => _rename(context, ref, note?.title ?? ''),
               'move' => _move(context, ref, note?.notebookId),
+              'delete' => _delete(context, ref, note?.displayTitle ?? ''),
               _ => null,
             },
             itemBuilder: (_) => const [
@@ -64,6 +66,10 @@ class NoteEditorScreen extends ConsumerWidget {
               PopupMenuItem(
                 value: 'move',
                 child: ListTile(leading: Icon(Icons.drive_file_move_outline), title: Text('Mover a otro cuaderno')),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: ListTile(leading: Icon(Icons.delete_outline), title: Text('Borrar nota')),
               ),
             ],
           ),
@@ -181,6 +187,16 @@ class NoteEditorScreen extends ConsumerWidget {
     await ref
         .read(notesRepositoryProvider)
         .moveToNotebook(noteId, choice.isEmpty ? null : choice);
+  }
+
+  Future<void> _delete(BuildContext context, WidgetRef ref, String title) async {
+    final deleted = await deleteNoteFlow(context, ref, noteId, title);
+    if (!deleted || !context.mounted) return;
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
+    }
   }
 
   Future<void> _rename(BuildContext context, WidgetRef ref, String current) async {

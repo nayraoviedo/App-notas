@@ -40,6 +40,33 @@ Future<void> createNoteFlow(BuildContext context, WidgetRef ref, {String? notebo
   if (open != null) context.push('/notes/$id/drawing', extra: open);
 }
 
+/// Pregunta y borra la nota con sus hojas, audios y fotos. Devuelve true si
+/// se borró.
+Future<bool> deleteNoteFlow(BuildContext context, WidgetRef ref, String noteId, String title) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('¿Borrar "$title"?'),
+      content: const Text('Se borran sus hojas, audios y fotos.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Borrar')),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  final files = await ref.read(notesRepositoryProvider).deleteNote(noteId);
+  final storage = ref.read(fileStorageProvider);
+  for (final f in files) {
+    try {
+      await storage.deleteIfExists(f);
+    } catch (_) {
+      // Un archivo que ya no está no impide borrar la nota.
+    }
+  }
+  return true;
+}
+
 /// Notas de un cuaderno, o todas si [notebookId] es null, en cuadrícula con
 /// la tapa o la primera hoja como portada.
 class NotesListScreen extends ConsumerStatefulWidget {
@@ -280,7 +307,10 @@ class _NoteTile extends ConsumerWidget {
     // Si tiene hojas, se abre como cuaderno para hojearlo.
     void open() => context.push(first != null ? '/notes/${note.id}/book' : '/notes/${note.id}');
 
-    return Column(
+    // Mantener apretada la nota también abre sus opciones (borrar, etc.).
+    return GestureDetector(
+      onLongPress: () => _menu(context, ref),
+      child: Column(
       children: [
         Expanded(
           child: Align(
@@ -325,9 +355,11 @@ class _NoteTile extends ConsumerWidget {
             children: [
               Flexible(
                 child: Text(note.displayTitle,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15, color: Colors.black87)),
               ),
-              const Icon(Icons.expand_more, size: 18),
+              const Icon(Icons.expand_more, size: 20, color: Colors.black54),
             ],
           ),
         ),
@@ -336,6 +368,7 @@ class _NoteTile extends ConsumerWidget {
           style: const TextStyle(color: Colors.black45, fontSize: 12),
         ),
       ],
+      ),
     );
   }
 
@@ -387,23 +420,7 @@ class _NoteTile extends ConsumerWidget {
       case 'tags':
         await showNoteTagsDialog(context, ref, note.id);
       case 'delete':
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text('¿Borrar "${note.displayTitle}"?'),
-            content: const Text('Se borran sus hojas, audios y fotos.'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Borrar')),
-            ],
-          ),
-        );
-        if (ok != true) return;
-        final files = await repo.deleteNote(note.id);
-        final storage = ref.read(fileStorageProvider);
-        for (final f in files) {
-          await storage.deleteIfExists(f);
-        }
+        await deleteNoteFlow(context, ref, note.id, note.displayTitle);
     }
   }
 }

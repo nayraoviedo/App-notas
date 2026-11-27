@@ -12,7 +12,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        pending = intent?.getStringExtra(KumoWidget.EXTRA)
+        pending = takeWidgetAction(intent)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kumo/widget").also { ch ->
             ch.setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -32,7 +32,19 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val action = intent.getStringExtra(KumoWidget.EXTRA) ?: return
+        setIntent(intent)
+        val action = takeWidgetAction(intent) ?: return
         channel?.invokeMethod("action", action)
+    }
+
+    // Lee el botón del widget una sola vez. Si Android vuelve a abrir la app
+    // con el mismo aviso (desde "recientes" o al recrear la pantalla), no se
+    // repite: antes eso creaba otra vez la nota que se acababa de borrar.
+    private fun takeWidgetAction(intent: Intent?): String? {
+        if (intent == null) return null
+        val fromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        val action = intent.getStringExtra(KumoWidget.EXTRA)
+        intent.removeExtra(KumoWidget.EXTRA)
+        return if (fromHistory) null else action
     }
 }

@@ -14,6 +14,7 @@ import 'core/theme.dart';
 import 'features/drawing/presentation/painters/stroke_renderer.dart';
 import 'features/backup/backup_service.dart';
 import 'features/backup/drive_sync.dart';
+import 'features/notebooks/presentation/pick_notebook_sheet.dart';
 import 'features/planner/data/reminder_notifications.dart';
 import 'features/planner/presentation/planner_screen.dart';
 import 'features/settings/settings.dart';
@@ -176,28 +177,51 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
         appRouter.push('/expenses');
       case 'diario':
         appRouter.push('/journal');
-      case 'nota' || 'grabar':
+      case 'nota':
         final now = DateTime.now();
-        // Si hay una clase ahora (o empieza pronto), se graba en su cuaderno.
-        final cls = type == 'grabar' ? ref.read(plannerProvider).currentOrNext(now) : null;
-        if (cls != null && cls.start - (now.hour * 60 + now.minute) <= 15) {
-          final id = await ref.read(notesRepositoryProvider).createNote(
-                title: '${cls.subject} ${now.day}/${now.month}',
-                notebookId: cls.notebookId,
-                tags: [cls.subject],
-              );
-          appRouter.push('/notes/$id');
-          appRouter.push('/notes/$id/record');
-          return;
-        }
-        final id = await ref.read(notesRepositoryProvider).createNote(
-              title: type == 'grabar'
-                  ? 'Clase ${now.day}/${now.month}'
-                  : 'Nota ${now.day}/${now.month}',
-            );
+        final id = await ref.read(notesRepositoryProvider).createNote(title: 'Nota ${now.day}/${now.month}');
         appRouter.push('/notes/$id');
-        if (type == 'grabar') appRouter.push('/notes/$id/record');
+      case 'grabar':
+        await _recordFromShortcut();
     }
+  }
+
+  /// "Grabar" del widget o del acceso rápido: primero se elige el cuaderno
+  /// (sugiriendo el de la clase que hay ahora) y después se empieza a grabar.
+  Future<void> _recordFromShortcut() async {
+    final now = DateTime.now();
+    // Si hay una clase ahora (o empieza pronto), se sugiere su cuaderno.
+    var cls = ref.read(plannerProvider).currentOrNext(now);
+    if (cls != null && cls.start - (now.hour * 60 + now.minute) > 15) cls = null;
+
+    // Al abrir la app desde el widget, la pantalla tarda un momento en estar.
+    BuildContext? nav;
+    for (var i = 0; i < 40; i++) {
+      nav = appRouter.routerDelegate.navigatorKey.currentContext;
+      if (nav != null && nav.mounted) break;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    String? notebookId = cls?.notebookId;
+    if (nav != null && nav.mounted) {
+      final choice = await pickNotebookSheet(
+        nav,
+        ref,
+        title: '¿En qué cuaderno grabo?',
+        suggestedId: cls?.notebookId,
+        suggestedLabel: cls == null ? null : 'Clase de ahora: ${cls.subject}',
+      );
+      if (choice == null) return; // se cerró sin elegir: no se graba
+      notebookId = choice.notebookId;
+    }
+    // Si se eligió otro cuaderno que el de la clase, es otra grabación.
+    final forClass = cls != null && (cls.notebookId == null || cls.notebookId == notebookId) ? cls : null;
+    final id = await ref.read(notesRepositoryProvider).createNote(
+          title: forClass != null ? '${forClass.subject} ${now.day}/${now.month}' : 'Grabación ${now.day}/${now.month}',
+          notebookId: notebookId,
+          tags: forClass != null ? [forClass.subject] : const [],
+        );
+    appRouter.push('/notes/$id');
+    appRouter.push('/notes/$id/record');
   }
 
   /// Si Android cerró la app mientras la cámara estaba abierta, agrega la
