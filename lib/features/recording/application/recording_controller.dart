@@ -23,6 +23,7 @@ import '../../../core/background_recording.dart';
 import '../../planner/data/reminder_notifications.dart';
 import '../data/pcm_resample.dart';
 import 'recording_recovery.dart' show recordingJournalPath;
+import '../../../core/activity_flags.dart';
 
 enum RecordingStatus { idle, recording, paused, processing, done, error }
 
@@ -210,6 +211,8 @@ class RecordingController extends Notifier<RecordingState> {
       numChannels: 1,
     )))
         .asBroadcastStream();
+    // Grabando: mientras tanto no se arman copias para Drive.
+    recordingInProgress = true;
     final ds = hq ? Downsampler3() : null;
     final pcm = ds == null ? raw : raw.map(ds.add).asBroadcastStream();
 
@@ -466,6 +469,7 @@ class RecordingController extends Notifier<RecordingState> {
     try {
       await _cleanup().timeout(const Duration(seconds: 5));
     } catch (_) {
+      recordingInProgress = false;
       _recorder = null;
       _tracker = null;
       _live = null;
@@ -478,6 +482,7 @@ class RecordingController extends Notifier<RecordingState> {
   }
 
   Future<void> _cleanup() async {
+    recordingInProgress = false;
     await _suggestionSub?.cancel();
     await _tracker?.dispose();
     await _recorder?.dispose();
