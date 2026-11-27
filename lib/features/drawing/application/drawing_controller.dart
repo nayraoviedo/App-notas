@@ -57,6 +57,14 @@ class DrawingController extends ChangeNotifier {
   /// La tapa del cuaderno no se raya: ni trazos, ni textos, ni fotos.
   bool get readOnly => _drawing.paper.template == PaperTemplate.cover;
 
+  /// La portada no se raya, pero si tiene trazos viejos (de antes de que
+  /// fuera de solo lectura, o traídos de otra hoja) se pueden borrar.
+  bool get coverHasMarks =>
+      readOnly && _drawing.layers.any((l) => l.strokes.isNotEmpty);
+
+  /// ¿Se permite borrar aquí? En la portada solo si queda algo que borrar.
+  bool get _eraseBlocked => readOnly && !coverHasMarks;
+
   /// Se llama (con retraso) después de cada cambio, para guardar en disco.
   final Future<void> Function(Drawing)? onSave;
   Timer? _saveTimer;
@@ -498,7 +506,7 @@ class DrawingController extends ChangeNotifier {
 
   /// [sizeScale] < 1 hace el trazo más fino (por ejemplo, con zoom alto).
   void startStroke(Offset at, double? pressure, {double sizeScale = 1}) {
-    if (readOnly || (tool != ToolType.eraser && !canDrawOnActiveLayer)) return;
+    if (tool == ToolType.eraser ? _eraseBlocked : !canDrawOnActiveLayer) return;
     _snapped = false;
     if (tool == ToolType.eraser) {
       // Borrador por área: corta los trazos justo donde pasa (no pinta
@@ -825,7 +833,7 @@ class DrawingController extends ChangeNotifier {
   /// todas las capas visibles y sin candado (no solo la activa: si no, un
   /// trazo de otra capa "no se deja borrar").
   void _eraseArea(Offset a, Offset b) {
-    if (readOnly) return;
+    if (_eraseBlocked) return;
     final r = _eraserRadius;
     final hit = Rect.fromPoints(a, b).inflate(r);
     var changed = false;
@@ -922,7 +930,7 @@ class DrawingController extends ChangeNotifier {
   /// Borra los trazos enteros que pasen cerca de [at] (en todas las capas
   /// visibles y sin candado).
   void eraseStrokesAt(Offset at, {double radius = 14}) {
-    if (readOnly) return;
+    if (_eraseBlocked) return;
     var changed = false;
     final layers = [..._drawing.layers];
     for (var li = 0; li < layers.length; li++) {

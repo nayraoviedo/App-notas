@@ -68,7 +68,14 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
     };
     try {
       final prefs = ref.read(sharedPreferencesProvider);
-      await n.scheduleWeeklySummary(on: prefs.getBool('week.notify') ?? true);
+      final weekly = prefs.getBool('week.notify') ?? true;
+      await n.scheduleWeeklySummary(on: weekly);
+      // El resumen viene prendido: sin permiso (Android 13+) nunca llegaría.
+      // Se pide una sola vez, no en cada arranque.
+      if (weekly && prefs.getBool('notif.askedOnce') != true) {
+        await prefs.setBool('notif.askedOnce', true);
+        await n.requestPermission();
+      }
       if (n.pendingPayload == 'week') {
         n.pendingPayload = null;
         appRouter.push('/week');
@@ -86,7 +93,11 @@ class _AppNotasState extends ConsumerState<AppNotas> with WidgetsBindingObserver
   /// Al salir de la app (celular), subir los cambios a Drive.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) _syncUp();
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _syncUp();
+      // Que el widget quede con lo último que se cambió (horario, pendientes).
+      HomeWidget.refresh();
+    }
     // Al volver a la app (celular): ¿hay cambios nuevos del otro aparato?
     if (state == AppLifecycleState.resumed && isPhone) _checkNewer();
   }

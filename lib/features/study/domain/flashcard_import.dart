@@ -18,7 +18,7 @@
 ///        hacen su alimento con la luz.
 ///
 /// Las líneas vacías y las que empiezan con `#` se ignoran. Si el texto viene
-/// de un CSV con comas y comillas ("pregunta","respuesta"), también se lee.
+/// de un CSV con comas (con o sin comillas), también se lee.
 library;
 
 class ImportedCard {
@@ -65,6 +65,11 @@ FlashcardImportResult parseFlashcards(String text) {
     inAnswer = false;
   }
 
+  // CSV con comas y sin comillas ("pregunta,respuesta"): solo si ninguna
+  // línea usa otro separador y casi todas tienen una coma (así una pregunta
+  // con coma en un archivo con ";" no se corta mal).
+  final comma = _commaMode(lines);
+
   for (var raw in lines) {
     if (raw.startsWith('\uFEFF')) raw = raw.substring(1);
     final line = raw.trimRight();
@@ -78,7 +83,7 @@ FlashcardImportResult parseFlashcards(String text) {
     if (_qPrefix.hasMatch(line)) {
       flush();
       final rest = line.replaceFirst(_qPrefix, '');
-      final pair = _splitLine(rest);
+      final pair = _splitLine(rest, comma: comma);
       if (pair != null && pair.$1.isNotEmpty) {
         // "P: pregunta ; respuesta" en una sola línea.
         cards.add(ImportedCard(pair.$1, pair.$2.replaceFirst(_aPrefix, '')));
@@ -102,7 +107,7 @@ FlashcardImportResult parseFlashcards(String text) {
       continue;
     }
 
-    final pair = _splitLine(line);
+    final pair = _splitLine(line, comma: comma);
     if (pair == null) {
       skipped.add(line.trim());
     } else if (pair.$1.isNotEmpty) {
@@ -125,14 +130,28 @@ bool _isHeader(ImportedCard c) {
 
 /// Divide una línea en (pregunta, respuesta) por el primer separador que
 /// aparezca, en orden de preferencia. Devuelve null si no hay ninguno.
-(String, String)? _splitLine(String line) {
+(String, String)? _splitLine(String line, {bool comma = false}) {
   if (line.contains('\t')) return _cut(line, '\t');
   final csv = _csvPair(line);
   if (csv != null) return csv;
   for (final sep in const [';', '|', '::']) {
     if (line.contains(sep)) return _cut(line, sep);
   }
+  if (comma && line.contains(',')) return _cut(line, ',');
   return null;
+}
+
+bool _commaMode(List<String> lines) {
+  var rows = 0, withComma = 0;
+  for (final raw in lines) {
+    final l = raw.trim();
+    if (l.isEmpty || l.startsWith('#') || l.startsWith('"')) continue;
+    if (_qPrefix.hasMatch(l) || _aPrefix.hasMatch(l)) return false;
+    if (l.contains('\t') || l.contains(';') || l.contains('|') || l.contains('::')) return false;
+    rows++;
+    if (l.contains(',')) withComma++;
+  }
+  return rows > 0 && withComma >= rows * 0.8;
 }
 
 (String, String) _cut(String line, String sep) {

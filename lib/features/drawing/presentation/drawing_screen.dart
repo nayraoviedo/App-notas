@@ -168,7 +168,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
           break;
         }
       }
-      if (pages[target].path != _path) _load(pages[target].path, keepView: true);
+      if (pages[target].path == _path) return;
+      // Un lienzo infinito no va en el montón: si se activara solo al pasar
+      // por encima, la vista saltaría a otro lado. Se abre al tocarlo.
+      if (ref.read(drawingFileProvider(pages[target].path)).valueOrNull?.infinite ?? false) return;
+      _load(pages[target].path, keepView: true);
     });
   }
 
@@ -365,7 +369,11 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
   }
 
   bool _outsidePage(Offset global) {
-    if (_onCover) return true;
+    final c = _ctl;
+    final erasingCover = c != null &&
+        c.coverHasMarks &&
+        (c.mode == InputMode.eraseStrokes || c.tool == ToolType.eraser);
+    if (_onCover && !erasingCover) return true;
     final box = _pageKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return false;
     final r = Rect.fromPoints(box.localToGlobal(Offset.zero), box.localToGlobal(box.size.bottomRight(Offset.zero)));
@@ -747,14 +755,15 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       return;
     }
     if (!_accepts(e)) return;
-    if (_onCover) {
+    // El borrador funciona en todas las capas sin candado.
+    final erasing = ctl.mode == InputMode.eraseStrokes || ctl.tool == ToolType.eraser;
+    // En la portada solo se borran marcas viejas; lo demás desplaza.
+    if (_onCover && !(erasing && ctl.coverHasMarks)) {
       // Arrastrar para desplazarse no es un intento de escribir: avisar
       // solo con un toque.
       _coverTap = e.localPosition;
       return;
     }
-    // El borrador funciona en todas las capas sin candado.
-    final erasing = ctl.mode == InputMode.eraseStrokes || ctl.tool == ToolType.eraser;
     if (!erasing && !ctl.canDrawOnActiveLayer) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -940,6 +949,15 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       if (target.paper.template == PaperTemplate.cover) {
         keepInside();
         _coverHint();
+        return;
+      }
+      // Lienzo infinito o con todas las capas bloqueadas: no hay dónde
+      // dejarlo, así que no se saca de esta hoja (si no, se perdería).
+      if (target.infinite || !target.layers.any((l) => l.visible && !l.locked)) {
+        keepInside();
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('No se puede pasar a esa hoja (está bloqueada o es infinita)')));
         return;
       }
       final dy = dir > 0 ? -(d.height + _gap) : target.height + _gap;
@@ -1940,11 +1958,12 @@ class _DrawingScreenState extends ConsumerState<DrawingScreen> with SingleTicker
       final hw = Handwriting.instance;
       if (!await hw.isReady()) return;
       final strokes = [for (final l in d.layers) ...l.strokes];
-      final key = 'hw.count.$path';
-      if (prefs.getInt(key) == strokes.length) return; // sin cambios
+      final key = 'hw.ink.$path';
+      final ink = inkFingerprint(strokes);
+      if (prefs.getString(key) == ink) return; // sin cambios
       final text = await hw.recognize(strokes);
       await repo.updateText(block.id, text.isEmpty ? '' : '✍️ $text');
-      await prefs.setInt(key, strokes.length);
+      await prefs.setString(key, ink);
     } catch (_) {}
   }
 

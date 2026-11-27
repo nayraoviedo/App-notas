@@ -196,6 +196,10 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (v) async {
                 await prefs.setBool('week.notify', v);
                 setState(() {});
+                if (v && Platform.isAndroid && !await ReminderNotifications.instance.requestPermission() && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Kumo no tiene permiso para avisar. Actívalo en Ajustes del teléfono → Apps → Kumo → Notificaciones.')));
+                }
                 await ReminderNotifications.instance.scheduleWeeklySummary(on: v);
               },
             );
@@ -419,7 +423,15 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
           ),
         );
         if (value == null) return;
-        await ref.read(apiKeysProvider).write(widget.provider, value);
+        try {
+          await ref.read(apiKeysProvider).write(widget.provider, value);
+        } on SecureStorageMissing catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(duration: const Duration(seconds: 8), content: Text(e.message)));
+          }
+          return;
+        }
         await _refresh();
       },
     );
