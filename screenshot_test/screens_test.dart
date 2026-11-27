@@ -32,6 +32,7 @@ import 'package:app_notas/features/study/presentation/study_screen.dart';
 import 'package:app_notas/features/study/presentation/exam_screen.dart';
 import 'package:app_notas/features/planner/domain/planner.dart';
 import 'package:app_notas/features/planner/presentation/planner_screen.dart';
+import 'package:app_notas/features/planner/presentation/schedule_views.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -482,7 +483,8 @@ void main() {
     await _shot(tester, '21_estudio');
   });
 
-  Future<void> openPlanner(WidgetTester tester, Widget screen) async {
+  Future<void> openPlanner(WidgetTester tester, Widget screen,
+      {Map<String, Object> prefsExtra = const {}, bool dark = false}) async {
     final now = DateTime.now();
     final st = PlannerState(
       classes: const [
@@ -500,19 +502,56 @@ void main() {
         Reminder(id: 'd', title: 'Práctica 2', kind: ReminderKind.homework, due: now.subtract(const Duration(days: 2)), done: true),
       ],
     );
-    SharedPreferences.setMockInitialValues({'planner.data': st.encode()});
+    SharedPreferences.setMockInitialValues({'planner.data': st.encode(), ...prefsExtra});
     final prefs = await SharedPreferences.getInstance();
     await _phoneSize(tester);
-    await tester.pumpWidget(_app(screen, overrides: [
+    final overrides = [
       sharedPreferencesProvider.overrideWithValue(prefs),
       notebooksProvider.overrideWith((ref) => Stream.value(const [])),
-    ]));
+    ];
+    await tester.pumpWidget(dark
+        ? ProviderScope(
+            overrides: overrides,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.dark('Normal').copyWith(
+                textTheme: AppTheme.dark('Normal').textTheme.apply(fontFamily: 'Patrick Hand', fontSizeFactor: 1.1),
+              ),
+              home: screen,
+            ),
+          )
+        : _app(screen, overrides: overrides));
     await tester.pump();
   }
 
   testWidgets('horario', (tester) async {
     await openPlanner(tester, const PlannerScreen());
     await _shot(tester, '22_horario');
+  });
+
+  testWidgets('horario oscuro', (tester) async {
+    await openPlanner(tester, const PlannerScreen(), dark: true);
+    await _shot(tester, '22b_horario_oscuro');
+  });
+
+  testWidgets('horario por día', (tester) async {
+    await openPlanner(tester, const PlannerScreen(), prefsExtra: {'planner.view': 'day'});
+    await _shot(tester, '22c_horario_dia');
+  });
+
+  testWidgets('horario por día oscuro', (tester) async {
+    await openPlanner(tester, const PlannerScreen(), prefsExtra: {'planner.view': 'day'}, dark: true);
+    await _shot(tester, '22d_horario_dia_oscuro');
+  });
+
+  testWidgets('horario en PNG', (tester) async {
+    await openPlanner(tester, const PlannerScreen());
+    final classes = PlannerState.decode((await SharedPreferences.getInstance()).getString('planner.data')).classes;
+    final png = await tester.runAsync(() => scheduleToPng(classes, _theme()));
+    expect(png, isNotNull);
+    expect(png!.sublist(1, 4), 'PNG'.codeUnits);
+    Directory('screenshot_test/out').createSync(recursive: true);
+    File('screenshot_test/out/22e_horario_png.png').writeAsBytesSync(png);
   });
 
   testWidgets('pendientes', (tester) async {
